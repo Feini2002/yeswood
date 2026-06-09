@@ -1,0 +1,39 @@
+{
+  "owner": "Jarvan范嘉瑞",
+  "dashboardContext": "franchise",
+  "targetSource": "dingtalk-screenshot-2026-05-29",
+  "tolerance": 3,
+  "team": {
+    "owner": "Jarvan范嘉瑞",
+    "cdLeads": [],
+    "vmLeads": []
+  },
+  "targets": {
+    "regular": {
+      "notStarted": 40,
+      "inProgress": 79,
+      "openDelayed": 65,
+      "schemeDoneYtd": 103,
+      "schemeDelayDoneYtd": 26,
+      "schemeDelayDoneMonth": 4,
+      "monthlyOps": {
+        "pointVolume": 8,
+        "schemeVolume": 18,
+        "siteVolume": 12
+      }
+    },
+    "sinking": {
+      "notStarted": 10,
+      "inProgress": 31,
+      "openDelayed": 22,
+      "schemeDoneYtd": 40,
+      "schemeDelayDoneYtd": 6,
+      "schemeDelayDoneMonth": 0,
+      "monthlyOps": {
+        "pointVolume": 9,
+        "schemeVolume": 9,
+        "siteVolume": 9
+      }
+    }
+  }
+}

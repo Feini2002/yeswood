@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>源氏木语门店项目一览</title>
+    <link rel="icon" href="/assets/yeswood-favicon.jpg" />
+    <link rel="stylesheet" href="/styles/app.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="主导航">
+        <header class="sidebar-brand">
+          <img class="brand-logo" src="/assets/yeswood-logo.png" alt="源氏木语" width="148" height="40" />
+          <p class="sidebar-product-title">空间视觉项目运营中台</p>
+        </header>
+        <nav class="sidebar-nav" aria-label="页面导航">
+          <section class="nav-group">
+            <h2 class="nav-group-label">运营看盘</h2>
+            <div class="nav-list">
+              <a class="nav-item active" href="#overview" data-page="overview">
+                <svg class="nav-item-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 10.5 10 4l7 6.5V16a1 1 0 0 1-1 1h-4v-5H8v5H4a1 1 0 0 1-1-1v-5.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+                <span class="nav-item-text">总览</span>
+              </a>
+              <a class="nav-item" href="#franchise" data-page="franchise">
+                <svg class="nav-item-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 6.5 10 3l6 3.5V15a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 11h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+                <span class="nav-item-text">加盟看板</span>
+              </a>
+              <a class="nav-item" href="#direct" data-page="direct">
+                <svg class="nav-item-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5h12M4 10h12M4 15h8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+                <span class="nav-item-text">直营看板</span>
+              </a>
+            </div>
+          </section>
+          <section class="nav-group">
+            <h2 class="nav-group-label">项目与小组</h2>
+            <div class="nav-list">
+              <a class="nav-item" href="#teams" data-page="teams">
+                <svg class="nav-item-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="5" width="12" height="10" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 5V4.2a1.2 1.2 0 0 1 1.2-1.2h3.6A1.2 1.2 0 0 1 13 4.2V5M8 10h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+                <span class="nav-item-text">小组情况</span>
+              </a>
+              <a class="nav-item" href="#details" data-page="details">
+                <svg class="nav-item-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="5" y="3.5" width="10" height="13" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7.5 8h5M7.5 11h5M7.5 14h3.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+                <span class="nav-item-text">项目情况</span>
+              </a>
+            </div>
+          </section>
+          <section class="nav-group" data-development-only>
+            <h2 class="nav-group-label">规则与文档</h2>
+            <div class="nav-list">
+              <a class="nav-item" href="#rules" data-page="rules">
+                <svg class="nav-item-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 3.5h7.2L16 6.3V16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12.8 3.7V6.5H16M8 10h5M8 13h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="nav-item-text">规则一览</span>
+              </a>
+              <a class="nav-item" href="#developer-docs" data-page="developer-docs">
+                <svg class="nav-item-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 3.5h8.2L15 5.3V16a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12.8 3.7V5.5H15M7 8h5.2M7 11h5.2M7 14h3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="nav-item-text">开发文档</span>
+              </a>
+            </div>
+          </section>
+        </nav>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <h1 class="topbar-title">源氏木语门店项目一览</h1>
+          <div class="sync-state">
+            <span id="sourceLabel">演示数据</span>
+            <strong id="syncedAt">--</strong>
+            <span class="sync-message" id="syncMessage" aria-live="polite"></span>
+            <button class="sync-button" id="syncButton" type="button" aria-label="同步项目数据" title="同步项目数据">
+              同步
+            </button>
+            <button class="agent-button" id="analysisAgentButton" type="button" aria-label="运行分析 Agent" title="运行当前页面分析 Agent">
+              分析 Agent
+            </button>
+          </div>
+        </header>
+
+        <section
+          class="filter-bar"
+          id="projectFilterBar"
+          data-filter-pages="details"
+          aria-label="项目筛选条件"
+        >
+          <label class="search-field">
+            <span>搜索</span>
+            <input id="searchInput" type="search" placeholder="项目名 / 负责人 / 地区" autocomplete="off" />
+          </label>
+          <label>
+            <span>省份</span>
+            <select id="provinceFilter"></select>
+          </label>
+          <label>
+            <span>业态</span>
+            <select id="businessTypeFilter"></select>
+          </label>
+          <label>
+            <span>店态</span>
+            <select id="storeStatusFilter"></select>
+          </label>
+          <label>
+            <span>状态</span>
+            <select id="statusFilter"></select>
+          </label>
+          <div class="filter-action-field" id="pausedProjectFilterField" hidden>
+            <span>项目范围</span>
+            <button class="filter-toggle-button" id="pausedProjectToggle" type="button" aria-pressed="false">
+              查看暂停项目
+            </button>
+          </div>
+        </section>
+
+        <section class="dashboard-page is-active" id="overview" data-page="overview">
+          <section class="overview-dashboard" aria-label="总监级项目运营总盘">
+            <section class="overview-command-deck">
+              <header class="overview-command-center" id="overviewCommandCenter"></header>
+              <section class="overview-signal-strip" id="overviewSignalStrip" aria-label="经营指挥条"></section>
+            </section>
+
+            <section class="overview-control-grid">
+              <div class="overview-action-stack">
+                <article class="overview-panel overview-risk-command" id="overviewRiskCommand">
+                  <header class="overview-panel-header">
+                    <div>
+                      <span class="overview-panel-kicker">总监动作队列</span>
+                      <h2>优先介入项目</h2>
+                    </div>
+                    <span>Top 10</span>
+                  </header>
+                  <div class="overview-risk-queue" id="overviewRiskQueue"></div>
+                </article>
+
+                <article class="overview-panel overview-owner-panel">
+                  <header class="overview-panel-header">
+                    <div>
+                      <span class="overview-panel-kicker">负责人列</span>
+                      <h2>团队项目数量</h2>
+                    </div>
+                    <span>数量口径</span>
+                </header>
+                <div class="overview-owner-pressure" id="ownerLoad"></div>
+              </article>
+
+              </div>
+
+              <div class="overview-diagnostic-stack">
+                <article class="overview-panel overview-stage-panel">
+                  <header class="overview-panel-header">
+                    <div>
+                      <span class="overview-panel-kicker">生命周期压力</span>
+                      <h2>项目阶段跑道</h2>
+                    </div>
+                    <span>按节点日期与进度判断</span>
+                  </header>
+                  <div class="overview-stage-lane" id="overviewStageLane"></div>
+                </article>
+
+                <article class="overview-panel overview-region-panel">
+                  <header class="overview-panel-header">
+                    <div>
+                      <span class="overview-panel-kicker">区域战情</span>
+                      <h2>省份 × 店态明细矩阵</h2>
+                    </div>
+                    <span>主力店态</span>
+                </header>
+                <div class="overview-region-matrix" id="overviewRegionMatrix"></div>
+              </article>
+              </div>
+            </section>
+
+            <section class="overview-entry-structure" id="overviewEntryStructure" aria-label="年度进店结构"></section>
+
+            <section class="overview-lower-grid" aria-label="首页下方矩阵总览">
+              <article class="overview-panel overview-tier-panel">
+                <header class="overview-panel-header">
+                  <div>
+                    <span class="overview-panel-kicker">原始店态结构</span>
+                    <h2>店态明细运转矩阵</h2>
+                  </div>
+                  <span>数据表口径展开</span>
+                </header>
+                <div class="overview-tier-matrix" id="overviewTierMatrix"></div>
+              </article>
+
+              <article class="overview-panel overview-monthly-panel">
+                <header class="overview-panel-header">
+                  <div>
+                    <span class="overview-panel-kicker">本月运转量</span>
+                    <h2>责任域节点矩阵</h2>
+                  </div>
+                  <span>按真实店态</span>
+                </header>
+                <div class="overview-monthly-ops" id="overviewMonthlyOps"></div>
+              </article>
+            </section>
+
+            <section class="insight-grid" id="kpiGrid" aria-label="兼容核心指标" hidden></section>
+          </section>
+        </section>
+
+        <section class="dashboard-page profile-dashboard" id="franchise" data-page="franchise">
+          <section class="profile-dashboard-body" id="franchiseKpiGrid" aria-label="加盟经营分析"></section>
+        </section>
+
+        <section class="dashboard-page profile-dashboard" id="direct" data-page="direct">
+          <section class="profile-dashboard-body" id="directKpiGrid" aria-label="直营经营分析"></section>
+        </section>
+
+        <section class="dashboard-page team-dashboard" id="teams" data-page="teams">
+          <header class="team-hero" id="teamHero">
+            <div class="team-hero-main">
+              <div class="team-hero-copy">
+                <div class="team-hero-toolbar">
+                  <div class="team-owner-field team-owner-picker">
+                    <span class="team-owner-field-label">负责人</span>
+                    <select id="teamOwnerSelect" aria-label="负责人切换"></select>
+                  </div>
+                </div>
+                <h2 class="team-hero-title" id="teamDashboardTitle">小组情况</h2>
+                <div class="team-hero-metrics" id="teamHeadline" role="status">
+                </div>
+                <p class="team-dashboard-meta" id="teamDashboardMeta" hidden></p>
+              </div>
+            </div>
+            <div class="team-hero-stats" id="teamHeroStats" aria-label="团队关键指标"></div>
+          </header>
+
+          <p class="team-coverage-note" id="teamCoverageNote" hidden></p>
+
+          <section class="team-section data-health-section" id="teamDataHealthSection" hidden>
+            <details class="data-health-panel" id="teamDataHealthPanel">
+              <summary>
+                <span>今日调度动作</span>
+                <strong id="teamDataHealthSummary">--</strong>
+              </summary>
+              <div class="data-health-body" id="teamDataHealthBody"></div>
+            </details>
+          </section>
+
+          <section class="team-section team-ops-overview-section">
+            <header class="team-section-header">
+              <h3>运营概览</h3>
+              <p id="teamSummaryInsight"></p>
+            </header>
+            <div class="tier-kpi-board" id="teamTierKpiBoard" aria-label="店态分层指标"></div>
+            <div class="insight-grid team-summary-grid team-legacy-kpis" id="teamKpiGrid" hidden></div>
+            <div class="insight-grid team-progress-grid" id="teamProgressGrid" hidden></div>
+          </section>
+
+          <section class="team-section" id="teamAlertsSection">
+            <header class="team-section-header">
+              <h3>风险告警</h3>
+              <p id="teamAlertsInsight"></p>
+            </header>
+            <div class="insight-grid team-alert-grid" id="teamAlertGrid"></div>
+          </section>
+
+          <section class="team-section team-ops-section">
+            <header class="team-section-header">
+              <h3>进店压力看盘</h3>
+              <p id="teamEntryTrendInsight"></p>
+            </header>
+            <section class="ops-entry-board" id="teamEntryTrendBoard"></section>
+          </section>
+
+          <section class="team-section team-load-module owner-review-dashboard" id="teamLoadModule" aria-label="团队负载工作台">
+            <header class="owner-review-hero" id="ownerReviewHero">
+              <div class="owner-review-module-copy">
+                <h3 class="owner-review-hero-title" id="ownerReviewTitle">团队负载工作台</h3>
+                <p>当前平面方案计入负载，摆场 / 历史完成 / 关联记录只做统计</p>
+              </div>
+              <div class="owner-review-headline" id="ownerReviewHeadline" role="status"></div>
+              <div class="owner-review-toolbar" aria-label="执行负载视图选项">
+                <label class="owner-review-borrow-toggle">
+                  <input id="ownerReviewBorrowToggle" type="checkbox" checked />
+                  <span>跨团队借调</span>
+                </label>
+              </div>
+              <div class="owner-review-hero-stats" id="ownerReviewHeroStats" aria-label="责任复盘关键指标"></div>
+            </header>
+
+          <section class="owner-review-team-structure-section" aria-label="负责人团队架构">
+            <div id="ownerReviewTeamStructure"></div>
+          </section>
+
+          <section class="owner-review-decision-summary" id="ownerReviewDecisionSummary" aria-label="今日决策摘要"></section>
+
+          <section class="team-section owner-review-workbench" id="ownerReviewLoadWorkbench">
+            <header class="team-section-header">
+              <h3>团队负载工作台</h3>
+              <p id="ownerReviewPeopleInsight"></p>
+            </header>
+            <div class="owner-review-load-toolbar" id="ownerReviewLoadToolbar" aria-label="团队负载工具条">
+              <label class="owner-review-search-field">
+                <span>搜索定位</span>
+                <input id="ownerReviewSearchInput" type="search" placeholder="员工 / 直营组 / 项目 / 门店" autocomplete="off" />
+              </label>
+              <label class="owner-review-filter-field">
+                <span>负载筛选</span>
+                <select class="native-filter-select" id="ownerReviewLoadFilter" aria-label="筛选团队负载">
+                  <option value="all">全部成员</option>
+                  <option value="loaded">有当前平面</option>
+                  <option value="idle">空闲成员</option>
+                  <option value="attention">偏高/过载</option>
+                  <option value="anomaly">数据待核查</option>
+                </select>
+              </label>
+            </div>
+            <div class="owner-review-workbench-grid">
+              <section class="owner-review-group-matrix" id="ownerReviewGroupMatrix" aria-label="组间对比"></section>
+              <section class="team-load-table owner-review-person-table" id="ownerReviewPersonRows" aria-label="选中组负载详情"></section>
+            </div>
+          </section>
+
+          <section class="owner-review-rulebook" id="ownerReviewRulebook" aria-label="团队负载口径说明"></section>
+
+          <div class="owner-review-member-modal" id="ownerReviewMemberModal" hidden role="dialog" aria-modal="true" aria-labelledby="ownerReviewMemberTitle">
+            <div class="owner-review-member-dialog">
+              <button class="modal-close-button" type="button" data-owner-review-member-close aria-label="关闭成员负载详情">×</button>
+              <div class="owner-review-member-dialog-scroll" id="ownerReviewMemberModalBody"></div>
+            </div>
+          </div>
+          <div class="owner-review-decision-modal" id="ownerReviewDecisionModal" hidden role="dialog" aria-modal="true" aria-labelledby="ownerReviewDecisionModalTitle">
+            <div class="owner-review-decision-dialog">
+              <button class="modal-close-button" type="button" data-owner-review-decision-close aria-label="关闭决策摘要">×</button>
+              <div class="owner-review-decision-dialog-scroll" id="ownerReviewDecisionModalBody"></div>
+            </div>
+          </div>
+          </section>
+        </section>
+
+        <section class="dashboard-page" id="details" data-page="details">
+          <section class="details-workbench" id="detailsWorkbench">
+            <section class="panel project-list-panel">
+              <header class="details-header">
+                <div class="details-header-main">
+                  <h2>项目情况</h2>
+                  <div class="details-view-tabs" id="detailsViewTabs" aria-label="项目情况视图" role="tablist">
+                    <button class="active" type="button" data-details-view="list">项目清单</button>
+                    <button type="button" data-details-view="progress">节点进度</button>
+                    <button type="button" data-details-view="deadlineExceptions">Deadline 复核</button>
+                  </div>
+                </div>
+                <span class="details-header-count" id="tableTotal">0 项</span>
+              </header>
+
+              <div class="project-assignment-alert" id="projectAssignmentAlert" hidden></div>
+
+              <div class="project-workbench-head is-list-view" id="projectWorkbenchHead" aria-hidden="true">
+                <span>项目</span>
+                <span>负责人</span>
+                <span>组长</span>
+                <span>设计师</span>
+                <span>门店 / 阶段</span>
+                <span>下一提醒</span>
+              </div>
+              <div class="project-workbench-rows is-list-view" id="projectWorkbenchRows"></div>
+            </section>
+          </section>
+
+        </section>
+
+        <section class="dashboard-page rules-dashboard" id="rules" data-page="rules" data-development-only>
+          <section class="rules-shell" aria-label="规则一览">
+            <header class="rules-hero">
+              <div>
+                <p class="eyebrow">规则文档</p>
+                <h2>规则一览</h2>
+                <p>把项目阶段口径、Deadline、提醒卡点和延期判定沉淀成统一规则，后续由后台硬规则驱动提醒与记录。</p>
+              </div>
+              <dl class="rules-hero-facts" aria-label="规则范围">
+                <div>
+                  <dt>首批规则</dt>
+                  <dd>延期提醒规则</dd>
+                </div>
+                <div>
+                  <dt>阶段范围</dt>
+                  <dd>硬装 / 软装 / 摆场</dd>
+                </div>
+                <div>
+                  <dt>当前细化</dt>
+                  <dd>硬装链路</dd>
+                </div>
+              </dl>
+            </header>
+
+            <section class="rules-stage-grid" aria-label="延期提醒规则目录">
+              <article class="rules-stage-card is-active">
+                <span>01</span>
+                <h3>硬装提醒规则</h3>
+                <p>从复尺时间 Y 开始，拆出平面方案、施工图启动、初稿、商场审核与施工图终审。</p>
+              </article>
+              <article class="rules-stage-card">
+                <span>02</span>
+                <h3>软装提醒规则</h3>
+                <p>后续按点位设计、方案设计、产品清单和采购推进补齐规则。</p>
+              </article>
+              <article class="rules-stage-card">
+                <span>03</span>
+                <h3>摆场提醒规则</h3>
+                <p>后续按到货、摆场准备、现场交付和闭环完成拆分节点。</p>
+              </article>
+            </section>
+
+            <section class="rules-deadline-panel" aria-label="负责人责任身份与数据通道">
+              <header class="rules-section-head">
+                <span>责任身份规则</span>
+                <h3>负责人责任身份与数据通道</h3>
+                <p>负责人自然人、责任专业和业务范围分开处理；外部来源姓名保留原样，指标和选择器使用本地责任身份 id。</p>
+              </header>
+              <div class="rules-info-grid">
+                <article>
+                  <strong>杨锦帆（硬装）</strong>
+                  <p>identityId <code>resp-017</code>，sourceName 仍为杨锦帆，只进入 CD负责人 / 硬装负责人等硬装槽位。</p>
+                </article>
+                <article>
+                  <strong>杨锦帆（软装）</strong>
+                  <p>identityId <code>resp-018</code>，sourceName 仍为杨锦帆，只进入 VM负责人 / 软装负责人等软装槽位。</p>
+                </article>
+                <article>
+                  <strong>创意团队成员</strong>
+                  <p>马琳琳、熊亮、周俊彤按创意组长维护；CD 槽位进硬装身份，VM / 点位 / 方案设计槽位进软装身份。</p>
+                </article>
+                <article>
+                  <strong>马琳琳（硬装） / 周俊彤（软装）</strong>
+                  <p>同一自然人可按责任槽位拆为两条统计身份，显示用责任名称，统计 key 用稳定 identityId。</p>
+                </article>
+                <article>
+                  <strong>来源字段自动补人</strong>
+                  <p>明确责任字段出现新姓名时，按字段槽位自动补入正式人员，并进入对应硬装或软装人员通道。</p>
+                </article>
+                <article>
+                  <strong>待核对通道</strong>
+                  <p>多身份负责人仅命中 `负责人` 总列时，不进入明确主指标，进入待核对通道。</p>
+                </article>
+                <article>
+                  <strong>安全边界</strong>
+                  <p>本地切分只发生在责任身份解析、指标过滤和前端展示层，不回写来源表单。</p>
+                </article>
+              </div>
+            </section>
+
+            <section class="rules-deadline-panel" aria-label="硬装面积与店态 Deadline 矩阵">
+              <header class="rules-section-head rules-deadline-head">
+                <span>硬装 X 规则</span>
+                <div class="rules-title-row">
+                  <h3>面积与店态 Deadline 矩阵</h3>
+                  <button
+                    class="rules-info-button"
+                    type="button"
+                    data-rules-info-open
+                    aria-label="查看硬装 Deadline 规则说明"
+                    title="查看硬装 Deadline 规则说明"
+                  >!</button>
+                </div>
+                <p>所有节点都以复尺时间 Y 为基准，Y+N 表示第 N 个中国工作日。该表单不再使用紧急程度判定；2000㎡以上暂不在本矩阵内。</p>
+              </header>
+              <dialog class="rules-info-dialog" id="rulesDeadlineInfoDialog" aria-labelledby="rulesDeadlineInfoTitle">
+                <section class="rules-info-shell">
+                  <header class="rules-info-head">
+                    <div>
+                      <p class="eyebrow">硬装 Deadline 说明</p>
+                      <h3 id="rulesDeadlineInfoTitle">链路规则与判定原则</h3>
+                    </div>
+                    <form method="dialog">
+                      <button class="modal-close-button rules-info-close" type="submit" aria-label="关闭硬装 Deadline 规则说明">×</button>
+                    </form>
+                  </header>
+                  <div class="rules-info-content">
+                    <section class="rules-info-section">
+                      <span>硬装链路</span>
+                      <h4>延期提醒规则</h4>
+                      <ol class="rules-info-timeline">
+                        <li>
+                          <span>复尺时间 Y</span>
+                          <p>只要有复尺时间，项目进入平面方案启动约束，并触发一次尽快启动的提醒。</p>
+                        </li>
+                        <li>
+                          <span>Y + 1</span>
+                          <p>今天 / 明天内必须启动平面方案；超出窗口仍未启动，记录超时启动。</p>
+                        </li>
+                        <li>
+                          <span>Y + X</span>
+                          <p>X 由面积对应店态决定，作为平面方案截止；截止前设置一次结束提醒。</p>
+                        </li>
+                        <li>
+                          <span>施工图启动</span>
+                          <p>平面方案结束后进入施工图启动规则；启动超时只记录过程责任，不直接等同阶段延期完成。</p>
+                        </li>
+                        <li>
+                          <span>初次施工图反馈</span>
+                          <p>外包初稿返回只做延期判定，不进入提醒队列，便于保留过程超时记录。</p>
+                        </li>
+                        <li>
+                          <span>商场审核到施工图终审</span>
+                          <p>审核窗口包含修改和二次提交；施工图终审前设置卡点，终审超出截止才判定施工图阶段延期完成。</p>
+                        </li>
+                      </ol>
+                    </section>
+                    <section class="rules-info-section">
+                      <span>判定原则</span>
+                      <h4>规则与责任边界</h4>
+                      <div class="rules-info-grid">
+                        <article>
+                          <strong>表单填写优先</strong>
+                          <p>硬装方案情况已填写时，最终延期状态采用表单；表单为空时再用规则兜底。</p>
+                        </article>
+                        <article>
+                          <strong>过程超时与阶段延期分开</strong>
+                          <p>延期启动施工图、初稿返回超时可以单独记录；只要终审在截止内完成，施工图阶段不记延期完成。</p>
+                        </article>
+                        <article>
+                          <strong>不再使用紧急判定</strong>
+                          <p>该表单所有紧急判定已删除；硬装 Deadline 只按店态面积档计算。</p>
+                        </article>
+                        <article>
+                          <strong>Y+N 按中国工作日</strong>
+                          <p>系统计算时自动剔除法定双休和国务院节假日，调休上班日重新计入工作日。</p>
+                        </article>
+                      </div>
+                    </section>
+                    <section class="rules-info-section">
+                      <span>时间计算</span>
+                      <h4>矩阵派生口径</h4>
+                      <div class="rules-info-grid">
+                        <article>
+                          <strong>剔除节假日</strong>
+                          <p>法定双休和节假日不计入 Y+N；调休上班日计入工作日。</p>
+                        </article>
+                        <article>
+                          <strong>表单为空再兜底</strong>
+                          <p>表单未写延期情况时，系统 Deadline 才生成兜底判定；提醒仍按规则。</p>
+                        </article>
+                        <article>
+                          <strong>延期完成但效率OK</strong>
+                          <p>效率 KPI 继续按实际启动日顺延预算计算，KPI 单独记录效率 OK 或效率超时。</p>
+                        </article>
+                      </div>
+                    </section>
+                  </div>
+                </section>
+              </dialog>
+              <!-- 矩阵数值须与 src/backend/hardDecorationDeadlineRules.mjs HARD_DECORATION_DEADLINE_MATRIX 保持一致 -->
+              <div class="rules-deadline-table" role="table" aria-label="硬装延期提醒 Deadline 矩阵">
+                <div class="rules-deadline-row is-head" role="row">
+                  <span role="columnheader">面积</span>
+                  <span role="columnheader">平面/躺平启动</span>
+                  <span role="columnheader">方案快截止了</span>
+                  <span role="columnheader">平面/躺平截止</span>
+                  <span role="columnheader">施工图启动</span>
+                  <span role="columnheader">施工图预计截止</span>
+                  <span role="columnheader">商场审核开始</span>
+                  <span role="columnheader">终审提醒</span>
+                  <span role="columnheader">商场终审结束</span>
+                </div>
+                <div class="rules-deadline-row" role="row"><span>mini店：≤300㎡</span><b>Y+1</b><b>Y+4</b><b>Y+6</b><b>Y+7</b><b>Y+10</b><b>Y+10</b><b>Y+13</b><b>Y+15</b></div>
+                <div class="rules-deadline-row" role="row"><span>中小店：300～450㎡</span><b>Y+1</b><b>Y+4</b><b>Y+6</b><b>Y+7</b><b>Y+11</b><b>Y+11</b><b>Y+14</b><b>Y+17</b></div>
+                <div class="rules-deadline-row" role="row"><span>中店：450～650㎡</span><b>Y+1</b><b>Y+7</b><b>Y+9</b><b>Y+10</b><b>Y+15</b><b>Y+15</b><b>Y+18</b><b>Y+22</b></div>
+                <div class="rules-deadline-row" role="row"><span>中大店：650～800㎡</span><b>Y+1</b><b>Y+9</b><b>Y+11</b><b>Y+12</b><b>Y+18</b><b>Y+18</b><b>Y+21</b><b>Y+25</b></div>
+                <div class="rules-deadline-row" role="row"><span>大店：800～1000㎡</span><b>Y+1</b><b>Y+13</b><b>Y+15</b><b>Y+16</b><b>Y+23</b><b>Y+23</b><b>Y+26</b><b>Y+30</b></div>
+                <div class="rules-deadline-row" role="row"><span>旗舰店：1000～1500㎡</span><b>Y+1</b><b>Y+13</b><b>Y+15</b><b>Y+16</b><b>Y+22</b><b>Y+22</b><b>Y+25</b><b>Y+30</b></div>
+                <div class="rules-deadline-row" role="row"><span>超体店：1500～2000㎡</span><b>Y+1</b><b>Y+13</b><b>Y+15</b><b>Y+16</b><b>Y+23</b><b>Y+23</b><b>Y+26</b><b>Y+31</b></div>
+              </div>
+            </section>
+          </section>
+        </section>
+
+        <section class="dashboard-page developer-docs-dashboard" id="developer-docs" data-page="developer-docs" data-development-only>
+          <section class="dev-doc-shell" aria-label="开发文档">
+            <header class="dev-doc-hero">
+              <div>
+                <p class="eyebrow">交接说明</p>
+                <h2>开发文档</h2>
+                <p>给我、IT部门和AI部门一起维护。这里先把目录搭稳，后续把数据怎么进来、规则怎么筛、页面怎么统计，慢慢补成能交接的白话记录。</p>
+              </div>
+              <dl class="dev-doc-properties" aria-label="开发文档属性">
+                <div>
+                  <dt>使用人</dt>
+                  <dd>我 / IT部门 / AI部门</dd>
+                </div>
+                <div>
+                  <dt>维护节奏</dt>
+                  <dd>先搭目录，改动时补记录</dd>
+                </div>
+                <div>
+                  <dt>写法要求</dt>
+                  <dd>尽量用白话记录</dd>
+                </div>
+              </dl>
+            </header>
+
+            <section class="dev-doc-index" aria-label="开发文档目录">
+              <article>
+                <span>01</span>
+                <strong>系统交接台账</strong>
+                <p>一页记清楚页面归属、最近改动和后续要补的说明。</p>
+              </article>
+              <article>
+                <span>02</span>
+                <strong>数据从来源表单到本地</strong>
+                <p>按来源表单、本地保存、后台整理、前端展示顺序记录。</p>
+              </article>
+              <article>
+                <span>03</span>
+                <strong>筛选和口径</strong>
+                <p>说明项目范围、暂停项目、店态和负责人身份怎么判断。</p>
+              </article>
+              <article>
+                <span>04</span>
+                <strong>统计函数地图</strong>
+                <p>列出关键统计在哪里算、影响哪些页面、改动看哪里。</p>
+              </article>
+            </section>
+
+            <section class="dev-doc-form" aria-label="系统交接台账">
+              <header class="dev-doc-section-head">
+                <span>台账</span>
+                <h3>系统交接台账</h3>
+                <p>每次改页面、改规则或改数据入口时，在这里留下“谁会受影响、看哪份文件、还有什么没补”的记录。</p>
+              </header>
+              <div class="dev-doc-table" role="table" aria-label="开发交接台账">
+                <div class="dev-doc-row is-head" role="row">
+                  <span role="columnheader">记录块</span>
+                  <span role="columnheader">现在先放什么</span>
+                  <span role="columnheader">后续补什么</span>
+                  <span role="columnheader">状态</span>
+                </div>
+                <div class="dev-doc-row" role="row">
+                  <strong>总览 / 加盟 / 直营</strong>
+                  <span>页面用途、核心指标、哪些数据参与计算。</span>
+                  <span>每个指标背后的统计函数和异常处理。</span>
+                  <span class="dev-doc-status"><em>待补细节</em></span>
+                </div>
+                <div class="dev-doc-row" role="row">
+                  <strong>小组情况</strong>
+                  <span>负责人、小组、成员负载和调度建议的记录入口。</span>
+                  <span>人员身份拆分、借调、空闲成员的判定说明。</span>
+                  <span class="dev-doc-status is-ready"><em>搭好框架</em></span>
+                </div>
+                <div class="dev-doc-row" role="row">
+                  <strong>项目情况</strong>
+                  <span>项目清单、阶段进度、Deadline 复核的页面说明。</span>
+                  <span>每个筛选项、每个进度列的取数来源。</span>
+                  <span class="dev-doc-status"><em>待补细节</em></span>
+                </div>
+              </div>
+            </section>
+
+            <section class="dev-doc-two-column" aria-label="开发记录框架">
+              <article class="dev-doc-form">
+                <header class="dev-doc-section-head">
+                  <span>链路</span>
+                  <h3>数据从来源表单到本地</h3>
+                  <p>先按“来源表单 → 本地保存 → 后台整理 → 前端展示”的顺序记录，避免交接时只知道页面结果，不知道数据从哪来。</p>
+                </header>
+                <div class="dev-doc-property-list">
+                  <div><b>来源</b><span>外部项目表单，来源字段先保留。</span></div>
+                  <div><b>本地</b><span>同步后写入本地缓存和数据库，前端只读。</span></div>
+                  <div><b>整理</b><span>后台把项目、人员、阶段、提醒整理成页面能直接使用的数据。</span></div>
+                  <div><b>展示</b><span>前端按页面范围读取，不回写来源表单。</span></div>
+                </div>
+              </article>
+
+              <article class="dev-doc-form">
+                <header class="dev-doc-section-head">
+                  <span>口径</span>
+                  <h3>筛选和口径</h3>
+                  <p>这里记录“为什么这个项目会出现或不出现”，包括暂停项目、店态面积、负责人身份和阶段归类。</p>
+                </header>
+                <div class="dev-doc-property-list">
+                  <div><b>项目范围</b><span>默认看在推进项目；暂停项目在项目情况页单独打开。</span></div>
+                  <div><b>负责人</b><span>同名不同责任身份分开统计，显示尽量贴近日常叫法。</span></div>
+                  <div><b>阶段</b><span>阶段既看进度状态，也看关键日期是否已经出现。</span></div>
+                  <div><b>异常</b><span>字段缺失或规则冲突时进入复核，不直接改源数据。</span></div>
+                </div>
+              </article>
+            </section>
+
+            <section class="dev-doc-two-column" aria-label="统计与维护">
+              <article class="dev-doc-form">
+                <header class="dev-doc-section-head">
+                  <span>统计</span>
+                  <h3>统计函数地图</h3>
+                  <p>后续把关键统计函数按“算什么、在哪里、影响哪个页面”补上，方便IT和AI部门接手。</p>
+                </header>
+                <div class="dev-doc-note-grid">
+                  <div><strong>总盘指标</strong><p>记录项目数量、阶段分布、区域矩阵的计算入口。</p></div>
+                  <div><strong>小组负载</strong><p>记录负责人、成员、借调和可调配人手的计算入口。</p></div>
+                  <div><strong>Deadline</strong><p>记录硬装规则、工作日、表单优先和兜底判定。</p></div>
+                </div>
+              </article>
+
+              <article class="dev-doc-form">
+                <header class="dev-doc-section-head">
+                  <span>维护</span>
+                  <h3>日常维护记录</h3>
+                  <p>记录上线前后要检查的动作，比如同步是否正常、内网展示是否隐藏开发资料、规则文档是否同步。</p>
+                </header>
+                <div class="dev-doc-checklist">
+                  <label><input type="checkbox" disabled /> 开发模式能看到规则一览和开发文档。</label>
+                  <label><input type="checkbox" disabled /> 内网展示模式不显示规则与文档入口。</label>
+                  <label><input type="checkbox" disabled /> 规则变更同时检查后端、文档、前端和测试。</label>
+                  <label><input type="checkbox" disabled /> 新增统计时补一条白话说明。</label>
+                </div>
+              </article>
+            </section>
+          </section>
+        </section>
+
+        <div class="drill-project-modal" id="drillProjectModal" hidden role="dialog" aria-modal="true" aria-labelledby="drillProjectModalTitle">
+          <section class="drill-project-shell">
+            <header class="drill-project-header">
+              <div class="drill-project-title-block">
+                <p class="eyebrow">数据详情</p>
+                <h2 id="drillProjectModalTitle">项目明细</h2>
+                <p id="drillProjectModalSubtitle"></p>
+              </div>
+              <div class="drill-project-actions">
+                <span class="details-header-count" id="drillProjectModalCount">0 项</span>
+                <button class="modal-close-button" type="button" data-drill-project-close aria-label="关闭项目数据详情">×</button>
+              </div>
+            </header>
+            <div class="drill-project-toolbar">
+              <div class="details-view-tabs" id="drillProjectViewTabs" aria-label="项目数据详情视图" role="tablist">
+                <button class="active" type="button" data-drill-view="list">项目清单</button>
+                <button type="button" data-drill-view="progress">节点进度</button>
+              </div>
+              <span id="drillProjectModalStatus"></span>
+            </div>
+            <div class="drill-project-table" id="drillProjectTable">
+              <div class="project-workbench-head is-list-view" id="drillProjectHead" aria-hidden="true"></div>
+              <div class="project-workbench-rows is-list-view" id="drillProjectRows"></div>
+            </div>
+          </section>
+        </div>
+
+        <div class="project-detail-modal" id="projectDetailModal" hidden role="dialog" aria-modal="true" aria-labelledby="projectDetailTitle">
+          <div class="project-detail-frame">
+            <button class="modal-close-button" type="button" data-project-detail-close aria-label="关闭项目明细">×</button>
+            <article class="project-detail-dialog">
+              <div class="project-detail-dialog-scroll" id="projectDetailModalBody"></div>
+            </article>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

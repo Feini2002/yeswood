@@ -1,0 +1,9 @@
+/* Aggregated frontend styles - see docs/handbook/frontend-split-plan.md */
+@import url('./tokens.css');
+@import url('./base.css');
+@import url('./components.css');
+@import url('./pages/overview.css');
+@import url('./pages/shared-pages.css');
+@import url('./pages/teams.css');
+@import url('./pages/profile.css');
+@import url('./pages/details.css');

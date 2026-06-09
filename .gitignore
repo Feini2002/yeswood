@@ -1,0 +1,21 @@
+# Local secrets and runtime data — see docs/handbook/git-and-data.md
+.env
+data/app.sqlite
+data/dashboard-cache.json
+data/*.sqlite-shm
+data/*.sqlite-wal
+
+# Rebuildable local indexes and runtime scratch files.
+.codegraph/
+.codex/tmp/
+.cursor/**/*.tmp.*
+tmp-*
+output/
+.tmp/
+cad_mcp.log
+node_modules/
+
+# Local server/runtime logs.
+*.log
+*.err.log
+*.out.log

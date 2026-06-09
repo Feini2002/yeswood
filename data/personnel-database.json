@@ -1,0 +1,1559 @@
+{
+  "schemaVersion": 1,
+  "sourcePriority": [
+    "localPersonnelDatabase",
+    "dingtalkProjectData",
+    "systemInference"
+  ],
+  "soleDualDisciplineOwner": {
+    "name": "杨锦帆",
+    "displayTitle": "创意负责人",
+    "discipline": "both",
+    "note": "公司有且只有一位同时负责硬装与软装的负责人，用于项目看盘归属区分。"
+  },
+  "responsibilityIdentities": [
+    {
+      "identityId": "resp-017",
+      "displayName": "杨锦帆（硬装）",
+      "sourceName": "杨锦帆",
+      "discipline": "hard",
+      "scope": "both",
+      "validFrom": "",
+      "validTo": null,
+      "status": "active"
+    },
+    {
+      "identityId": "resp-018",
+      "displayName": "杨锦帆（软装）",
+      "sourceName": "杨锦帆",
+      "discipline": "soft",
+      "scope": "both",
+      "validFrom": "",
+      "validTo": null,
+      "status": "active"
+    },
+    {
+      "identityId": "resp-019",
+      "displayName": "马琳琳（硬装）",
+      "sourceName": "马琳琳",
+      "discipline": "hard",
+      "scope": "both",
+      "validFrom": "",
+      "validTo": null,
+      "status": "active"
+    },
+    {
+      "identityId": "resp-020",
+      "displayName": "马琳琳（软装）",
+      "sourceName": "马琳琳",
+      "discipline": "soft",
+      "scope": "both",
+      "validFrom": "",
+      "validTo": null,
+      "status": "active"
+    },
+    {
+      "identityId": "resp-021",
+      "displayName": "熊亮（硬装）",
+      "sourceName": "熊亮",
+      "discipline": "hard",
+      "scope": "both",
+      "validFrom": "",
+      "validTo": null,
+      "status": "active"
+    },
+    {
+      "identityId": "resp-022",
+      "displayName": "熊亮（软装）",
+      "sourceName": "熊亮",
+      "discipline": "soft",
+      "scope": "both",
+      "validFrom": "",
+      "validTo": null,
+      "status": "active"
+    },
+    {
+      "identityId": "resp-023",
+      "displayName": "周俊彤（硬装）",
+      "sourceName": "周俊彤",
+      "discipline": "hard",
+      "scope": "both",
+      "validFrom": "",
+      "validTo": null,
+      "status": "active"
+    },
+    {
+      "identityId": "resp-024",
+      "displayName": "周俊彤（软装）",
+      "sourceName": "周俊彤",
+      "discipline": "soft",
+      "scope": "both",
+      "validFrom": "",
+      "validTo": null,
+      "status": "active"
+    }
+  ],
+  "categories": {
+    "ownerHard": {
+      "position": "owner",
+      "discipline": "hard",
+      "label": "硬装负责人"
+    },
+    "ownerSoft": {
+      "position": "owner",
+      "discipline": "soft",
+      "label": "软装负责人"
+    },
+    "ownerBoth": {
+      "position": "owner",
+      "discipline": "both",
+      "label": "创意负责人"
+    },
+    "leadHard": {
+      "position": "lead",
+      "discipline": "hard",
+      "label": "硬装组长"
+    },
+    "leadSoft": {
+      "position": "lead",
+      "discipline": "soft",
+      "label": "软装组长"
+    },
+    "leadBoth": {
+      "position": "lead",
+      "discipline": "both",
+      "label": "创意组长"
+    },
+    "designerHard": {
+      "position": "designer",
+      "discipline": "hard",
+      "label": "硬装设计师"
+    },
+    "designerSoft": {
+      "position": "designer",
+      "discipline": "soft",
+      "label": "软装设计师"
+    }
+  },
+  "roleDisciplines": {
+    "cdLead": "hard",
+    "creativeLead": "both",
+    "vmLead": "soft",
+    "cdDesigner": "hard",
+    "vmDesigner": "soft"
+  },
+  "roleGroups": {
+    "cdLead": {
+      "position": "lead",
+      "discipline": "hard",
+      "people": [
+        "陈菲菲",
+        "陈红燕",
+        "高晴",
+        "刘雯蓓",
+        "罗丹萍",
+        "闵杰",
+        "宋昊泽",
+        "陶媛媛",
+        "王成",
+        "王毅",
+        "魏瑞",
+        "徐志涛",
+        "杨晓芸",
+        "张宸瑞",
+        "周丹阳"
+      ]
+    },
+    "creativeLead": {
+      "position": "lead",
+      "discipline": "both",
+      "people": [
+        "马琳琳",
+        "熊亮",
+        "周俊彤"
+      ]
+    },
+    "vmLead": {
+      "position": "lead",
+      "discipline": "soft",
+      "people": [
+        "郜娇营",
+        "胡榕",
+        "胡艳婷",
+        "金欣欣",
+        "李梦娇",
+        "栾凯丽",
+        "张情",
+        "周慧桢"
+      ]
+    },
+    "cdDesigner": {
+      "position": "designer",
+      "discipline": "hard",
+      "sourceField": "CD设计师",
+      "people": [
+        "安灵玲",
+        "曹丹丹",
+        "陈晶晶",
+        "程永旺",
+        "董一凡",
+        "段海峰",
+        "古茂琨",
+        "郭后冲",
+        "郭静",
+        "韩东奇",
+        "浩南",
+        "何旖雯",
+        "何子平",
+        "胡冬妮",
+        "黄晓英",
+        "兰雨昕",
+        "李金婵",
+        "李沁岚",
+        "李世瑶",
+        "李素玲",
+        "李文卓",
+        "梁锦程",
+        "梁玉贞",
+        "刘丹",
+        "刘婕琳",
+        "刘涛",
+        "刘云霄",
+        "马铭",
+        "牛超凡",
+        "庞小琪",
+        "乔玲玲",
+        "邱传钟",
+        "任雅倩",
+        "茹常煊",
+        "苏柏生",
+        "汪卓妍",
+        "王雨阳",
+        "吴帆",
+        "向静",
+        "薛玉飞",
+        "杨诚",
+        "杨莉",
+        "于杰",
+        "禹凯鹏",
+        "臧传宝",
+        "张倩",
+        "张莹莹",
+        "张宇",
+        "周慧敏",
+        "周杨珺",
+        "左忠淼",
+        "Sunny"
+      ]
+    },
+    "vmDesigner": {
+      "position": "designer",
+      "discipline": "soft",
+      "sourceField": "VM设计师",
+      "people": [
+        "陈婷婷",
+        "陈燕玲",
+        "成诺",
+        "程炜",
+        "邓福丽",
+        "方艺璇",
+        "付甜",
+        "耿佳宁",
+        "耿梦可",
+        "谷佳滟",
+        "韩依宏",
+        "郝海飞",
+        "姜楠",
+        "金梦安茁",
+        "李爽",
+        "李雅琪",
+        "刘冉阳",
+        "刘婉晴",
+        "陆元春",
+        "罗贤慧",
+        "苗小雨",
+        "欧阳伊静",
+        "乔育博",
+        "苏红",
+        "王冰冰",
+        "王丹丹",
+        "王瑶",
+        "王应秀",
+        "吴雯菲",
+        "吴霞",
+        "谢菁",
+        "严许",
+        "杨悦",
+        "叶芷",
+        "阴冰冰",
+        "应唯仪",
+        "于雨",
+        "于紫千",
+        "张露",
+        "张梦慧",
+        "张梦丽",
+        "张逸婷",
+        "张志文",
+        "甄普",
+        "周睿琪",
+        "周宇凡",
+        "朱睿婷",
+        "朱雨欣"
+      ]
+    }
+  },
+  "people": [
+    {
+      "id": "owner-chen-liying",
+      "name": "陈立营",
+      "position": "owner",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "owner-lu-qianyu",
+      "name": "鲁倩雨",
+      "position": "owner",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "owner-su-jialei",
+      "name": "苏佳蕾",
+      "position": "owner",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "owner-wang-jixiang",
+      "name": "王吉祥",
+      "position": "owner",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "owner-yang-jingjing",
+      "name": "杨晶晶",
+      "position": "owner",
+      "discipline": "soft",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "owner-zhang-mantong",
+      "name": "张嫚烔",
+      "position": "owner",
+      "discipline": "soft",
+      "status": "active",
+      "aliases": [
+        "张嫚炯"
+      ],
+      "source": "local"
+    },
+    {
+      "id": "owner-fan-jiarui",
+      "name": "Jarvan范嘉瑞",
+      "displayName": "范嘉瑞",
+      "position": "owner",
+      "discipline": "soft",
+      "status": "active",
+      "aliases": [
+        "范嘉瑞",
+        "Jarvan"
+      ],
+      "source": "local"
+    },
+    {
+      "id": "owner-yang-jinfan",
+      "name": "杨锦帆",
+      "position": "owner",
+      "discipline": "both",
+      "category": "ownerBoth",
+      "categoryLabel": "创意负责人",
+      "dualDisciplineOwner": true,
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-chen-feifei",
+      "name": "陈菲菲",
+      "position": "lead",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-chen-hongyan",
+      "name": "陈红燕",
+      "position": "lead",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-gao-qing",
+      "name": "高晴",
+      "position": "lead",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-liu-wenbei",
+      "name": "刘雯蓓",
+      "position": "lead",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-luo-danping",
+      "name": "罗丹萍",
+      "position": "lead",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-min-jie",
+      "name": "闵杰",
+      "position": "lead",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-song-haoze",
+      "name": "宋昊泽",
+      "position": "lead",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-tao-yuanyuan",
+      "name": "陶媛媛",
+      "position": "lead",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-wang-cheng",
+      "name": "王成",
+      "position": "lead",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-wang-yi",
+      "name": "王毅",
+      "position": "lead",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-wei-rui",
+      "name": "魏瑞",
+      "position": "lead",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-xu-zhitao",
+      "name": "徐志涛",
+      "position": "lead",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-yang-xiaoyun",
+      "name": "杨晓芸",
+      "position": "lead",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-zhang-chenrui",
+      "name": "张宸瑞",
+      "position": "lead",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-zhou-danyang",
+      "name": "周丹阳",
+      "position": "lead",
+      "discipline": "hard",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-hao-jiaoying",
+      "name": "郜娇营",
+      "position": "lead",
+      "discipline": "soft",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-hu-rong",
+      "name": "胡榕",
+      "position": "lead",
+      "discipline": "soft",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-hu-yanting",
+      "name": "胡艳婷",
+      "position": "lead",
+      "discipline": "soft",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-jin-xinxin",
+      "name": "金欣欣",
+      "position": "lead",
+      "discipline": "soft",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-li-mengjiao",
+      "name": "李梦娇",
+      "position": "lead",
+      "discipline": "soft",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-luan-kaili",
+      "name": "栾凯丽",
+      "position": "lead",
+      "discipline": "soft",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-zhang-qing",
+      "name": "张情",
+      "position": "lead",
+      "discipline": "soft",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-zhou-huizhen",
+      "name": "周慧桢",
+      "position": "lead",
+      "discipline": "soft",
+      "status": "active",
+      "source": "local"
+    },
+    {
+      "id": "lead-ma-linlin",
+      "name": "马琳琳",
+      "position": "lead",
+      "discipline": "both",
+      "status": "active",
+      "source": "local",
+      "assignmentNote": "创意团队成员，同时参与硬装与软装；项目统计按槽位映射到硬装/软装责任身份。"
+    },
+    {
+      "id": "lead-xiong-liang",
+      "name": "熊亮",
+      "position": "lead",
+      "discipline": "both",
+      "status": "active",
+      "source": "local",
+      "assignmentNote": "创意团队成员，同时参与硬装与软装；项目统计按槽位映射到硬装/软装责任身份。"
+    },
+    {
+      "id": "lead-zhou-juntong",
+      "name": "周俊彤",
+      "position": "lead",
+      "discipline": "both",
+      "status": "active",
+      "source": "local",
+      "assignmentNote": "创意团队成员，同时参与硬装与软装；项目统计按槽位映射到硬装/软装责任身份。"
+    },
+    {
+      "id": "designer-hard-001",
+      "name": "安灵玲",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-002",
+      "name": "曹丹丹",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-003",
+      "name": "陈晶晶",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-004",
+      "name": "程永旺",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-005",
+      "name": "董一凡",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-006",
+      "name": "段海峰",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-007",
+      "name": "古茂琨",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-008",
+      "name": "郭后冲",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-009",
+      "name": "郭静",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-010",
+      "name": "韩东奇",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-011",
+      "name": "浩南",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-012",
+      "name": "何旖雯",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-013",
+      "name": "何子平",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-014",
+      "name": "胡冬妮",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-015",
+      "name": "黄晓英",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-016",
+      "name": "兰雨昕",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-017",
+      "name": "李金婵",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-018",
+      "name": "李沁岚",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-019",
+      "name": "李世瑶",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-020",
+      "name": "李素玲",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-021",
+      "name": "李文卓",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-022",
+      "name": "梁锦程",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-023",
+      "name": "梁玉贞",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-024",
+      "name": "刘丹",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-025",
+      "name": "刘婕琳",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-026",
+      "name": "刘涛",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-027",
+      "name": "刘云霄",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-028",
+      "name": "马铭",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-029",
+      "name": "牛超凡",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-030",
+      "name": "庞小琪",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-031",
+      "name": "乔玲玲",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-032",
+      "name": "邱传钟",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-033",
+      "name": "任雅倩",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-034",
+      "name": "茹常煊",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-035",
+      "name": "苏柏生",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-036",
+      "name": "汪卓妍",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-037",
+      "name": "王雨阳",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-038",
+      "name": "吴帆",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-039",
+      "name": "向静",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-040",
+      "name": "薛玉飞",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-041",
+      "name": "杨诚",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-042",
+      "name": "杨莉",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-043",
+      "name": "于杰",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-044",
+      "name": "禹凯鹏",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-045",
+      "name": "臧传宝",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-046",
+      "name": "张倩",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-047",
+      "name": "张莹莹",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-048",
+      "name": "张宇",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-049",
+      "name": "周慧敏",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-050",
+      "name": "周杨珺",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-051",
+      "name": "左忠淼",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-hard-052",
+      "name": "Sunny",
+      "position": "designer",
+      "discipline": "hard",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "CD设计师"
+    },
+    {
+      "id": "designer-soft-001",
+      "name": "陈婷婷",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-002",
+      "name": "陈燕玲",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-003",
+      "name": "成诺",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-004",
+      "name": "程炜",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-005",
+      "name": "邓福丽",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-006",
+      "name": "方艺璇",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-007",
+      "name": "付甜",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-008",
+      "name": "耿佳宁",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-009",
+      "name": "耿梦可",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-010",
+      "name": "谷佳滟",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-011",
+      "name": "韩依宏",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-012",
+      "name": "郝海飞",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-013",
+      "name": "姜楠",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-014",
+      "name": "金梦安茁",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-015",
+      "name": "李爽",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-016",
+      "name": "李雅琪",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-017",
+      "name": "刘冉阳",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-018",
+      "name": "刘婉晴",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-019",
+      "name": "陆元春",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-020",
+      "name": "罗贤慧",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-021",
+      "name": "苗小雨",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-022",
+      "name": "欧阳伊静",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-023",
+      "name": "乔育博",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-024",
+      "name": "苏红",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-025",
+      "name": "王冰冰",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-026",
+      "name": "王丹丹",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-027",
+      "name": "王瑶",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-028",
+      "name": "王应秀",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-029",
+      "name": "吴雯菲",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-030",
+      "name": "吴霞",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-031",
+      "name": "谢菁",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-032",
+      "name": "严许",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-033",
+      "name": "杨悦",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-034",
+      "name": "叶芷",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-035",
+      "name": "阴冰冰",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-036",
+      "name": "应唯仪",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-037",
+      "name": "于雨",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-038",
+      "name": "于紫千",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-039",
+      "name": "张露",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-040",
+      "name": "张梦慧",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-041",
+      "name": "张梦丽",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-042",
+      "name": "张逸婷",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-043",
+      "name": "张志文",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-044",
+      "name": "甄普",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-045",
+      "name": "周睿琪",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-046",
+      "name": "周宇凡",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-047",
+      "name": "朱睿婷",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    },
+    {
+      "id": "designer-soft-048",
+      "name": "朱雨欣",
+      "position": "designer",
+      "discipline": "soft",
+      "status": "active",
+      "source": "dingtalk-derived",
+      "sourceField": "VM设计师"
+    }
+  ],
+  "teams": [
+    {
+      "owner": "Jarvan范嘉瑞",
+      "cdLeads": [],
+      "vmLeads": []
+    },
+    {
+      "owner": "王吉祥",
+      "cdLeads": [],
+      "vmLeads": []
+    },
+    {
+      "owner": "陈立营",
+      "cdLeads": [],
+      "vmLeads": []
+    },
+    {
+      "owner": "苏佳蕾",
+      "cdLeads": [],
+      "vmLeads": [],
+      "groups": [
+        {
+          "name": "直营1组",
+          "members": ["陈菲菲", "乔玲玲", "陈晶晶", "张莹莹", "李晓倩", "杨雪倩"]
+        },
+        {
+          "name": "直营2组",
+          "members": ["陶媛媛", "梁玉贞", "安灵玲", "何赛平", "左忠淼", "古茂琨", "席创意"]
+        },
+        {
+          "name": "直营3组",
+          "members": ["杨晓芸", "陈红燕", "臧传宝", "庞小琪", "杨诚", "禹凯鹏", "陈梦然", "占俊鑫"]
+        },
+        {
+          "name": "直营4组",
+          "members": ["刘雯蓓", "董一凡", "郭后冲", "杨莉", "牛超凡", "侯喆"]
+        }
+      ]
+    },
+    {
+      "owner": "杨晶晶",
+      "cdLeads": [],
+      "vmLeads": []
+    },
+    {
+      "owner": "张嫚烔",
+      "cdLeads": [],
+      "vmLeads": []
+    },
+    {
+      "owner": "杨锦帆",
+      "cdLeads": [],
+      "vmLeads": []
+    },
+    {
+      "owner": "鲁倩雨",
+      "cdLeads": [],
+      "vmLeads": []
+    }
+  ],
+  "aliases": {
+    "张嫚烔": [
+      "张嫚炯"
+    ]
+  },
+  "hiddenPeople": []
+}

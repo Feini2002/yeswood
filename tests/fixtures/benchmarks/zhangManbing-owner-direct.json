@@ -1,0 +1,21 @@
+{
+  "owner": "张嫚烔",
+  "dashboardContext": "direct",
+  "targetSource": "dingtalk-screenshot-2026-05-29-soft-direct",
+  "tolerance": 5,
+  "team": {
+    "owner": "张嫚烔",
+    "cdLeads": [],
+    "vmLeads": []
+  },
+  "targets": {
+    "regular": {
+      "notStarted": 15,
+      "inProgress": 26,
+      "openDelayed": 8,
+      "schemeDoneYtd": 55,
+      "schemeDelayDoneYtd": 11,
+      "schemeDelayDoneMonth": 1
+    }
+  }
+}
