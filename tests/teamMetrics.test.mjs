@@ -8,16 +8,27 @@ import test from 'node:test';
 import {
   calculateTeamDashboardMetrics,
   cleanProjectRecord,
+  filterProjects,
   filterProjectsForTeam,
 } from '../src/backend/projectData.mjs';
+import {
+  ownersFromSnapshot,
+  precomputeSnapshotHash,
+  precomputeTeamDashboards,
+  readPrecomputedTeamMetricsBatch,
+  readPrecomputedTeamResponsibilityReview,
+  readPrecomputedTeamWorkCompletion,
+} from '../src/backend/precomputeTeamDashboards.mjs';
 import { createServer } from '../src/backend/server.mjs';
+import { syncProjects } from '../src/backend/syncService.mjs';
 
-async function withTestServer(run) {
+async function withTestServer(run, options = {}) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-team-metrics-'));
   const config = {
     port: 0,
     mode: 'mock',
     cacheFile: path.join(tempDir, 'dashboard-cache.json'),
+    precomputeDir: path.join(tempDir, 'precomputed'),
     syncApiKey: 'server-only-secret',
     syncMinIntervalMs: 0,
     dashboardSyncEnabled: false,
@@ -28,6 +39,7 @@ async function withTestServer(run) {
       maxPages: 1,
     },
   };
+  await options.beforeListen?.({ config, tempDir });
 
   const server = createServer(config);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -696,6 +708,363 @@ test('calculateTeamDashboardMetrics uses company workflow stages for team overvi
   assert.deepEqual(softMetrics.openDelayedProjects.map((project) => project.id), ['soft-open-delay']);
 });
 
+test('calculateTeamDashboardMetrics exposes hard owner top form metrics', () => {
+  const ownerTeam = { owner: '硬装负责人' };
+  const baseRawFields = {
+    店态: { display: '常规店' },
+    复尺时间: { display: '2026-05-20' },
+    面积: { display: '280' },
+    CD设计师: { display: '设计师A' },
+  };
+  const projects = [
+    sampleProject({
+      id: 'not-started',
+      owner: '硬装负责人',
+      dueDate: '2026-08-01',
+      rawFields: {
+        ...baseRawFields,
+        硬装项目进度: { display: '未开始' },
+        软装项目进度: { display: '未开始' },
+      },
+    }),
+    sampleProject({
+      id: 'measure',
+      owner: '硬装负责人',
+      dueDate: '2026-08-02',
+      rawFields: {
+        ...baseRawFields,
+        硬装项目进度: { display: '完成复尺' },
+        软装项目进度: { display: '未开始' },
+      },
+    }),
+    sampleProject({
+      id: 'floor-open-delay',
+      owner: '硬装负责人',
+      dueDate: '2026-09-01',
+      rawFields: {
+        ...baseRawFields,
+        复尺时间: { display: '2026-05-28' },
+        硬装项目进度: { display: '平面躺平' },
+        平面开始时间: { display: '2026-06-01' },
+        软装项目进度: { display: '未开始' },
+      },
+    }),
+    sampleProject({
+      id: 'drawing',
+      owner: '硬装负责人',
+      dueDate: '2026-09-02',
+      rawFields: {
+        ...baseRawFields,
+        硬装项目进度: { display: '施工图' },
+        平面开始时间: { display: '2026-05-21' },
+        躺平内部审核结束时间: { display: '2026-05-29' },
+        软装项目进度: { display: '点位已完成' },
+      },
+    }),
+    sampleProject({
+      id: 'hard-done',
+      owner: '硬装负责人',
+      dueDate: '2026-09-03',
+      rawFields: {
+        ...baseRawFields,
+        硬装项目进度: { display: '（施工中）施工图完成审核' },
+        平面开始时间: { display: '2026-05-21' },
+        躺平内部审核结束时间: { display: '2026-05-29' },
+        '施工图完成审核时间（施工图终稿完成时间/商场审核完成时间）': { display: '2026-06-05' },
+        软装项目进度: { display: '待采购' },
+      },
+    }),
+    sampleProject({
+      id: 'past-due-closed',
+      owner: '硬装负责人',
+      dueDate: '2026-06-01',
+      rawFields: {
+        ...baseRawFields,
+        复尺时间: { display: '2026-01-02' },
+        硬装项目进度: { display: '闭环' },
+        平面开始时间: { display: '2026-01-03' },
+        躺平内部审核结束时间: { display: '2026-01-15' },
+        '施工图完成审核时间（施工图终稿完成时间/商场审核完成时间）': { display: '2026-01-25' },
+        软装项目进度: { display: '闭环' },
+      },
+    }),
+    sampleProject({
+      id: 'past-due-open',
+      owner: '硬装负责人',
+      dueDate: '2026-05-30',
+      rawFields: {
+        ...baseRawFields,
+        硬装项目进度: { display: '摆场' },
+        躺平内部审核结束时间: { display: '2026-05-20' },
+        '施工图完成审核时间（施工图终稿完成时间/商场审核完成时间）': { display: '2026-05-28' },
+        软装项目进度: { display: '摆场' },
+      },
+    }),
+    sampleProject({
+      id: 'soft-explicit-delay-note',
+      owner: '硬装负责人',
+      dueDate: '2026-08-10',
+      rawFields: {
+        ...baseRawFields,
+        复尺时间: { display: '2026-02-01' },
+        硬装项目进度: { display: '闭环' },
+        平面开始时间: { display: '2026-02-02' },
+        躺平内部审核结束时间: { display: '2026-02-06' },
+        '施工图完成审核时间（施工图终稿完成时间/商场审核完成时间）': { display: '2026-02-18' },
+        软装项目进度: { display: '闭环' },
+        '项目情况 / 延期说明': { display: '软装延期情况说明：漏发项目群' },
+      },
+    }),
+  ];
+
+  const metrics = calculateTeamDashboardMetrics(
+    projects,
+    ownerTeam,
+    {
+      people: {
+        硬装负责人: { name: '硬装负责人', position: 'owner', discipline: 'hard' },
+      },
+      teams: [ownerTeam],
+    },
+    { today: '2026-06-10', year: 2026, month: '2026-06' }
+  );
+
+  assert.deepEqual(metrics.hardOwnerMetrics.values, {
+    notStarted: 1,
+    hardStageInProgress: 3,
+    hardSchemeDelayMonth: 1,
+    hardSchemeDelayYtd: 6,
+    delayedProjects: 2,
+    hardStageCompletedYtd: 4,
+    projectClosed: 2,
+  });
+  assert.equal(metrics.hardOwnerMetrics.rows.length, 1);
+  assert.deepEqual(metrics.hardOwnerMetrics.rows[0].values, metrics.hardOwnerMetrics.values);
+  assert.deepEqual(
+    metrics.hardOwnerMetrics.rows[0].items.map((item) => item.key),
+    metrics.hardOwnerMetrics.items.map((item) => item.key)
+  );
+  assert.deepEqual(metrics.hardOwnerMetrics.items.map((item) => item.key), [
+    'notStarted',
+    'hardStageInProgress',
+    'hardSchemeDelayMonth',
+    'hardSchemeDelayYtd',
+    'delayedProjects',
+    'hardStageCompletedYtd',
+    'projectClosed',
+  ]);
+
+  const filtered = filterProjects(
+    projects,
+    {
+      owner: '硬装负责人',
+      metric: 'hardStageCompletedYtd',
+      excludePaused: '1',
+    },
+    {
+      personnelArchitecture: {
+        people: {
+          硬装负责人: { name: '硬装负责人', position: 'owner', discipline: 'hard' },
+        },
+      },
+    }
+  );
+  assert.deepEqual(
+    filtered.map((project) => project.id).sort(),
+    ['hard-done', 'past-due-closed', 'past-due-open', 'soft-explicit-delay-note']
+  );
+  const schemeDelayedYtd = filterProjects(
+    projects,
+    {
+      owner: '硬装负责人',
+      metric: 'hardSchemeDelayYtd',
+      excludePaused: '1',
+    },
+    {
+      personnelArchitecture: {
+        people: {
+          硬装负责人: { name: '硬装负责人', position: 'owner', discipline: 'hard' },
+        },
+      },
+    }
+  );
+  assert.deepEqual(
+    schemeDelayedYtd.map((project) => project.id).sort(),
+    ['drawing', 'floor-open-delay', 'hard-done', 'measure', 'not-started', 'past-due-closed']
+  );
+});
+
+test('calculateTeamDashboardMetrics does not expose hard owner top form metrics for soft owners', () => {
+  const ownerTeam = { owner: '软装负责人' };
+  const metrics = calculateTeamDashboardMetrics(
+    [sampleProject({ owner: '软装负责人' })],
+    ownerTeam,
+    {
+      people: {
+        软装负责人: { name: '软装负责人', position: 'owner', discipline: 'soft' },
+      },
+      teams: [ownerTeam],
+    }
+  );
+
+  assert.equal(metrics.hardOwnerMetrics, null);
+});
+
+test('calculateTeamDashboardMetrics counts deadline evidence when explicit hard delay note has stale update date', () => {
+  const ownerTeam = { owner: '硬装负责人' };
+  const metrics = calculateTeamDashboardMetrics(
+    [
+      sampleProject({
+        id: 'deadline-delay-with-old-note-date',
+        owner: '硬装负责人',
+        dueDate: '2026-09-01',
+        updatedAt: '2025-12-31T00:00:00.000Z',
+        rawFields: {
+          店态: { display: '常规店' },
+          复尺时间: { display: '2026-05-28' },
+          面积: { display: '280' },
+          硬装项目进度: { display: '完成复尺' },
+          '项目情况 / 延期说明': { display: '方案延期一天，继续推进' },
+        },
+      }),
+    ],
+    ownerTeam,
+    {
+      people: {
+        硬装负责人: { name: '硬装负责人', position: 'owner', discipline: 'hard' },
+      },
+      teams: [ownerTeam],
+    },
+    { today: '2026-06-10', year: 2026, month: '2026-06' }
+  );
+
+  assert.equal(metrics.hardOwnerMetrics.values.hardSchemeDelayMonth, 1);
+  assert.equal(metrics.hardOwnerMetrics.values.hardSchemeDelayYtd, 1);
+});
+
+test('calculateTeamDashboardMetrics keeps Yang Jinfan hard owner unsplit across direct and franchise', () => {
+  const ownerTeam = { owner: '杨锦帆（硬装）' };
+  const projects = [
+    sampleProject({
+      id: 'yang-direct-hard',
+      owner: '杨锦帆',
+      rawFields: {
+        CD负责人: { display: '杨锦帆' },
+        组别: { display: '直营一组' },
+        店态: { display: '常规店' },
+        硬装项目进度: { display: '未开始' },
+      },
+    }),
+    sampleProject({
+      id: 'yang-franchise-hard',
+      owner: '杨锦帆',
+      rawFields: {
+        CD负责人: { display: '杨锦帆' },
+        组别: { display: '加盟一组' },
+        店态: { display: '常规店' },
+        硬装项目进度: { display: '未开始' },
+      },
+    }),
+    sampleProject({
+      id: 'yang-soft-only',
+      owner: '杨锦帆',
+      rawFields: {
+        VM负责人: { display: '杨锦帆' },
+        组别: { display: '加盟一组' },
+        店态: { display: '常规店' },
+        软装项目进度: { display: '点位已完成' },
+      },
+    }),
+  ];
+
+  const metrics = calculateTeamDashboardMetrics(
+    projects,
+    ownerTeam,
+    { teams: [ownerTeam] },
+    { dashboardContext: 'direct', today: '2026-06-10', year: 2026 }
+  );
+
+  assert.equal(metrics.dashboardContext, 'all');
+  assert.equal(metrics.summary.totalProjects, 2);
+  assert.equal(metrics.hardOwnerMetrics.values.notStarted, 2);
+});
+
+test('calculateTeamDashboardMetrics reports scoped closed projects outside active buckets', () => {
+  const ownerTeam = { owner: '范围负责人' };
+  const projects = [
+    sampleProject({
+      id: 'in-progress',
+      owner: '范围负责人',
+      rawFields: {
+        店态: { display: '常规店' },
+        硬装项目进度: { display: '施工图' },
+        硬装方案情况: { display: '进行中' },
+        平面开始时间: { display: '2026-03-01' },
+        软装项目进度: { display: '未开始' },
+      },
+    }),
+    sampleProject({
+      id: 'not-started',
+      owner: '范围负责人',
+      rawFields: {
+        店态: { display: '常规店' },
+        硬装项目进度: { display: '未开始' },
+        软装项目进度: { display: '未开始' },
+      },
+    }),
+    sampleProject({
+      id: 'closed',
+      owner: '范围负责人',
+      progress: 100,
+      rawFields: {
+        店态: { display: '常规店' },
+        硬装项目进度: { display: '闭环' },
+        软装项目进度: { display: '闭环' },
+        '方案完成/审核结束时间': { display: '2026-03-20' },
+        点位完成情况: { display: '已完成' },
+        软装完成情况: { display: '准时完成' },
+      },
+    }),
+    sampleProject({
+      id: 'design-closed-still-active',
+      owner: '范围负责人',
+      progress: 65,
+      rawFields: {
+        店态: { display: '常规店' },
+        硬装项目进度: { display: '施工图' },
+        平面开始时间: { display: '2026-02-01' },
+        躺平内部审核结束时间: { display: '2026-02-10' },
+        软装项目进度: { display: '未开始' },
+      },
+    }),
+    sampleProject({
+      id: 'paused',
+      owner: '范围负责人',
+      rawFields: {
+        店态: { display: '常规店' },
+        硬装项目进度: { display: '暂停' },
+        软装项目进度: { display: '暂停' },
+      },
+    }),
+  ];
+
+  const metrics = calculateTeamDashboardMetrics(projects, ownerTeam, {
+    people: {
+      范围负责人: { name: '范围负责人', position: 'owner', discipline: 'hard' },
+    },
+    teams: [ownerTeam],
+  });
+
+  assert.equal(metrics.summary.totalProjects, 4);
+  assert.equal(metrics.totals.inProgress, 2);
+  assert.equal(metrics.totals.notStarted, 1);
+  assert.equal(metrics.pausedCount, 1);
+  assert.deepEqual(metrics.scopeBreakdown, {
+    closedInScope: 1,
+    unbucketedInScope: 0,
+  });
+});
+
 test('calculateTeamDashboardMetrics uses open responsibility projects for remaining difficulty pressure', () => {
   const ownerTeam = { owner: '苏佳蕾' };
   const projects = [
@@ -1114,6 +1483,161 @@ test('/api/team-metrics-batch preloads metrics for multiple owners in one payloa
     assert.ok(payload.body.metricsByOwner['苏佳蕾'].departmentOperations.ownerRecommendation);
     assert.equal(payload.body.metricsByOwner['苏佳蕾'].agentWorker.channels.departmentOperations.status, 'ready');
   });
+});
+
+test('/api/team-metrics-batch prefers matching precomputed metrics payloads', async () => {
+  let precomputedOwner = '';
+
+  await withTestServer(
+    async (port) => {
+      const payload = await getJson(
+        port,
+        `/api/team-metrics-batch?owner=${encodeURIComponent(precomputedOwner)}&dashboardContext=all`
+      );
+
+      assert.equal(payload.status, 200);
+      assert.equal(payload.body.dashboardContext, 'all');
+      assert.deepEqual(payload.body.owners, [precomputedOwner]);
+      assert.equal(payload.body.metricsByOwner[precomputedOwner].precomputedHit, true);
+      assert.equal(payload.body.departmentOperations.channel, 'departmentOperations');
+      assert.ok(payload.body.metricsByOwner[precomputedOwner].departmentOperations.ownerRecommendation);
+    },
+    {
+      beforeListen: async ({ config }) => {
+        const sourceSnapshot = await syncProjects({
+          config: {
+            ...config,
+            precomputeEnabled: false,
+          },
+          source: 'mock',
+        });
+        precomputedOwner = ownersFromSnapshot(sourceSnapshot, sourceSnapshot.personnelArchitecture)[0];
+        assert.ok(precomputedOwner);
+        await precomputeTeamDashboards(sourceSnapshot, {
+          config,
+          contexts: ['all'],
+          years: [2026],
+          now: new Date('2026-06-11T00:00:00.000Z'),
+        });
+
+        const snapshotHash = precomputeSnapshotHash(sourceSnapshot, sourceSnapshot.personnelArchitecture);
+        const teamMetricsDir = path.join(config.precomputeDir, snapshotHash, 'team-metrics');
+        const [fileName] = await fs.readdir(teamMetricsDir);
+        const filePath = path.join(teamMetricsDir, fileName);
+        const precomputed = JSON.parse(await fs.readFile(filePath, 'utf8'));
+        precomputed.metricsByOwner[precomputedOwner].precomputedHit = true;
+        await fs.writeFile(filePath, `${JSON.stringify(precomputed)}\n`, 'utf8');
+      },
+    }
+  );
+});
+
+test('/api/dashboard-warmup prepares team completion and metrics precompute before first teams navigation', async () => {
+  let configRef = null;
+  let sourceSnapshot = null;
+  let precomputedOwner = '';
+
+  await withTestServer(
+    async (port) => {
+      const warmup = await getJson(port, '/api/dashboard-warmup');
+
+      assert.equal(warmup.status, 200);
+      assert.equal(warmup.body.ok, true);
+      assert.ok(warmup.body.features.includes('dashboard-session'));
+      assert.ok(warmup.body.features.includes('team-responsibility-review'));
+      assert.ok(warmup.body.features.includes('team-work-completion'));
+      assert.ok(warmup.body.features.includes('team-metrics'));
+
+      const completion = readPrecomputedTeamWorkCompletion(configRef, sourceSnapshot, sourceSnapshot.personnelArchitecture, {
+        owner: precomputedOwner,
+        dashboardContext: 'all',
+        year: new Date().getFullYear(),
+      });
+      const metrics = readPrecomputedTeamMetricsBatch(configRef, sourceSnapshot, sourceSnapshot.personnelArchitecture, {
+        owners: [precomputedOwner],
+        dashboardContext: 'all',
+      });
+      const responsibility = readPrecomputedTeamResponsibilityReview(
+        configRef,
+        sourceSnapshot,
+        sourceSnapshot.personnelArchitecture,
+        {
+          owner: precomputedOwner,
+          dashboardContext: 'all',
+        }
+      );
+
+      assert.equal(completion?.owner, precomputedOwner);
+      assert.equal(metrics?.metricsByOwner?.[precomputedOwner]?.owner, precomputedOwner);
+      assert.equal(responsibility?.owner, precomputedOwner);
+    },
+    {
+      beforeListen: async ({ config }) => {
+        configRef = config;
+        sourceSnapshot = await syncProjects({
+          config: {
+            ...config,
+            precomputeEnabled: false,
+          },
+          source: 'mock',
+        });
+        precomputedOwner = ownersFromSnapshot(sourceSnapshot, sourceSnapshot.personnelArchitecture)[0];
+        assert.ok(precomputedOwner);
+      },
+    }
+  );
+});
+
+test('/api/dashboard-session returns a precomputed local browsing bundle', async () => {
+  let sourceSnapshot = null;
+  let precomputedOwner = '';
+
+  await withTestServer(
+    async (port) => {
+      const payload = await getJson(port, '/api/dashboard-session?context=all&year=2026');
+
+      assert.equal(payload.status, 200);
+      assert.equal(payload.body.schemaVersion, 1);
+      assert.equal(payload.body.readOnly, true);
+      assert.equal(payload.body.snapshotHash, precomputeSnapshotHash(sourceSnapshot, sourceSnapshot.personnelArchitecture));
+      assert.equal(payload.body.snapshot.source, sourceSnapshot.source);
+      assert.equal(Object.hasOwn(payload.body.snapshot, 'projects'), false);
+      assert.ok(payload.body.filters);
+      assert.ok(payload.body.metrics);
+      assert.ok(payload.body.departmentMetrics);
+      assert.equal(payload.body.team.owner, precomputedOwner);
+      assert.equal(payload.body.team.dashboardContext, 'all');
+      assert.equal(payload.body.team.year, 2026);
+      assert.equal(payload.body.team.metrics.owner, precomputedOwner);
+      assert.equal(payload.body.team.workCompletion.owner, precomputedOwner);
+      assert.equal(payload.body.team.responsibilityReview.owner, precomputedOwner);
+      assert.equal(payload.body.team.responsibilityReview.precomputedHit, true);
+    },
+    {
+      beforeListen: async ({ config }) => {
+        sourceSnapshot = await syncProjects({
+          config: {
+            ...config,
+            precomputeEnabled: false,
+          },
+          source: 'mock',
+        });
+        precomputedOwner = ownersFromSnapshot(sourceSnapshot, sourceSnapshot.personnelArchitecture)[0];
+        assert.ok(precomputedOwner);
+        const manifest = await precomputeTeamDashboards(sourceSnapshot, {
+          config,
+          contexts: ['all'],
+          years: [2026],
+          now: new Date('2026-06-11T00:00:00.000Z'),
+        });
+        const responsibilityDir = path.join(config.precomputeDir, manifest.snapshotHash, 'team-responsibility-review');
+        const [fileName] = await fs.readdir(responsibilityDir);
+        const filePath = path.join(responsibilityDir, fileName);
+        const precomputed = JSON.parse(await fs.readFile(filePath, 'utf8'));
+        await fs.writeFile(filePath, `${JSON.stringify({ ...precomputed, precomputedHit: true })}\n`, 'utf8');
+      },
+    }
+  );
 });
 
 test('/api/dashboard-metrics supports profile query', async () => {

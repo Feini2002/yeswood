@@ -13,6 +13,7 @@ async function withTestServer(configOverrides, run) {
     port: 0,
     mode: 'mock',
     cacheFile: path.join(tempDir, 'dashboard-cache.json'),
+    precomputeDir: path.join(tempDir, 'precomputed'),
     syncApiKey: 'server-only-secret',
     syncMinIntervalMs: 0,
     dashboardSyncEnabled: false,

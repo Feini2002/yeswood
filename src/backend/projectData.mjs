@@ -3,9 +3,15 @@ import crypto from 'node:crypto';
 import { normalizePersonnelArchitecture } from './personnelArchitecture.mjs';
 import { classifyProjectLifecycleStage } from '../../public/dashboard/project-lifecycle.mjs';
 import { provinceDisplayName } from '../../public/dashboard/province-display.mjs';
+import { isClassifiableStoreStatus } from '../../public/lib/constants.mjs';
 import { resolveOwnerDisplayTitle } from './personnelOwners.mjs';
 import { composeDashboardMetrics } from './metrics/composeDashboard.mjs';
 import { isOpenDelayed, isSchemeDelayed, matchesMetricProject } from './metrics/calculators.mjs';
+import {
+  calculateHardOwnerMetrics,
+  isHardOwnerMetricKey,
+  matchesHardOwnerMetricProject,
+} from './metrics/hardOwnerMetrics.mjs';
 import {
   hasOpenDesignResponsibility,
   isOpenDesignResponsibilityDelayed,
@@ -1133,6 +1139,10 @@ function drillMetricOptions(filters, personnelArchitecture) {
   };
 }
 
+function shouldUseAllContextForOwnerIdentity(identity = null) {
+  return identity?.sourceName === '杨锦帆' && identity?.discipline === 'hard';
+}
+
 function isEnabledFilter(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
 }
@@ -1196,6 +1206,7 @@ export function filterProjects(projects, filters = {}, options = {}) {
   const metricOptions = drillMetricOptions(filters, personnelArchitecture);
   const tier = filters.tier || '';
   const metric = filters.metric || '';
+  const hardOwnerMetric = isHardOwnerMetricKey(metric);
   const activeResponsibilityOnly = isEnabledFilter(filters.activeResponsibility);
 
   return baseProjects.filter((project) => {
@@ -1226,8 +1237,11 @@ export function filterProjects(projects, filters = {}, options = {}) {
       matchesTeamProjectOwner(project, teamProjectOwner, personnelArchitecture) &&
       (!activeResponsibilityOnly || hasOpenResponsibilityForDiscipline(project, metricOptions.ownerDiscipline)) &&
       matchesLifecycleStage(project, filters.lifecycleStage) &&
-      (!tier || matchesMetricProject(project, 'projectCount', tier, metricOptions)) &&
-      (!metric || matchesMetricProject(project, metric, tier, metricOptions)) &&
+      (hardOwnerMetric || !tier || matchesMetricProject(project, 'projectCount', tier, metricOptions)) &&
+      (!metric ||
+        (hardOwnerMetric
+          ? matchesHardOwnerMetricProject(project, metric, metricOptions)
+          : matchesMetricProject(project, metric, tier, metricOptions))) &&
       (!filters.delayed || metric || matchesMetricProject(project, 'openDelayed', tier, metricOptions))
     );
   });
@@ -1269,7 +1283,7 @@ export function createFilterOptions(projects) {
   return {
     provinces: uniqueSorted(projects, (project) => provinceDisplayName(project.province) || project.province),
     businessTypes: uniqueSorted(projects, (project) => project.businessType),
-    storeStatuses: uniqueSorted(projects, (project) => project.storeStatus),
+    storeStatuses: uniqueSorted(projects, (project) => project.storeStatus).filter(isClassifiableStoreStatus),
     statuses: uniqueSorted(projects, (project) => project.status),
     riskLevels: uniqueSorted(projects, (project) => project.riskLevel),
   };
@@ -1924,7 +1938,9 @@ export function calculateTeamDashboardMetrics(allProjects, team, personnelArchit
   const ownerDisciplineDisplay = ownerIdentity
     ? ownerDisciplineLabel({ position: 'owner', discipline: ownerIdentity.discipline }, normalizedPersonnelArchitecture)
     : ownerDisciplineLabel(ownerPerson, normalizedPersonnelArchitecture);
-  const dashboardContext = options.dashboardContext || team.dashboardContext || 'all';
+  const dashboardContext = shouldUseAllContextForOwnerIdentity(ownerIdentity)
+    ? 'all'
+    : options.dashboardContext || team.dashboardContext || 'all';
   const scopeOptions = {
     dashboardContext,
     personnelArchitecture: normalizedPersonnelArchitecture,
@@ -1939,14 +1955,42 @@ export function calculateTeamDashboardMetrics(allProjects, team, personnelArchit
     personnelArchitecture: normalizedPersonnelArchitecture,
     ownerDiscipline,
   });
+  const hardOwnerMetrics =
+    ownerDiscipline === 'hard'
+      ? calculateHardOwnerMetrics(teamProjects, {
+          today: options.today,
+          now: options.now,
+          year: options.year,
+          month: options.month,
+        })
+      : null;
   const totals = dashboard.totals || {};
   const totalProjects = teamProjects.length;
+  const teamMetricOptions = {
+    profileId: 'ownerMonthly',
+    owner: ownerName,
+    ownerDiscipline,
+    dashboardContext,
+    personnelArchitecture: normalizedPersonnelArchitecture,
+  };
   const companyInProgressProjects = teamProjects.filter((project) => isProjectInProgress(project));
   const delayedProjects =
     totals.openDelayed ?? companyInProgressProjects.filter((project) =>
       isOpenResponsibilityDelayedForDiscipline(project, ownerDiscipline)
     ).length;
   const highRiskProjects = companyInProgressProjects.filter((project) => project.riskLevel === '高').length;
+  const activeBucketCount = totals.inProgress ?? companyInProgressProjects.length;
+  const notStartedBucketCount = totals.notStarted ?? 0;
+  const closedInScopeProjects = teamProjects.filter(
+    (project) =>
+      isDesignResponsibilityClosed(project) &&
+      !matchesMetricProject(project, 'inProgress', '', teamMetricOptions) &&
+      !matchesMetricProject(project, 'notStarted', '', teamMetricOptions)
+  ).length;
+  const unbucketedInScopeProjects = Math.max(
+    0,
+    totalProjects - activeBucketCount - notStartedBucketCount - closedInScopeProjects
+  );
   const averageProgress =
     totalProjects === 0
       ? 0
@@ -1969,13 +2013,6 @@ export function calculateTeamDashboardMetrics(allProjects, team, personnelArchit
     );
   }
 
-  const teamMetricOptions = {
-    profileId: 'ownerMonthly',
-    owner: ownerName,
-    ownerDiscipline,
-    dashboardContext,
-    personnelArchitecture: normalizedPersonnelArchitecture,
-  };
   const riskProjects = companyInProgressProjects
     .filter((project) => isOpenResponsibilityDelayedForDiscipline(project, ownerDiscipline) || project.riskLevel === '高')
     .sort((a, b) => {
@@ -2082,6 +2119,7 @@ export function calculateTeamDashboardMetrics(allProjects, team, personnelArchit
     sourceOwner: ownerIdentity?.sourceName || undefined,
     ownerIdentity: ownerIdentity || undefined,
     disciplineLabel: ownerDisciplineDisplay,
+    hardOwnerMetrics,
     soleDualDisciplineOwner: normalizedPersonnelArchitecture.soleDualDisciplineOwner || null,
     pausedCount: teamPausedCount,
     totalScopeCount: teamScopeProjects.length,
@@ -2091,8 +2129,8 @@ export function calculateTeamDashboardMetrics(allProjects, team, personnelArchit
     summary: {
       totalProjects,
       pausedProjects: teamPausedCount,
-      activeProjects: totals.inProgress ?? companyInProgressProjects.length,
-      notStarted: totals.notStarted ?? 0,
+      activeProjects: activeBucketCount,
+      notStarted: notStartedBucketCount,
       delayedProjects,
       highRiskProjects,
       averageProgress,
@@ -2102,6 +2140,10 @@ export function calculateTeamDashboardMetrics(allProjects, team, personnelArchit
       schemeDelayedYtd: totals.schemeDelayDoneYtd ?? 0,
       openDelayed: totals.openDelayed ?? 0,
       unscheduled: totals.notStarted ?? 0,
+    },
+    scopeBreakdown: {
+      closedInScope: closedInScopeProjects,
+      unbucketedInScope: unbucketedInScopeProjects,
     },
     monthlyEntry,
     statusCounts: countBy(companyInProgressProjects, (project) => project.status),

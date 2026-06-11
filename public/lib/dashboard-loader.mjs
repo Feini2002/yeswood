@@ -1,13 +1,11 @@
 import { state } from '../lib/state.mjs';
 import { elements, setPanelInsight } from '../lib/dom.mjs';
 import { escapeHtml, formatDateTime } from '../lib/format.mjs';
-import { fetchJson, normalizeDashboardPayload } from '../lib/api.mjs';
-import { currentPageId, applyDevelopmentDocumentationVisibility } from '../lib/router.mjs';
-import { DASHBOARD_SYNC_ENDPOINT } from '../lib/api.mjs';
+import { DASHBOARD_SESSION_ENDPOINT, DASHBOARD_SYNC_ENDPOINT, fetchJson, normalizeDashboardPayload } from '../lib/api.mjs';
+import { currentPageId, parsePageHash, applyDevelopmentDocumentationVisibility } from '../lib/router.mjs';
 import { sourceDisplayLabel } from '../domain/metrics-display.mjs';
 import {
   readFilters,
-  toQuery,
   setOptions,
   enhanceProjectFilters,
   enhanceTeamOwnerSelect,
@@ -36,7 +34,12 @@ import {
   renderTeamDashboardError,
   renderTeamDashboardLoading,
   loadTeamMetrics,
+  loadTeamWorkCompletion,
   loadOwnerResponsibilityReview,
+  ensureTeamMetricsCacheContext,
+  rememberTeamWorkCompletion,
+  rememberOwnerReview,
+  renderTeamWorkCompletionDashboard,
 } from '../pages/teams.mjs';
 import { DASHBOARD_UPDATE_CHECK_INTERVAL_MS, shouldReloadDashboard } from '../realtime.js';
 import { runtimeStore } from './runtime-flags.mjs';
@@ -47,9 +50,17 @@ import {
   resolveTeamDashboardContext,
   resolveOwnerReviewOwner,
   resolveOwnerReviewDashboardContext,
+  teamOwnerDirectoryReady,
 } from '../domain/personnel.mjs';
 import { loadProfileMetrics, loadProfileDashboard, renderProfilePage } from '../pages/profile-shared.mjs';
 import { renderOwnerReviewDashboard } from '../pages/owner-review.mjs';
+import {
+  currentCatalogSignature,
+  fetchProjectCatalog,
+  hasComplexProjectFilters,
+  invalidateProjectCaches,
+  resolveVisibleProjects,
+} from '../domain/project-catalog.mjs';
 
 export function dashboardStatusPanel({ title, description = '', tone = 'neutral' } = {}) {
   return `
@@ -122,68 +133,276 @@ export function renderDashboardStatusState(type = 'loading', error = null) {
 }
 
 
-export async function loadDashboard(options = {}) {
-  const filters = readFilters();
-  const query = toQuery(filters);
-  const snapshotRequest = options.snapshot ? Promise.resolve(options.snapshot) : fetchJson('/api/snapshot');
-  const [snapshot, projects, metrics, fullMetrics, departmentMetrics] = await Promise.all([
-    snapshotRequest,
-    fetchJson(`/api/projects${query}`),
-    fetchJson(`/api/metrics${query}`),
-    fetchJson('/api/metrics'),
-    loadProfileMetrics('department').catch(() => null),
-  ]);
-  const normalized = normalizeDashboardPayload({ snapshot, projects, metrics, fullMetrics, departmentMetrics });
-  if (normalized.departmentMetrics) {
-    state.profileMetrics.department = normalized.departmentMetrics;
-    state.annualEntryStructure = normalized.departmentMetrics.annualEntryStructure || null;
-  }
-
-  state.filters = filters;
-  state.snapshot = normalized.snapshot;
-  state.personnelArchitecture = normalized.snapshot.personnelArchitecture || state.personnelArchitecture;
-  state.projects = normalized.projects;
-  state.fieldCatalog = normalized.fieldCatalog;
-  state.metrics = normalized.metrics;
-  state.fullMetrics = normalized.fullMetrics;
-  state.pendingDetailsDrill = null;
-  applyDevelopmentDocumentationVisibility();
-  ensureTeamOwnerOptions();
-  const pageId = currentPageId();
-  if (pageId === 'teams') {
-    ensureOwnerReviewControls();
-    const owner = resolveTeamOwner();
-    const dashboardContext = resolveTeamDashboardContext();
-    const [teamResult] = await Promise.allSettled([
-      loadTeamMetrics(owner, dashboardContext, { forceBatch: true }),
-      loadOwnerResponsibilityReview(owner, dashboardContext),
-    ]);
-    if (teamResult.status === 'rejected') {
-      throw teamResult.reason;
-    }
-  }
-  if (pageId === 'owner-review') {
-    ensureOwnerReviewControls();
-    await loadOwnerResponsibilityReview(resolveOwnerReviewOwner(), resolveOwnerReviewDashboardContext());
-  }
-  if (pageId === 'franchise' || pageId === 'direct') {
-    await loadProfileDashboard(pageId);
-  }
-  renderAll();
-  if (pageId === 'franchise' || pageId === 'direct') {
-    renderProfilePage(pageId);
-  }
+function needsProjectCatalog(pageId = currentPageId()) {
+  return pageId === 'overview' || pageId === 'details';
 }
 
 
-export async function loadFilters() {
-  const filters = await fetchJson('/api/filters');
+function hasVisibleDashboardData() {
+  return Boolean(state.snapshot) && (Boolean(state.metrics) || Boolean(state.profileMetrics?.department));
+}
+
+
+export async function loadProjectCatalog({ force = false } = {}) {
+  return fetchProjectCatalog({ force, view: 'summary' });
+}
+
+
+export async function applyVisibleProjects({ filters = readFilters() } = {}) {
+  state.filters = filters;
+  state.projects = await resolveVisibleProjects(filters);
+  return state.projects;
+}
+
+function applyFilterOptions(filters = {}) {
+  state.filters = filters || {};
   setOptions(elements.provinceFilter, filters.provinces || []);
   setOptions(elements.businessTypeFilter, filters.businessTypes || []);
   setOptions(elements.storeStatusFilter, filters.storeStatuses || []);
   setOptions(elements.statusFilter, filters.statuses || []);
   enhanceProjectFilters();
   enhanceTeamOwnerSelect();
+}
+
+
+function dashboardSessionUrl(options = {}) {
+  const route = parsePageHash();
+  const params = new URLSearchParams();
+  const owner = options.owner || route.owner || resolveTeamOwner();
+  const dashboardContext = options.dashboardContext || route.dashboardContext || resolveTeamDashboardContext() || 'all';
+  const year = Number(options.year || route.year || state.teamWorkCompletionYear || new Date().getFullYear());
+  if (owner) {
+    params.set('owner', owner);
+  }
+  params.set('context', dashboardContext);
+  if (Number.isFinite(year)) {
+    params.set('year', String(year));
+  }
+  const query = params.toString();
+  return query ? `${DASHBOARD_SESSION_ENDPOINT}?${query}` : DASHBOARD_SESSION_ENDPOINT;
+}
+
+
+export function applyDashboardSessionPayload(payload = {}) {
+  const snapshot = payload.snapshot || {};
+  const nextCatalogSignature = currentCatalogSignature(snapshot);
+  if (state.projectsCatalogSignature && state.projectsCatalogSignature !== nextCatalogSignature) {
+    invalidateProjectCaches({ catalog: true, drill: true, details: true });
+  }
+
+  state.snapshot = snapshot;
+  state.personnelArchitecture = snapshot.personnelArchitecture || state.personnelArchitecture;
+  state.metrics = payload.metrics || {};
+  state.fullMetrics = payload.metrics || {};
+  state.pendingDetailsDrill = null;
+  state.profileMetrics.department = payload.departmentMetrics || null;
+  state.annualEntryStructure = payload.departmentMetrics?.annualEntryStructure || null;
+  applyFilterOptions(payload.filters || {});
+  applyDevelopmentDocumentationVisibility();
+  ensureTeamOwnerOptions();
+
+  const team = payload.team || {};
+  const owner = team.owner || team.metrics?.owner || team.workCompletion?.owner || team.responsibilityReview?.owner || '';
+  const dashboardContext = team.dashboardContext || team.metrics?.dashboardContext || 'all';
+  const year = Number(team.year || team.workCompletion?.year || state.teamWorkCompletionYear || new Date().getFullYear());
+  if (owner && team.metrics) {
+    ensureTeamMetricsCacheContext(dashboardContext);
+    state.teamMetricsByOwner = {
+      ...state.teamMetricsByOwner,
+      [owner]: team.metrics,
+    };
+    state.teamMetrics = team.metrics;
+    state.teamMetricsLoading = false;
+    state.teamMetricsError = '';
+    state.selectedTeamOwner = owner;
+  }
+  if (owner && team.workCompletion) {
+    state.teamWorkCompletion = team.workCompletion;
+    state.teamWorkCompletionYear = year;
+    state.teamWorkCompletionLoading = false;
+    state.teamWorkCompletionError = '';
+    state.teamWorkCompletionRefreshStatus = '';
+    state.teamWorkCompletionRefreshError = '';
+    rememberTeamWorkCompletion(team.workCompletion, owner, dashboardContext, year);
+  }
+  if (owner && team.responsibilityReview) {
+    state.ownerReview = team.responsibilityReview;
+    state.ownerReviewLoading = false;
+    state.ownerReviewError = '';
+    state.ownerReviewRefreshStatus = '';
+    state.ownerReviewRefreshError = '';
+    rememberOwnerReview(team.responsibilityReview, owner, dashboardContext);
+  }
+  return payload;
+}
+
+
+export async function loadDashboardSession(options = {}) {
+  const payload = await fetchJson(dashboardSessionUrl(options));
+  return applyDashboardSessionPayload(payload);
+}
+
+
+export async function loadCoreDashboard(options = {}) {
+  const snapshotRequest = options.snapshot ? Promise.resolve(options.snapshot) : fetchJson('/api/snapshot');
+  const [snapshot, metrics, departmentMetrics] = await Promise.all([
+    snapshotRequest,
+    fetchJson('/api/metrics'),
+    loadProfileMetrics('department').catch(() => null),
+  ]);
+  const normalized = normalizeDashboardPayload({ snapshot, projects: {}, metrics, departmentMetrics });
+  if (normalized.departmentMetrics) {
+    state.profileMetrics.department = normalized.departmentMetrics;
+    state.annualEntryStructure = normalized.departmentMetrics.annualEntryStructure || null;
+  }
+
+  const nextCatalogSignature = currentCatalogSignature(normalized.snapshot);
+  if (state.projectsCatalogSignature && state.projectsCatalogSignature !== nextCatalogSignature) {
+    invalidateProjectCaches({ catalog: true, drill: true, details: true });
+  }
+
+  state.snapshot = normalized.snapshot;
+  state.personnelArchitecture = normalized.snapshot.personnelArchitecture || state.personnelArchitecture;
+  state.metrics = normalized.metrics;
+  state.fullMetrics = normalized.metrics;
+  state.pendingDetailsDrill = null;
+  applyDevelopmentDocumentationVisibility();
+  ensureTeamOwnerOptions();
+  return normalized;
+}
+
+
+export async function loadTeamPageModules({ forceRefresh = false } = {}) {
+  const owner = resolveTeamOwner();
+  const dashboardContext = resolveTeamDashboardContext();
+  if (!owner && !teamOwnerDirectoryReady()) {
+    renderTeamDashboardLoading();
+    renderTeamWorkCompletionLoading();
+    return null;
+  }
+  const catalogPromise = loadProjectCatalog({ force: forceRefresh }).catch((error) => {
+    console.warn('Team page project catalog preload failed', error);
+    return null;
+  });
+  const teamResult = await Promise.allSettled([
+    loadTeamMetrics(owner, dashboardContext, { forceRefresh }),
+    loadTeamWorkCompletion(owner, dashboardContext, undefined, { forceRefresh }),
+    loadOwnerResponsibilityReview(owner, dashboardContext, { forceRefresh }),
+  ]);
+  await catalogPromise;
+  const failedTeamLoad = teamResult.find((result) => result.status === 'rejected');
+  if (failedTeamLoad && teamResult.every((result) => result.status === 'rejected')) {
+    throw failedTeamLoad.reason;
+  }
+}
+
+
+export async function loadDashboard(options = {}) {
+  const forceRefresh = Boolean(options.forceRefresh);
+  const pageId = currentPageId();
+  await loadDashboardSession(options);
+  renderAll();
+
+  const catalogPromise =
+    needsProjectCatalog(pageId) && (!state.projectsCatalogLoaded || forceRefresh)
+      ? loadProjectCatalog({ force: forceRefresh })
+      : null;
+  const pageLoads = [];
+
+  if (needsProjectCatalog(pageId)) {
+    pageLoads.push(
+      (catalogPromise || Promise.resolve(state.allProjects))
+        .then(() => applyVisibleProjects())
+        .then(() => renderAll())
+    );
+  }
+
+  if (pageId === 'teams') {
+    ensureOwnerReviewControls();
+    renderTeamDashboard();
+    renderTeamWorkCompletionDashboard();
+    renderOwnerReviewDashboard();
+  } else if (catalogPromise) {
+    catalogPromise
+      .then(() => applyVisibleProjects())
+      .catch((error) => {
+        console.warn('Background project catalog preload failed', error);
+      });
+  }
+  if (pageId === 'owner-review') {
+    ensureOwnerReviewControls();
+    pageLoads.push(
+      loadOwnerResponsibilityReview(resolveOwnerReviewOwner(), resolveOwnerReviewDashboardContext(), {
+        forceRefresh,
+      }).then(() => renderOwnerReviewDashboard())
+    );
+  }
+  if (pageId === 'franchise' || pageId === 'direct') {
+    pageLoads.push(
+      loadProfileDashboard(pageId, { forceRefresh }).then(() => renderProfilePage(pageId))
+    );
+  }
+
+  if (pageLoads.length) {
+    await Promise.all(pageLoads);
+  }
+}
+
+
+export async function softRefresh() {
+  const pageId = currentPageId();
+  try {
+    if (pageId === 'details' || pageId === 'overview') {
+      const filters = readFilters();
+      if (!state.projectsCatalogLoaded && !hasComplexProjectFilters(filters)) {
+        await loadProjectCatalog();
+      }
+      await applyVisibleProjects({ filters });
+      renderAll();
+      return true;
+    }
+    if (pageId === 'teams') {
+      renderTeamDashboard();
+      renderTeamWorkCompletionDashboard();
+      renderOwnerReviewDashboard();
+      return true;
+    }
+    renderAll();
+    return true;
+  } catch (error) {
+    console.warn('Soft refresh failed', error);
+    return false;
+  }
+}
+
+
+export async function hardRefresh() {
+  const showBlockingLoader = !hasVisibleDashboardData();
+  if (showBlockingLoader) {
+    renderDashboardStatusState('loading');
+  }
+  try {
+    if (showBlockingLoader) {
+      invalidateProjectCaches({ catalog: true, drill: true, details: true });
+    }
+    await loadDashboard({ forceRefresh: true });
+    return true;
+  } catch (error) {
+    if (showBlockingLoader) {
+      renderDashboardStatusState('error', error);
+    }
+    setSyncMessage('刷新失败');
+    return false;
+  } finally {
+    updateSyncControl();
+    updateAnalysisAgentControl();
+  }
+}
+
+
+export async function loadFilters() {
+  const filters = await fetchJson('/api/filters');
+  applyFilterOptions(filters);
 }
 
 
@@ -197,18 +416,7 @@ export function debounce(fn, wait) {
 
 
 export async function refresh() {
-  renderDashboardStatusState('loading');
-  try {
-    await loadDashboard();
-    return true;
-  } catch (error) {
-    renderDashboardStatusState('error', error);
-    setSyncMessage('刷新失败');
-    return false;
-  } finally {
-    updateSyncControl();
-    updateAnalysisAgentControl();
-  }
+  return hardRefresh();
 }
 
 
@@ -224,23 +432,26 @@ export async function runAnalysisAgent() {
   try {
     const pageId = currentPageId();
     if (pageId === 'teams') {
-      const owner = resolveTeamOwner();
-      const dashboardContext = resolveTeamDashboardContext();
       const results = await Promise.allSettled([
-        loadTeamMetrics(owner, dashboardContext),
-        loadOwnerResponsibilityReview(owner, dashboardContext),
+        loadTeamPageModules({ forceRefresh: true }),
       ]);
       renderTeamDashboard();
+      renderTeamWorkCompletionDashboard();
       renderOwnerReviewDashboard();
       const failed = results.find((result) => result.status === 'rejected');
-      if (failed && results.every((result) => result.status === 'rejected')) {
+      if (failed) {
         throw failed.reason;
       }
     } else if (pageId === 'franchise' || pageId === 'direct') {
-      await loadProfileDashboard(pageId);
+      await loadProfileDashboard(pageId, { forceRefresh: true });
       renderProfilePage(pageId);
     } else {
-      await loadDashboard();
+      await loadCoreDashboard();
+      if (needsProjectCatalog(pageId)) {
+        await loadProjectCatalog({ force: true });
+        await applyVisibleProjects();
+      }
+      renderAll();
     }
     setSyncMessage('分析已刷新');
   } catch (error) {
@@ -269,7 +480,8 @@ export async function syncDingTalk() {
         'x-dashboard-action': 'sync',
       },
     });
-    await loadDashboard({ snapshot });
+    invalidateProjectCaches({ catalog: true, drill: true, details: true });
+    await loadDashboard({ snapshot, forceRefresh: true });
     setSyncMessage('已同步');
   } catch (error) {
     console.warn('Dashboard sync failed', error);
@@ -300,7 +512,8 @@ export async function checkForDashboardUpdate() {
   try {
     const nextSnapshot = await fetchJson('/api/snapshot');
     if (shouldReloadDashboard(state.snapshot, nextSnapshot)) {
-      await loadDashboard({ snapshot: nextSnapshot });
+      invalidateProjectCaches({ catalog: true, drill: true, details: true });
+      await loadDashboard({ snapshot: nextSnapshot, forceRefresh: true });
     }
   } catch (error) {
     console.warn('Dashboard update check failed', error);
@@ -321,11 +534,15 @@ export function startAutoUpdateChecks() {
 
 
 export function renderAll() {
-  const { metrics, fullMetrics, projects, snapshot, fieldCatalog } = state;
+  const { metrics, projects, snapshot } = state;
+  const pageId = currentPageId();
   applyDevelopmentDocumentationVisibility();
-  renderOverviewDashboard(metrics, state.profileMetrics.department, projects, snapshot);
-  renderTable(projects);
-  if (currentPageId() === 'teams') {
+
+  if (pageId === 'overview') {
+    renderOverviewDashboard(metrics, state.profileMetrics.department, projects, snapshot);
+  } else if (pageId === 'details') {
+    renderTable(projects);
+  } else if (pageId === 'teams') {
     renderTeamDashboard();
   }
 
@@ -334,4 +551,3 @@ export function renderAll() {
   updateSyncControl();
   updateAnalysisAgentControl();
 }
-

@@ -14,7 +14,6 @@ import {
   teamOwnerDisplayName,
   ensureOwnerReviewControls,
 } from '../domain/personnel.mjs';
-import { riskClass, riskDutyHeadline, collectRiskProjectQueue } from '../domain/metrics-display.mjs';
 import { openProjectDetailByReference } from '../components/project-workbench.mjs';
 import { renderTeamHeroStat } from '../components/team-hero-stat.mjs';
 import { enhanceOwnerReviewSelects, renderFilterSelect } from '../components/filter-bar.mjs';
@@ -23,555 +22,14 @@ const OWNER_REVIEW_STATIC_TEAM_STRUCTURE = {
   owner: '苏佳蕾',
   scopeDescription: '直营硬装 · CD设计师 · 进行中平面方案',
   groups: [
-    { name: '直营1组', members: ['陈菲菲', '乔玲玲', '陈晶晶', '张莹莹', '杨雪倩', '李晓倩'] },
-    { name: '直营2组', members: ['陶媛媛', '梁玉贞', '安灵玲', '何赛平', '左忠淼', '古茂琨', '席创意'] },
-    { name: '直营3组', members: ['杨晓芸', '陈红燕', '臧传宝', '庞小琪', '杨诚', '禹凯鹏', '陈梦然', '占俊鑫'] },
-    { name: '直营4组', members: ['刘雯蓓', '董一凡', '郭后冲', '杨莉', '牛超凡', '侯喆'] },
+    { name: '直营1组', lead: '陈菲菲', members: ['陈菲菲', '乔玲玲', '陈晶晶', '张莹莹', '杨雪倩'] },
+    { name: '直营2组', lead: '陶媛媛', members: ['陶媛媛', '梁玉贞', '安灵玲', '何赛平', '左忠淼', '古茂琨'] },
+    { name: '直营3组', lead: '杨晓芸', members: ['杨晓芸', '陈红燕', '臧传宝', '庞小琪', '禹凯鹏', '陈梦然', '占俊鑫'] },
+    { name: '直营4组', lead: '刘雯蓓', members: ['刘雯蓓', '董一凡', '郭后冲', '杨莉', '牛超凡'] },
   ],
 };
 
 const INACTIVE_OWNER_REVIEW_MEMBERS = new Set(['李晓倩', '席创意', '侯喆']);
-
-export function ownerReviewDateOnlyTime(value) {
-  const text = String(value || '').trim();
-  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) {
-    return NaN;
-  }
-  return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-}
-
-
-export function ownerReviewTodayOnlyTime() {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return ownerReviewDateOnlyTime(`${values.year}-${values.month}-${values.day}`);
-}
-
-
-export function ownerReviewFloorReminder(project = {}) {
-  const hardReminder = project.hardDeadline?.reminder;
-  if (hardReminder && (hardReminder.title || hardReminder.action || hardReminder.type)) {
-    const hardType = String(hardReminder.type || '');
-    const hardFloorPlan = project.hardDeadline?.floorPlan || {};
-    return {
-      title:
-        hardReminder.title ||
-        (hardType.includes('delayed') ? '系统平面 Deadline 已延期' : '系统平面 Deadline 提醒'),
-      action: hardReminder.action || '确认系统 Deadline、责任人和反馈时间',
-      severity: hardReminder.severity || (hardType.includes('delayed') ? 'P1' : 'P2'),
-      dueDate: hardReminder.dueDate || hardFloorPlan.dueDate || project.dueDate || '',
-      warningDate: hardReminder.warningDate || hardFloorPlan.warnDueDate || '',
-      source: hardReminder.source || 'system_deadline',
-      type: hardReminder.type || '',
-    };
-  }
-  const statusText = [
-    project.status,
-    project.state,
-    project.riskLevel,
-    project.reason,
-    project.stage,
-  ]
-    .filter(Boolean)
-    .join(' ');
-  if (/延期|逾期|超期|滞后/.test(statusText)) {
-    return {
-      title: '责任内平面延期',
-      action: '确认平面延期原因和反馈时间',
-      severity: 'P1',
-    };
-  }
-  if (/紧急|临期/.test(statusText)) {
-    return {
-      title: '责任内平面临期',
-      action: '确认卡点和当日可交付动作',
-      severity: 'P1',
-    };
-  }
-  const dueTime = ownerReviewDateOnlyTime(project.dueDate);
-  if (Number.isNaN(dueTime)) {
-    return null;
-  }
-  const todayTime = ownerReviewTodayOnlyTime();
-  if (Number.isNaN(todayTime)) {
-    return null;
-  }
-  const diffDays = Math.floor((dueTime - todayTime) / 86400000);
-  if (diffDays < 0) {
-    return {
-      title: '责任内平面超期',
-      action: '确认是否已完成并补反馈时间',
-      severity: 'P1',
-    };
-  }
-  if (diffDays <= 3) {
-    return {
-      title: '责任内平面临期',
-      action: '确认三天内能否按时收口',
-      severity: 'P2',
-    };
-  }
-  return null;
-}
-
-
-export function ownerReviewFloorReminderRows(groups = []) {
-  const rows = [];
-  for (const group of groups) {
-    for (const { person } of group.allRows || []) {
-      for (const project of person.floorPlan?.active || []) {
-        const reminder = ownerReviewFloorReminder(project);
-        if (!reminder) {
-          continue;
-        }
-        rows.push({
-          id: project.projectId || '',
-          name: project.projectName || project.storeName || project.projectId || '未命名平面项目',
-          status: project.status || ownerReviewMemberStateLabel(project.state) || '推进中',
-          dueDate: reminder.dueDate || project.hardDeadline?.floorPlan?.dueDate || project.dueDate || '',
-          warningDate: reminder.warningDate || project.hardDeadline?.floorPlan?.warnDueDate || '',
-          groupName: group.name || person.groupName || '',
-          personName: person.displayName || person.name || '',
-          title: reminder.title,
-          action: reminder.action,
-          severity: reminder.severity,
-          source: reminder.source || '',
-          type: reminder.type || '',
-        });
-      }
-    }
-  }
-  return rows.sort((a, b) => {
-    const severityDiff = String(a.severity).localeCompare(String(b.severity));
-    if (severityDiff) {
-      return severityDiff;
-    }
-    const aDue = ownerReviewDateOnlyTime(a.dueDate);
-    const bDue = ownerReviewDateOnlyTime(b.dueDate);
-    if (!Number.isNaN(aDue) && !Number.isNaN(bDue) && aDue !== bDue) {
-      return aDue - bDue;
-    }
-    return String(a.name).localeCompare(String(b.name), 'zh-Hans-CN');
-  });
-}
-
-
-export function ownerReviewDispatchStats(review = state.ownerReview) {
-  if (!review?.owner || state.ownerReviewLoading || state.ownerReviewError) {
-    return null;
-  }
-  const groups = ownerReviewFloorLoadGroups(review);
-  if (!groups.length) {
-    return null;
-  }
-  const stats = ownerReviewDecisionStats(groups, review);
-  const highRiskGroup =
-    stats.highRiskGroup &&
-    (stats.highRiskGroup.attentionCount || ['busy', 'overloaded'].includes(stats.highRiskGroup.loadLevel?.key))
-      ? stats.highRiskGroup
-      : null;
-  const floorReminderRows = ownerReviewFloorReminderRows(groups);
-  const totals = groups.reduce(
-    (acc, group) => {
-      acc.floorActive += group.allTotals?.floorActive || 0;
-      acc.occupied += group.allTotals?.occupied || 0;
-      acc.memberCount += group.memberCount || 0;
-      acc.groupCount += 1;
-      return acc;
-    },
-    { floorActive: 0, occupied: 0, memberCount: 0, groupCount: 0 }
-  );
-  return {
-    ownerName: teamOwnerDisplayName(review.owner || resolveOwnerReviewOwner()),
-    groups,
-    urgentRows: stats.urgentRows || [],
-    availableRows: stats.availableRows || [],
-    highRiskGroup,
-    anomalyCount: stats.anomalyCount || 0,
-    floorReminderRows,
-    ...totals,
-  };
-}
-
-
-export function pendingOwnerReviewDispatchStats() {
-  return {
-    pending: true,
-    ownerName: teamOwnerDisplayName(resolveOwnerReviewOwner() || resolveTeamOwner()),
-    groups: [],
-    urgentRows: [],
-    availableRows: [],
-    highRiskGroup: null,
-    anomalyCount: 0,
-    floorReminderRows: [],
-    floorActive: 0,
-    occupied: 0,
-    memberCount: 0,
-    groupCount: 0,
-  };
-}
-
-
-export function ownerReviewDispatchNamePreview(rows = [], fallback = '') {
-  const names = rows
-    .map(({ person }) => person?.displayName || person?.name || '')
-    .filter(Boolean);
-  const visible = names.slice(0, 2).join('、');
-  const extra = Math.max(0, names.length - 2);
-  if (visible && extra) {
-    return `${visible} 等 ${names.length} 人`;
-  }
-  return visible || fallback;
-}
-
-
-export function buildDailyDispatchActions(dispatchStats) {
-  if (!dispatchStats) {
-    return [];
-  }
-  const actions = [];
-  const urgentNames = ownerReviewDispatchNamePreview(dispatchStats.urgentRows, '暂无过载成员');
-  const availableNames = ownerReviewDispatchNamePreview(dispatchStats.availableRows, '暂无可调配人手');
-  const floorReminderRows = dispatchStats.floorReminderRows || [];
-  if (dispatchStats.pending) {
-    actions.push({
-      tone: 'check',
-      title: '等待团队负载同步',
-      body: '团队负载同步后再确认是否需要调人支援；同步前不使用全局项目队列做调度判断。',
-      meta: '团队负载待同步',
-    });
-    return actions;
-  }
-  if (dispatchStats.urgentRows.length) {
-    actions.push({
-      tone: 'must',
-      title: '先调度过载成员',
-      body: `${urgentNames} 当前平面已到过载，先拆分承接或指定支援人。`,
-      meta: `${dispatchStats.urgentRows.length} 人需立即干预`,
-    });
-  }
-  if (dispatchStats.highRiskGroup) {
-    actions.push({
-      tone: 'must',
-      title: `复盘 ${dispatchStats.highRiskGroup.name}`,
-      body: `${dispatchStats.highRiskGroup.suggestion}，先看组内成员分布、异常和可承接人手。`,
-      meta: `${dispatchStats.highRiskGroup.allTotals?.floorActive || 0} 项当前平面`,
-    });
-  }
-  if (floorReminderRows.length) {
-    const preview = floorReminderRows
-      .slice(0, 2)
-      .map((row) => row.name)
-      .join('、');
-    actions.push({
-      tone: 'must',
-      title: '核对责任内平面提醒',
-      body: `${preview}${floorReminderRows.length > 2 ? ` 等 ${floorReminderRows.length} 项` : ''} 属于当前成员平面负载，先确认延期/临期原因和反馈时间。`,
-      meta: `${floorReminderRows.length} 项延期 / 临期`,
-    });
-  }
-  if (dispatchStats.availableRows.length) {
-    actions.push({
-      tone: 'calm',
-      title: '保留可调配人手',
-      body: `${availableNames} 可作为支援或承接候选；当前 ${dispatchStats.floorActive} 项平面、${dispatchStats.occupied}/${dispatchStats.memberCount} 人占用，真实负载不高时先保留弹性。`,
-      meta: `${dispatchStats.availableRows.length} 人可调配`,
-    });
-  }
-  if (dispatchStats.anomalyCount) {
-    actions.push({
-      tone: 'check',
-      title: '数据只做核对',
-      body: `${dispatchStats.anomalyCount} 条异常先核来源字段，不直接当成真实负载或责任裁决。`,
-      meta: '不进真实负载判断',
-    });
-  }
-  if (!actions.length) {
-    actions.push({
-      tone: 'calm',
-      title: '保持常规巡检',
-      body: '当前团队没有过载成员，也没有责任内平面延期/临期提醒；保留可承接人手即可。',
-      meta: '暂无调度动作',
-    });
-  }
-  return actions.slice(0, 5);
-}
-
-
-export function renderDailyDispatchActions(actions = []) {
-  if (!actions.length) {
-    return '';
-  }
-  return `
-    <ul class="risk-duty-advice-list risk-dispatch-action-list">
-      ${actions
-        .map(
-          (action, index) => `
-            <li class="risk-duty-advice-card is-${escapeHtml(action.tone || 'calm')}">
-              <b class="risk-duty-advice-index">${escapeHtml(index + 1)}</b>
-              <span class="risk-duty-advice-copy">
-                <span class="risk-duty-advice-head">
-                  <b>${escapeHtml(action.meta || '今日动作')}</b>
-                  <strong>${escapeHtml(action.title)}</strong>
-                </span>
-                <p>${escapeHtml(action.body)}</p>
-              </span>
-            </li>
-          `
-        )
-        .join('')}
-    </ul>
-  `;
-}
-
-
-export function riskProjectSupportMeta(project = {}) {
-  const fieldLabel = riskFieldDisplayLabel(project.field || '');
-  const fieldValue = humanizeRiskText(project.value || '');
-  const meta = humanizeRiskText(project.meta || '');
-  const dueDate = project.dueDate ? formatDate(project.dueDate) : '';
-  const metaParts = meta
-    .split(' · ')
-    .map((item) => item.trim())
-    .filter(
-      (item) =>
-        item &&
-        item !== project.province &&
-        item !== project.status &&
-        item !== project.owner &&
-        item !== dueDate
-    );
-  const detail = fieldLabel && fieldValue ? `${fieldLabel}：${fieldValue}` : metaParts.slice(0, 2).join(' · ');
-  return Array.from(new Set([
-    project.province,
-    project.status,
-    detail,
-  ].filter(Boolean))).join(' · ');
-}
-
-
-export function renderRiskActionTabs(tabs = []) {
-  if (!tabs.length) {
-    return '';
-  }
-  return `
-    <div class="risk-action-tabs" aria-label="今日动作摘要">
-      ${tabs
-        .map(
-          (tab) => `
-            <div class="risk-action-tab is-${escapeHtml(tab.tone || 'normal')}">
-              <span>${escapeHtml(tab.label)}</span>
-              <strong>${escapeHtml(tab.count)}</strong>
-              ${tab.caption ? `<small>${escapeHtml(tab.caption)}</small>` : ''}
-            </div>
-          `
-        )
-        .join('')}
-    </div>
-  `;
-}
-
-
-export function buildRiskActionTabs({
-  queueCount = 0,
-  urgentCount = 0,
-  openDelayedCount = 0,
-  highRiskCount = 0,
-  startLagCount = 0,
-  dispatchStats = null,
-} = {}) {
-  const immediateCount = urgentCount + openDelayedCount;
-  if (dispatchStats) {
-    const floorReminderCount = dispatchStats.floorReminderRows?.length || 0;
-    return [
-      {
-        label: '当前平面',
-        count: dispatchStats.floorActive,
-        caption: dispatchStats.pending ? '待同步' : `${dispatchStats.occupied}/${dispatchStats.memberCount} 人占用`,
-        tone: dispatchStats.pending ? 'check' : dispatchStats.floorActive ? 'all' : 'muted',
-      },
-      {
-        label: '需调度人手',
-        count: dispatchStats.urgentRows.length,
-        caption: dispatchStats.pending ? '待同步' : dispatchStats.urgentRows.length ? '过载成员' : '暂无过载',
-        tone: dispatchStats.pending ? 'check' : dispatchStats.urgentRows.length ? 'hot' : 'muted',
-      },
-      {
-        label: '可调配人手',
-        count: dispatchStats.availableRows.length,
-        caption: dispatchStats.pending ? '待同步' : '空闲或正常',
-        tone: 'ready',
-      },
-      {
-        label: '责任内提醒',
-        count: floorReminderCount,
-        caption: floorReminderCount ? '延期 / 临期' : '暂无延期',
-        tone: floorReminderCount ? 'check' : 'muted',
-      },
-      {
-        label: '数据核对',
-        count: dispatchStats.anomalyCount,
-        caption: '不计真实负载',
-        tone: dispatchStats.anomalyCount ? 'check' : 'muted',
-      },
-    ];
-  }
-  return [
-    { label: '今日任务', count: queueCount, caption: '逐店收口', tone: 'all' },
-    immediateCount
-      ? { label: '先插手', count: immediateCount, caption: '紧急 / 延期', tone: 'hot' }
-      : null,
-    startLagCount
-      ? { label: '排期待确认', count: startLagCount, caption: '定责任与时间', tone: 'check' }
-      : null,
-    !immediateCount && highRiskCount
-      ? { label: '高风险', count: highRiskCount, caption: '判断交付影响', tone: 'hot' }
-      : null,
-  ].filter(Boolean).filter((tab, index) => index === 0 || Number(tab.count) > 0);
-}
-
-
-export function renderRiskActionRow(project = {}, index = 0, { overflow = false } = {}) {
-  const severity = String(project.severity || 'P3').toLowerCase();
-  const meta = riskProjectSupportMeta(project);
-  const owner = project.owner || '待补责任人';
-  const dueDate = project.dueDate ? formatDate(project.dueDate) : '--';
-  const reason = humanizeRiskText(project.title || riskCategoryLabel(project.category));
-  const action = riskProjectNextAction(project);
-  const projectId = project.id || '';
-  const interactiveAttrs = projectId
-    ? ` role="button" tabindex="0" data-risk-project-id="${escapeHtml(projectId)}" data-risk-project-name="${escapeHtml(project.name)}" data-risk-action="${escapeHtml(action)}" data-risk-reason="${escapeHtml(reason)}" data-risk-meta="${escapeHtml(meta)}" data-risk-owner="${escapeHtml(owner)}" data-risk-due="${escapeHtml(dueDate)}" aria-label="查看 ${escapeHtml(project.name)} 项目详情"`
-    : '';
-  return `
-    <tr class="risk-action-row is-${escapeHtml(severity)}${projectId ? ' is-clickable' : ''}${overflow ? ' is-overflow' : ''}"${interactiveAttrs}>
-      <td class="risk-action-rank">${escapeHtml(index + 1)}</td>
-      <td class="risk-action-project">
-        <strong title="${escapeHtml(project.name)}">${escapeHtml(project.name)}</strong>
-        ${meta ? `<small>${escapeHtml(meta)}</small>` : ''}
-      </td>
-      <td class="risk-action-command">
-        <b>${escapeHtml(action)}</b>
-        <small>${escapeHtml(reason)}</small>
-      </td>
-      <td>${escapeHtml(owner)}</td>
-      <td class="risk-action-due">
-        <span>${escapeHtml(dueDate)}</span>
-        ${projectId ? '<em>查看详情</em>' : ''}
-      </td>
-    </tr>
-  `;
-}
-
-
-export function renderRiskProjectQueue(items = [], projects = [], { limit = 6, queue: providedQueue } = {}) {
-  const queue = Array.isArray(providedQueue) ? providedQueue : collectRiskProjectQueue(items, projects);
-  if (!queue.length) {
-    return '<div class="risk-diagnosis-empty">当前没有需要今日处理的项目。</div>';
-  }
-  const visible = queue.slice(0, limit);
-  const overflow = queue.slice(limit);
-  const overflowId = 'riskProjectOverflowList';
-  const collapsedLabel = `展开全部 ${queue.length} 项处理动作`;
-  const expandedLabel = '收起项目';
-  const collapsedStatus = `另有 ${overflow.length} 项已收起，展开后仍按同一张表处理。`;
-  const expandedStatus = `已展开全部 ${queue.length} 项处理动作，按当前排序逐项收口。`;
-  return `
-    <div class="risk-action-table-shell">
-      <table class="risk-action-table">
-        <thead>
-          <tr>
-            <th>优先级</th>
-            <th>对象</th>
-            <th>今日动作</th>
-            <th>责任人</th>
-            <th>最晚反馈</th>
-          </tr>
-        </thead>
-        <tbody id="${escapeHtml(overflowId)}">
-          ${visible.map((project, index) => renderRiskActionRow(project, index)).join('')}
-          ${overflow.map((project, index) => renderRiskActionRow(project, index + limit, { overflow: true })).join('')}
-        </tbody>
-      </table>
-    </div>
-    ${
-      overflow.length
-        ? `
-          <p
-            class="risk-diagnosis-more"
-            data-risk-queue-status
-            data-collapsed-status="${escapeHtml(collapsedStatus)}"
-            data-expanded-status="${escapeHtml(expandedStatus)}"
-          >${escapeHtml(collapsedStatus)}</p>
-          <button
-            type="button"
-            class="risk-secondary-action"
-            data-risk-queue-toggle
-            data-collapsed-label="${escapeHtml(collapsedLabel)}"
-            data-expanded-label="${escapeHtml(expandedLabel)}"
-            aria-expanded="false"
-            aria-controls="${escapeHtml(overflowId)}"
-          >${escapeHtml(collapsedLabel)}</button>
-        `
-        : ''
-    }
-  `;
-}
-
-
-export function renderOwnerReviewFloorReminderQueue(rows = [], { pending = false } = {}) {
-  if (pending) {
-    return '<div class="risk-diagnosis-empty">团队负载同步后再生成责任内平面提醒。</div>';
-  }
-  if (!rows.length) {
-    return '<div class="risk-diagnosis-empty">当前团队责任内平面暂无延期/临期提醒。</div>';
-  }
-  return `
-    <div class="risk-action-table-shell">
-      <table class="risk-action-table">
-        <thead>
-          <tr>
-            <th>优先级</th>
-            <th>对象</th>
-            <th>今日动作</th>
-            <th>责任人</th>
-            <th>最晚反馈</th>
-          </tr>
-        </thead>
-        <tbody id="ownerReviewFloorReminderList">
-          ${rows
-            .map(
-              (row, index) => `
-                <tr class="risk-action-row is-${escapeHtml(String(row.severity || 'P2').toLowerCase())}">
-                  <td class="risk-action-rank">${escapeHtml(index + 1)}</td>
-                  <td class="risk-action-project">
-                    <strong title="${escapeHtml(row.name)}">${escapeHtml(row.name)}</strong>
-                    <small>${escapeHtml([row.groupName, row.status].filter(Boolean).join(' · '))}</small>
-                  </td>
-                  <td class="risk-action-command">
-                    <b>${escapeHtml(row.action)}</b>
-                    <small>${escapeHtml(row.title)}</small>
-                  </td>
-                  <td>${escapeHtml(row.personName || '团队成员')}</td>
-                  <td class="risk-action-due">
-                    <span>${escapeHtml(row.dueDate ? formatDate(row.dueDate) : '--')}</span>
-                    <em>当前平面</em>
-                  </td>
-                </tr>
-              `
-            )
-            .join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
 
 export function isInactiveOwnerReviewMember(name) {
   return INACTIVE_OWNER_REVIEW_MEMBERS.has(String(name || '').trim());
@@ -806,7 +264,7 @@ export function normalizeOwnerReviewStructureGroups(groups = []) {
         }
         return String(member?.name || member?.displayName || '').trim();
       })
-      .filter(Boolean);
+      .filter((name) => Boolean(name) && !isInactiveOwnerReviewMember(name));
     if (members.length) {
       normalized.push({
         name: String(group.name || fallbackName || '未命名小组').trim(),
@@ -1045,6 +503,24 @@ export function renderOwnerReviewTeamStructure(review = state.ownerReview) {
       ${groupsMarkup}
     </article>
   `;
+}
+
+
+function renderOwnerReviewTeamStructureStatus(title, description = '') {
+  if (!elements.ownerReviewTeamStructure) {
+    return;
+  }
+  elements.ownerReviewTeamStructure.innerHTML = renderEmptyState({
+    title,
+    description,
+    compact: true,
+  });
+}
+
+
+function ownerReviewLoadErrorDescription(fallback = '请稍后刷新当前页面。') {
+  const errorText = String(state.ownerReviewError || state.ownerReviewRefreshError || '').trim();
+  return errorText ? `${fallback} 错误：${errorText}` : fallback;
 }
 
 
@@ -2488,6 +1964,10 @@ export function renderOwnerReviewDashboard() {
   syncOwnerReviewLoadControls();
   const ownerName = teamOwnerDisplayName(resolveOwnerReviewOwner());
   if (state.ownerReviewLoading) {
+    renderOwnerReviewTeamStructureStatus(
+      '正在读取团队负载',
+      ownerName ? `${ownerName} 的成员负载加载中。` : '团队负载加载中。'
+    );
     elements.ownerReviewTitle.textContent = '团队负载工作台';
     elements.ownerReviewHeadline.innerHTML = `
       <span class="team-refresh-chip">
@@ -2519,19 +1999,20 @@ export function renderOwnerReviewDashboard() {
     return;
   }
   if (state.ownerReviewError) {
+    renderOwnerReviewTeamStructureStatus('团队负载加载失败', ownerReviewLoadErrorDescription());
     elements.ownerReviewHeadline.textContent = '';
     elements.ownerReviewHeroStats.innerHTML = '';
     if (elements.ownerReviewResponsibilityMatrix) {
       elements.ownerReviewResponsibilityMatrix.innerHTML = renderEmptyState({
         title: '团队负载加载失败',
-        description: '请稍后刷新当前页面。',
+        description: ownerReviewLoadErrorDescription(),
         compact: true,
       });
     }
     if (elements.ownerReviewDecisionSummary) {
       elements.ownerReviewDecisionSummary.innerHTML = renderEmptyState({
         title: '团队负载同步失败',
-        description: '保留旧数据时请优先核对最后一次成功同步时间。',
+        description: ownerReviewLoadErrorDescription('保留旧数据时请优先核对最后一次成功同步时间。'),
         compact: true,
       });
     }
@@ -2549,6 +2030,7 @@ export function renderOwnerReviewDashboard() {
   }
   const review = state.ownerReview;
   if (!review?.owner) {
+    renderOwnerReviewTeamStructureStatus('暂无负责人数据', '请选择负责人后查看团队负载。');
     elements.ownerReviewHeadline.textContent = '';
     elements.ownerReviewHeroStats.innerHTML = '';
     if (elements.ownerReviewResponsibilityMatrix) {
@@ -2602,18 +2084,18 @@ export function renderOwnerReviewDashboard() {
   renderOwnerReviewGroupMatrix(loadReview);
   renderOwnerReviewRulebook();
   renderOwnerReviewPersonRows(loadReview);
-  if (currentPageId() === 'teams' && state.teamMetrics?.riskHealthAnalysis) {
-    renderTeamDataHealth(state.teamMetrics);
-  }
 }
 
 
 export function handleOwnerReviewContextClick(event) {
   const button = event.target.closest('[data-owner-review-context]');
   if (!button) {
-    return;
+    return null;
   }
-  navigateToOwnerReview(resolveOwnerReviewOwner(), button.dataset.ownerReviewContext || '');
+  const dashboardContext = button.dataset.ownerReviewContext || '';
+  const owner = resolveOwnerReviewOwner();
+  navigateToOwnerReview(owner, dashboardContext);
+  return { owner, dashboardContext };
 }
 
 

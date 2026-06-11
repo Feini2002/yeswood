@@ -23,6 +23,7 @@ import {
   matchesOwnerMonthlyTier,
   matchesStoreSegment,
   isOtherStoreTierKey,
+  hasClassifiableStoreStatus,
   readStoreTier,
   readStoreNatureKey,
   readWorkflowStage,
@@ -69,6 +70,9 @@ export function matchesTier(project, tier, options = {}) {
   }
   if (!tier || tier === 'all') {
     return true;
+  }
+  if (!hasClassifiableStoreStatus(project)) {
+    return false;
   }
   if (options.profileId === 'ownerMonthly') {
     return matchesOwnerMonthlyTier(project, tier);

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { Worker } from 'node:worker_threads';
 
 import { getConfig } from './config.mjs';
 import { openInitializedDatabase } from './database.mjs';
@@ -17,7 +18,14 @@ import {
 import {
   seedPersonnelDatabase,
 } from './personnelRepository.mjs';
-import { databaseHasProjects, importSnapshotToDatabase, readSnapshotFromDatabase } from './projectRepository.mjs';
+import {
+  databaseHasProjects,
+  importSnapshotToDatabase,
+  readSnapshotFromDatabase,
+  scheduleSplitOwnerResponsibilityRefresh,
+} from './projectRepository.mjs';
+import { logger } from './logger.mjs';
+import { hasCompletePrecompute, precomputeSnapshotHash, precomputeTeamDashboards } from './precomputeTeamDashboards.mjs';
 import { readPersonnelArchitecture } from './personnelArchitecture.mjs';
 import { readSnapshot, writeSnapshot } from './storage.mjs';
 
@@ -45,6 +53,12 @@ function snapshotCacheKey(config = getConfig()) {
 export function clearSnapshotCache(config = getConfig()) {
   config.snapshotCache = null;
   config.snapshotCachePromise = null;
+  config.metricsResponseCache = null;
+  config.projectsIdsCache = null;
+  config.teamMetricsCache = null;
+  config.teamWorkCompletionCache = null;
+  config.teamResponsibilityReviewCache = null;
+  config.precomputeIndex = null;
 }
 
 export function createProjectSnapshot({
@@ -155,6 +169,122 @@ export async function readConfiguredPersonnelArchitecture(config = getConfig()) 
   }
 }
 
+function precomputeWorkerConfig(config = {}) {
+  return {
+    dataDir: config.dataDir,
+    databaseFile: config.databaseFile,
+    precomputeDir: config.precomputeDir,
+    precomputeRetainedVersions: config.precomputeRetainedVersions,
+  };
+}
+
+function createPrecomputeWorker(snapshot, config = {}, snapshotHash = '') {
+  const worker = new Worker(new URL('./precomputeWorker.mjs', import.meta.url), {
+    workerData: {
+      snapshot,
+      config: precomputeWorkerConfig(config),
+    },
+  });
+  const promise = new Promise((resolve, reject) => {
+    let settled = false;
+    worker.once('message', (message) => {
+      settled = true;
+      if (message?.ok) {
+        resolve(message);
+        return;
+      }
+      reject(new Error(message?.message || 'Dashboard precompute failed'));
+    });
+    worker.once('error', (error) => {
+      if (!settled) {
+        reject(error);
+      }
+    });
+    worker.once('exit', (code) => {
+      if (!settled && code && code !== 0) {
+        reject(new Error(`Dashboard precompute worker exited with code ${code}`));
+      }
+    });
+  }).finally(() => {
+    config.precomputePromises?.delete?.(snapshotHash);
+  });
+  if (!config.precomputePromises) {
+    config.precomputePromises = new Map();
+  }
+  config.precomputePromises.set(snapshotHash, promise);
+  return { worker, promise };
+}
+
+function startPrecomputeWorker(snapshot, config = {}, snapshotHash = '') {
+  const { worker, promise } = createPrecomputeWorker(snapshot, config, snapshotHash);
+  promise
+    .then((message) => {
+      logger.info('Dashboard precompute finished', {
+        snapshotHash: message.snapshotHash,
+        features: message.features,
+      });
+    })
+    .catch((error) => {
+      logger.warn('Dashboard precompute failed', { message: error?.message || String(error) });
+      config.precomputeScheduledHashes?.delete?.(snapshotHash);
+    });
+  worker.unref?.();
+  return worker;
+}
+
+function scheduleDashboardPrecompute(snapshot, config = getConfig()) {
+  if (config.precomputeEnabled === false) {
+    return null;
+  }
+  const architecture = snapshot.personnelArchitecture || {};
+  const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
+  if (!config.precomputeScheduledHashes) {
+    config.precomputeScheduledHashes = new Set();
+  }
+  if (config.precomputeScheduledHashes.has(snapshotHash)) {
+    return null;
+  }
+  config.precomputeScheduledHashes.add(snapshotHash);
+  const run = async () => {
+    try {
+      return await precomputeTeamDashboards(snapshot, { config });
+    } catch (error) {
+      config.precomputeScheduledHashes?.delete?.(snapshotHash);
+      throw error;
+    }
+  };
+  if (typeof config.precomputeScheduler === 'function') {
+    config.precomputeScheduler(run);
+    return null;
+  }
+  return startPrecomputeWorker(snapshot, config, snapshotHash);
+}
+
+export async function ensureDashboardPrecompute(snapshot, config = getConfig()) {
+  if (config.precomputeEnabled === false) {
+    return null;
+  }
+  const architecture = snapshot.personnelArchitecture || {};
+  const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
+  const cachedManifest = hasCompletePrecompute(snapshot, config);
+  if (cachedManifest) {
+    return cachedManifest;
+  }
+  const existingPromise = config.precomputePromises?.get?.(snapshotHash);
+  if (existingPromise) {
+    return existingPromise;
+  }
+  if (typeof config.precomputeScheduler === 'function') {
+    return precomputeTeamDashboards(snapshot, { config });
+  }
+  if (!config.precomputeScheduledHashes) {
+    config.precomputeScheduledHashes = new Set();
+  }
+  config.precomputeScheduledHashes.add(snapshotHash);
+  const { promise } = createPrecomputeWorker(snapshot, config, snapshotHash);
+  return promise;
+}
+
 export async function syncProjects({ config = getConfig(), source = config.mode } = {}) {
   let records;
 
@@ -196,11 +326,13 @@ export async function syncProjects({ config = getConfig(), source = config.mode 
       };
       const writtenSnapshot = await writeSnapshot(config.cacheFile, refreshedSnapshot);
       clearSnapshotCache(config);
+      scheduleDashboardPrecompute(writtenSnapshot, config);
       return writtenSnapshot;
     }
 
     const writtenSnapshot = await writeSnapshot(config.cacheFile, snapshot);
     clearSnapshotCache(config);
+    scheduleDashboardPrecompute(writtenSnapshot, config);
     return writtenSnapshot;
   } finally {
     database?.close();
@@ -213,7 +345,10 @@ async function readCurrentSnapshot(config = getConfig()) {
     const database = openInitializedDatabase(config.databaseFile);
     try {
       if (databaseHasProjects(database)) {
-        return readSnapshotFromDatabase(database, { personnelArchitecture });
+        const snapshot = readSnapshotFromDatabase(database, { personnelArchitecture });
+        scheduleSplitOwnerResponsibilityRefresh(config, snapshot.projects);
+        scheduleDashboardPrecompute(snapshot, config);
+        return snapshot;
       }
     } finally {
       database.close();
@@ -222,7 +357,9 @@ async function readCurrentSnapshot(config = getConfig()) {
 
   const snapshot = await readSnapshot(config.cacheFile);
   if (snapshot) {
-    return normalizeSnapshot(snapshot, config, personnelArchitecture);
+    const normalizedSnapshot = normalizeSnapshot(snapshot, config, personnelArchitecture);
+    scheduleDashboardPrecompute(normalizedSnapshot, config);
+    return normalizedSnapshot;
   }
 
   if (config.mode === 'mock') {

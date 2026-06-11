@@ -1,5 +1,6 @@
 import { state } from '../lib/state.mjs';
 import { elements } from '../lib/dom.mjs';
+import { runtimeStore } from '../lib/runtime-flags.mjs';
 import { escapeHtml, displayOrDash, formatDate, formatDateTime } from '../lib/format.mjs';
 import {
   isSleepStoreProject,
@@ -361,6 +362,51 @@ export function renderProjectHardDeadlineSummary(project = {}) {
 }
 
 
+export function renderProjectDetailModalLoading(project = {}) {
+  if (!elements.projectDetailModal || !elements.projectDetailModalBody) {
+    return;
+  }
+
+  elements.projectDetailModalBody.innerHTML = `
+    <header class="project-detail-hero">
+      <div>
+        <p class="eyebrow">单项项目</p>
+        <h3 id="projectDetailTitle" title="${escapeHtml(project.name || '')}">${escapeHtml(project.name || '未命名项目')}</h3>
+      </div>
+    </header>
+    ${renderProjectDetailContext(state.projectDetailContext)}
+    <div class="project-detail-empty project-detail-loading" role="status" aria-live="polite">
+      <strong>正在加载项目明细</strong>
+      <span>正在读取完整字段，请稍候…</span>
+    </div>
+  `;
+  elements.projectDetailModal.hidden = false;
+}
+
+
+export function renderProjectDetailModalLoadError(project = {}, error = null) {
+  if (!elements.projectDetailModal || !elements.projectDetailModalBody) {
+    return;
+  }
+
+  const message = error?.message ? String(error.message) : '项目明细暂时无法读取，请稍后重试。';
+  elements.projectDetailModalBody.innerHTML = `
+    <header class="project-detail-hero">
+      <div>
+        <p class="eyebrow">单项项目</p>
+        <h3 id="projectDetailTitle" title="${escapeHtml(project.name || '')}">${escapeHtml(project.name || '未命名项目')}</h3>
+      </div>
+    </header>
+    ${renderProjectDetailContext(state.projectDetailContext)}
+    <div class="project-detail-empty project-detail-loading is-error" role="alert">
+      <strong>项目明细加载失败</strong>
+      <span>${escapeHtml(message)}</span>
+    </div>
+  `;
+  elements.projectDetailModal.hidden = false;
+}
+
+
 export function renderProjectDetailModal(project) {
   if (!elements.projectDetailModal || !elements.projectDetailModalBody || !project) {
     return;
@@ -390,7 +436,6 @@ export function renderProjectDetailModal(project) {
     ${renderProjectDetailContext(state.projectDetailContext)}
     ${assignmentReminder}
     ${fieldGapReminder}
-    ${renderProjectHardDeadlineSummary(project)}
     <div class="project-detail-meta">
       ${metaItems
         .map(
@@ -420,6 +465,7 @@ export function renderProjectDetailModal(project) {
 
 
 export function closeProjectDetailModal() {
+  runtimeStore.projectDetailRequestId += 1;
   if (elements.projectDetailModal) {
     elements.projectDetailModal.hidden = true;
   }

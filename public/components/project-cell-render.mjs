@@ -67,6 +67,13 @@ export function renderProjectKeyDateStack(project, title = '') {
           const trackLabel = projectReminderTrackLabel(keyDate);
           const dateText = keyDate.missing ? keyDate.message || '待填' : keyDate.formatted === '--' ? keyDate.message || '待填' : keyDate.formatted;
           const missingClass = keyDate.missing ? ' is-missing' : '';
+          if (keyDate.missing) {
+            return `
+              <span class="project-key-date${missingClass}">
+                <em>${escapeHtml(dateText)}</em>
+              </span>
+            `;
+          }
           return `
             <span class="project-key-date${missingClass}">
               <small class="project-key-date-label">${escapeHtml(keyDate.label || trackLabel)}</small>

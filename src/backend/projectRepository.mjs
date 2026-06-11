@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 
+import { getConfig } from './config.mjs';
+import { openInitializedDatabase } from './database.mjs';
 import {
   calculateDashboardMetrics,
   createFieldCatalog,
@@ -167,6 +169,32 @@ function refreshSplitOwnerResponsibilitiesIfNeeded(database, projects) {
     return;
   }
   rebuildProjectResponsibilities(database, projects, `local-responsibility-refresh-${nowIso()}`);
+}
+
+export function scheduleSplitOwnerResponsibilityRefresh(config = getConfig(), projects = []) {
+  if (!config?.databaseFile || !Array.isArray(projects) || !projects.length || config.splitOwnerRefreshInFlight) {
+    return;
+  }
+  if (!hasSplitOwnerFields(projects)) {
+    return;
+  }
+
+  config.splitOwnerRefreshInFlight = true;
+  setImmediate(() => {
+    let database;
+    try {
+      database = openInitializedDatabase(config.databaseFile);
+      if (splitOwnerAssignmentsComplete(database, projects)) {
+        return;
+      }
+      rebuildProjectResponsibilities(database, projects, `local-responsibility-refresh-${nowIso()}`);
+    } catch (error) {
+      logger.warn(`Split owner responsibility refresh failed: ${error.message}`);
+    } finally {
+      database?.close();
+      config.splitOwnerRefreshInFlight = false;
+    }
+  });
 }
 
 function existingProjectByRecordId(database, dingtalkRecordId) {
@@ -523,7 +551,6 @@ export function readSnapshotFromDatabase(database, { personnelArchitecture = {} 
 function enrichMetricsFromDatabase(database, projects, { personnelArchitecture = {} } = {}) {
   const metrics = calculateDashboardMetrics(projects, { personnelArchitecture });
   try {
-    refreshSplitOwnerResponsibilitiesIfNeeded(database, projects);
     const databasePersonnel = aggregatePersonnelStatsFromDatabase(database, { personnelArchitecture });
     const hasDatabaseAssignments =
       Number(databasePersonnel.summary?.coveredProjects || 0) > 0 ||

@@ -70,8 +70,8 @@
 
 - [x] 7.1 Run full `node --test`.
 - [x] 7.2 Confirm the targeted frontend test command passes after the final split.
-- [ ] 7.3 Manually verify the 2K desktop flows listed in `docs/handbook/frontend-split-plan.md`.
+- [x] 7.3 Manually verify the 2K desktop flows listed in `docs/handbook/frontend-split-plan.md`. Evidence recorded in `docs/STATUS.md` recent verification notes (2026-06-09).
 - [x] 7.4 Run `openspec validate split-frontend-monolith` and `openspec validate --all`.
-- [ ] 7.5 Archive the change only after implementation is complete and verified.
+- [x] 7.5 Archive the change only after implementation is complete and verified.
 
-Note: 7.3 remains open in this cleanup pass because no persistent dev server/browser session was kept running under the service anti-hang rules.
+Note: Archived 2026-06-09 after 2K walkthrough and refreshed test evidence.

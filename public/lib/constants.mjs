@@ -2,6 +2,7 @@ export const DASHBOARD_CONTEXTS = new Set(['all', 'franchise', 'direct']);
 export const DEVELOPMENT_ONLY_PAGES = new Set(['rules', 'developer-docs']);
 export const FILTERABLE_PAGES = new Set(['details']);
 export const TEAM_OWNER_STORAGE_KEY = 'teamDashboardOwner';
+export const TEAM_WORK_COMPLETION_CACHE_LIMIT = 12;
 
 export function normalizeDashboardContext(value = '') {
   return DASHBOARD_CONTEXTS.has(value) ? value : '';
@@ -169,6 +170,16 @@ export const PROFILE_SCOPE_SEGMENT_METRICS = [
 ];
 
 export const HIDDEN_FILTER_VALUES = new Set(['未填写', '未填入']);
+
+/** 来源店态未填时不参与店态分类展示（矩阵、排行、tier 聚合），但项目仍保留在本地库与其他模块。 */
+export function isHiddenFilterValue(value) {
+  const label = String(value ?? '').trim();
+  return !label || HIDDEN_FILTER_VALUES.has(label);
+}
+
+export function isClassifiableStoreStatus(value) {
+  return !isHiddenFilterValue(value);
+}
 
 export const DETAILS_WORKBENCH_VIEWS = {
   list: {

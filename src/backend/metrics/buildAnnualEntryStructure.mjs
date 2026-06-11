@@ -1,3 +1,4 @@
+import { isClassifiableStoreStatus } from '../../../public/lib/constants.mjs';
 import { provinceDisplayName } from '../../../public/dashboard/province-display.mjs';
 import { isInYear } from './calculators.mjs';
 import {
@@ -13,8 +14,14 @@ import {
 import { readFranchiseScope, readStoreNatureKey, readStoreTierLabel } from './fieldSemantics.mjs';
 import { isPausedProject } from './pausedProjects.mjs';
 
-const STORE_STATUS_TOP_LIMIT = 8;
+const RANKING_PREVIEW_LIMIT = 8;
 const PROVINCE_MISSING_LABEL = '省份未填写';
+const QUADRANT_LABELS = {
+  directNew: '直营新店',
+  directOld: '直营老店',
+  franchiseNew: '加盟新店',
+  franchiseOld: '加盟老店',
+};
 
 function dashboardYear(now = new Date()) {
   const date = now instanceof Date ? now : new Date(now);
@@ -54,9 +61,9 @@ function readRankingMap(map, key, label) {
   return map.get(key);
 }
 
-function finalizeRanking(map, limit = STORE_STATUS_TOP_LIMIT) {
+function finalizeRanking(map, limit = 0) {
   const items = Array.from(map.values()).sort((a, b) => b.total - a.total || a.label.localeCompare(b.label, 'zh-Hans-CN'));
-  if (items.length <= limit) {
+  if (!limit || items.length <= limit) {
     return items;
   }
   const top = items.slice(0, limit);
@@ -80,13 +87,14 @@ function createEmptyMonth(month) {
     newStore: { total: 0, direct: 0, franchise: 0 },
     oldStore: { total: 0, direct: 0, franchise: 0 },
     quadrants: {
-      directNew: { total: 0, storeStatuses: [], provinces: [] },
-      directOld: { total: 0, storeStatuses: [], provinces: [] },
-      franchiseNew: { total: 0, storeStatuses: [], provinces: [] },
-      franchiseOld: { total: 0, storeStatuses: [], provinces: [] },
+      directNew: { total: 0, storeStatuses: [], provinces: [], projects: [] },
+      directOld: { total: 0, storeStatuses: [], provinces: [], projects: [] },
+      franchiseNew: { total: 0, storeStatuses: [], provinces: [], projects: [] },
+      franchiseOld: { total: 0, storeStatuses: [], provinces: [], projects: [] },
     },
     storeStatuses: [],
     provinces: [],
+    projects: [],
     _storeStatusMap: new Map(),
     _provinceMap: new Map(),
     _quadrantMaps: {
@@ -121,7 +129,53 @@ function readProvinceLabel(project) {
 }
 
 function readStoreStatusLabel(project) {
+  const label = readStoreTierLabel(project) || '未设置';
+  return isClassifiableStoreStatus(label) ? label : '';
+}
+
+function readEntryProjectStoreStatus(project) {
   return readStoreTierLabel(project) || '未设置';
+}
+
+function entryProjectOwner(project) {
+  return String(project?.ownerDisplay || project?.owner || project?.cdOwner || project?.vmOwner || '').trim() || '未分配';
+}
+
+function entryStoreAgeLabel(storeAgeKey) {
+  return storeAgeKey === 'newStore' ? '新店' : '老店';
+}
+
+function entryProjectStoreAge(storeAgeKey) {
+  return storeAgeKey === 'newStore' ? 'newStore' : 'oldStore';
+}
+
+function serializeEntryProject(project, { month, scope, storeAgeKey, storeStatusLabel, provinceLabel, quadrantKey }) {
+  return {
+    id: String(project?.id || ''),
+    name: String(project?.name || '未命名项目'),
+    startDate: project?.startDate || '',
+    month,
+    province: provinceLabel,
+    storeStatus: storeStatusLabel,
+    status: project?.status || '未设置',
+    scope,
+    scopeLabel: scope === 'direct' ? '直营' : '加盟',
+    storeAge: entryProjectStoreAge(storeAgeKey),
+    storeAgeLabel: entryStoreAgeLabel(storeAgeKey),
+    quadrantKey,
+    quadrantLabel: QUADRANT_LABELS[quadrantKey] || '',
+    owner: entryProjectOwner(project),
+  };
+}
+
+function sortEntryProjects(projects = []) {
+  return projects.sort((a, b) => {
+    const dateCompare = String(a.startDate || '').localeCompare(String(b.startDate || ''));
+    if (dateCompare) {
+      return dateCompare;
+    }
+    return String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hans-CN');
+  });
 }
 
 function accumulateDataQuality(project, year, dataQuality) {
@@ -188,11 +242,13 @@ function finalizeProvinceRanking(map) {
 function serializeMonthFixed(monthState) {
   for (const quadrantKey of Object.keys(monthState._quadrantMaps)) {
     const maps = monthState._quadrantMaps[quadrantKey];
-    monthState.quadrants[quadrantKey].storeStatuses = finalizeRanking(maps.storeStatuses, STORE_STATUS_TOP_LIMIT);
-    monthState.quadrants[quadrantKey].provinces = finalizeRanking(maps.provinces, STORE_STATUS_TOP_LIMIT);
+    monthState.quadrants[quadrantKey].storeStatuses = finalizeRanking(maps.storeStatuses);
+    monthState.quadrants[quadrantKey].provinces = finalizeRanking(maps.provinces, RANKING_PREVIEW_LIMIT);
+    monthState.quadrants[quadrantKey].projects = sortEntryProjects(monthState.quadrants[quadrantKey].projects);
   }
-  monthState.storeStatuses = finalizeRanking(monthState._storeStatusMap, STORE_STATUS_TOP_LIMIT);
+  monthState.storeStatuses = finalizeRanking(monthState._storeStatusMap);
   monthState.provinces = finalizeProvinceRanking(monthState._provinceMap);
+  monthState.projects = sortEntryProjects(monthState.projects);
   delete monthState._storeStatusMap;
   delete monthState._provinceMap;
   delete monthState._quadrantMaps;
@@ -256,20 +312,36 @@ export function buildAnnualEntryStructure(projects, options = {}) {
     totals.entry += 1;
 
     const storeStatusLabel = readStoreStatusLabel(project);
+    const entryStoreStatusLabel = readEntryProjectStoreStatus(project);
     const provinceLabel = readProvinceLabel(project);
-    bumpRankingBucket(readRankingMap(monthState._storeStatusMap, storeStatusLabel, storeStatusLabel), project, scope, storeAgeKey);
+    const projectSummary = serializeEntryProject(project, {
+      month: monthState.month,
+      scope,
+      storeAgeKey,
+      storeStatusLabel: entryStoreStatusLabel,
+      provinceLabel,
+      quadrantKey,
+    });
+
+    monthState.projects.push(projectSummary);
+    if (storeStatusLabel) {
+      bumpRankingBucket(readRankingMap(monthState._storeStatusMap, storeStatusLabel, storeStatusLabel), project, scope, storeAgeKey);
+    }
     bumpRankingBucket(readRankingMap(monthState._provinceMap, provinceLabel, provinceLabel), project, scope, storeAgeKey);
 
     if (quadrantKey) {
       const quadrant = monthState.quadrants[quadrantKey];
       quadrant.total += 1;
+      quadrant.projects.push(projectSummary);
       const maps = monthState._quadrantMaps[quadrantKey];
-      bumpRankingBucket(
-        readRankingMap(maps.storeStatuses, storeStatusLabel, storeStatusLabel),
-        project,
-        scope,
-        storeAgeKey
-      );
+      if (storeStatusLabel) {
+        bumpRankingBucket(
+          readRankingMap(maps.storeStatuses, storeStatusLabel, storeStatusLabel),
+          project,
+          scope,
+          storeAgeKey
+        );
+      }
       bumpRankingBucket(readRankingMap(maps.provinces, provinceLabel, provinceLabel), project, scope, storeAgeKey);
     }
   }

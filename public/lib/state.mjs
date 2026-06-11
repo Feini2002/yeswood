@@ -1,6 +1,9 @@
 export function createAppState() {
   return {
     filters: {},
+    allProjects: [],
+    projectsCatalogLoaded: false,
+    projectsCatalogSignature: '',
     projects: [],
     fieldCatalog: [],
     metrics: null,
@@ -14,6 +17,18 @@ export function createAppState() {
     teamMetricsLoading: false,
     teamMetricsError: '',
     selectedTeamOwner: '',
+    teamWorkCompletion: null,
+    teamWorkCompletionByKey: {},
+    teamWorkCompletionLoading: false,
+    teamWorkCompletionError: '',
+    teamWorkCompletionRefreshStatus: '',
+    teamWorkCompletionSwitchTarget: '',
+    teamWorkCompletionRefreshError: '',
+    teamWorkCompletionYear: new Date().getFullYear(),
+    selectedTeamCompletionMember: '',
+    selectedTeamCompletionMonth: 0,
+    teamCompletionModalScopeType: 'member',
+    teamCompletionModalFilter: '',
     ownerReview: null,
     ownerReviewByKey: {},
     ownerReviewLoading: false,
@@ -58,6 +73,7 @@ export function createAppState() {
       franchise: [],
       direct: [],
     },
+    profileDashboardLoaded: {},
     annualEntryStructure: null,
   };
 }

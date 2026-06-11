@@ -58,6 +58,43 @@ test('refresh renders successful overview data without falling back to the start
   const app = await loadHarness({
     fetchImpl: async (path) => {
       const url = String(path);
+      if (url.startsWith('/api/dashboard-session')) {
+        return {
+          ok: true,
+          json: async () => ({
+            schemaVersion: 1,
+            readOnly: true,
+            snapshotHash: 'smoke-session',
+            snapshot: {
+              source: 'dingtalk',
+              syncedAt: '2026-06-09T06:13:02.686Z',
+              totalRecords: 1,
+              developerDocumentationVisible: true,
+              readOnly: true,
+            },
+            filters: { provinces: [], businessTypes: [], storeStatuses: [], statuses: [] },
+            metrics: {
+              total: 1,
+              pausedCount: 0,
+              summary: { totalProjects: 1, scopeCount: 1, pausedProjects: 0 },
+              statusCounts: [],
+              monthlyTrend: [],
+              riskProjects: [],
+              urgentStatusProjects: [],
+              openDelayedProjects: [],
+            },
+            departmentMetrics: null,
+            team: {
+              owner: '',
+              dashboardContext: 'all',
+              year: 2026,
+              metrics: null,
+              workCompletion: null,
+              responsibilityReview: null,
+            },
+          }),
+        };
+      }
       if (url.startsWith('/api/snapshot')) {
         return {
           ok: true,

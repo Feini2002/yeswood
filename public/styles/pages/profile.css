@@ -2338,3 +2338,104 @@
   margin-top: 6px;
 }
 
+.tier-kpi-board {
+  margin-bottom: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.tier-kpi-table {
+  min-width: max(980px, 100%);
+  background: transparent;
+}
+
+.tier-kpi-row {
+  grid-template-columns: minmax(78px, 0.42fr) repeat(var(--tier-metric-count, 4), minmax(118px, 1fr));
+  border-bottom: 1px solid rgba(32, 48, 38, 0.08);
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.tier-kpi-table.is-hard-owner-form .tier-kpi-row {
+  grid-template-columns: minmax(104px, 0.5fr) repeat(var(--tier-metric-count, 7), minmax(112px, 1fr));
+}
+
+.tier-kpi-row.is-total {
+  border-top: 1px solid rgba(32, 48, 38, 0.12);
+  border-bottom: 2px solid rgba(49, 119, 84, 0.58);
+  background: linear-gradient(90deg, rgba(243, 250, 245, 0.96), rgba(255, 255, 255, 0.64));
+  box-shadow: none;
+}
+
+.tier-kpi-row-label {
+  justify-content: flex-start;
+  padding: 10px 12px;
+  border-right: 1px solid rgba(32, 48, 38, 0.08);
+  background: rgba(255, 255, 255, 0.34);
+  color: #104020;
+  font-size: 12px;
+  font-weight: 950;
+  text-align: left;
+}
+
+.tier-kpi-row.is-total .tier-kpi-row-label {
+  background: #104020;
+  color: #fff;
+}
+
+.tier-kpi-scope-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  min-height: 32px;
+  padding: 7px 12px;
+  border-bottom: 1px solid rgba(32, 48, 38, 0.08);
+  background: rgba(255, 252, 239, 0.72);
+  color: #5b4730;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+.tier-kpi-scope-note span {
+  min-width: 0;
+}
+
+.tier-kpi-details {
+  background: transparent;
+}
+
+.tier-kpi-details summary {
+  min-height: 36px;
+  border-bottom: 1px solid rgba(32, 48, 38, 0.08);
+  background: rgba(244, 250, 245, 0.42);
+}
+
+.tier-kpi-detail-rows .tier-kpi-row {
+  background: rgba(255, 255, 255, 0.46);
+}
+
+.tier-kpi-detail-rows .tier-kpi-row:hover {
+  background: rgba(244, 250, 245, 0.5);
+}
+
+.tier-kpi-row .insight-card {
+  min-height: 58px;
+  padding: 9px 12px;
+  border-right-color: rgba(32, 48, 38, 0.08);
+  background: transparent;
+}
+
+.tier-kpi-row .insight-card.is-alert {
+  border-right-color: rgba(32, 48, 38, 0.08);
+  background: transparent;
+}
+
+.tier-kpi-row .insight-card:hover,
+.tier-kpi-row .insight-card:focus-visible {
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow: inset 0 -3px 0 var(--tier-cell-accent);
+}

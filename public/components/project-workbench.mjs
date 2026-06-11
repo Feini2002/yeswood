@@ -42,7 +42,16 @@ import {
 import { renderProjectStageStack, renderProjectKeyDateStack } from './project-cell-render.mjs';
 import { renderTeamHeroStat } from '../components/team-hero-stat.mjs';
 import { renderEmptyState } from '../dashboard/empty-state.mjs';
-import { renderProjectDetailModal, renderProjectAssignmentAlert } from './project-detail-modal.mjs';
+import {
+  renderProjectDetailModal,
+  renderProjectDetailModalLoading,
+  renderProjectDetailModalLoadError,
+  renderProjectAssignmentAlert,
+  hideProjectAssignmentAlert,
+  closeProjectDetailModal,
+} from './project-detail-modal.mjs';
+import { refreshDrillRowsIfOpen } from '../lib/view-coordinator.mjs';
+import { runtimeStore } from '../lib/runtime-flags.mjs';
 
 export function projectWorkbenchViewKey(viewKey = state.detailsWorkbenchView) {
   return DETAILS_WORKBENCH_VIEWS[viewKey] ? viewKey : 'list';
@@ -64,7 +73,7 @@ export function setDrillWorkbenchView(viewKey) {
     return;
   }
   state.drillWorkbenchView = viewKey;
-  renderDrillProjectModal();
+  refreshDrillRowsIfOpen();
 }
 
 
@@ -451,34 +460,139 @@ export function openProjectDetailFromRow(row) {
 }
 
 
-export function findProjectByReference({ projectId = '', projectName = '' } = {}, sourceProjects = state.projects) {
-  const pools = [sourceProjects, state.projects, state.drillModal.projects].filter(Array.isArray);
+function projectDetailPools(sourceProjects = state.projects) {
+  return [sourceProjects, state.allProjects, state.projects, state.drillModal?.projects].filter(Array.isArray);
+}
+
+export function projectDetailRichness(project = {}) {
+  if (!project || typeof project !== 'object') {
+    return 0;
+  }
+  let score = Object.keys(project.rawFields || {}).length * 4;
+  if (project.owner || project.ownerDisplay || project.hardOwner || project.softOwner) {
+    score += 2;
+  }
+  if (project.province || project.businessType) {
+    score += 1;
+  }
+  if (project.hardDeadline || project.primaryReminder) {
+    score += 2;
+  }
+  if (project.metrics && !Object.keys(project.rawFields || {}).length) {
+    score += 1;
+  }
+  return score;
+}
+
+export function projectNeedsDetailFetch(project = {}) {
+  return projectDetailRichness(project) < 4;
+}
+
+function pickRichestProject(matches = []) {
+  return matches.reduce((best, current) => (projectDetailRichness(current) > projectDetailRichness(best) ? current : best));
+}
+
+function projectsMatchingReference({ projectId = '', projectName = '' } = {}, pools = []) {
+  const id = String(projectId || '').trim();
+  const name = String(projectName || '').trim();
+  const matches = [];
   const seen = new Set();
-  const projects = pools.flat().filter((project) => {
-    if (!project || seen.has(project)) {
-      return false;
+  for (const pool of pools) {
+    for (const project of pool) {
+      if (!project || seen.has(project)) {
+        continue;
+      }
+      const idMatch = id && String(project.id || '') === id;
+      const nameMatch = name && String(project.name || '') === name;
+      if (!idMatch && !nameMatch) {
+        continue;
+      }
+      seen.add(project);
+      matches.push(project);
     }
-    seen.add(project);
-    return true;
-  });
-  return (
-    projects.find((item) => projectId && item.id === projectId) ||
-    (() => {
-      const nameMatches = projects.filter((item) => projectName && item.name === projectName);
-      return nameMatches.length === 1 ? nameMatches[0] : null;
-    })()
-  );
+  }
+  return matches;
+}
+
+export function findProjectByReference({ projectId = '', projectName = '' } = {}, sourceProjects = state.projects) {
+  const matches = projectsMatchingReference({ projectId, projectName }, projectDetailPools(sourceProjects));
+  if (!matches.length) {
+    return null;
+  }
+  if (projectId) {
+    const idMatches = matches.filter((item) => item.id === projectId);
+    if (idMatches.length) {
+      return pickRichestProject(idMatches);
+    }
+  }
+  const nameMatches = projectName ? matches.filter((item) => item.name === projectName) : matches;
+  if (nameMatches.length === 1) {
+    return pickRichestProject(nameMatches);
+  }
+  return nameMatches.length ? pickRichestProject(nameMatches) : null;
+}
+
+async function warmProjectDetailFromCatalog(reference = {}, sourceProjects = state.projects) {
+  const { fetchProjectCatalog } = await import('../domain/project-catalog.mjs');
+  if (runtimeStore.projectCatalogPromise) {
+    await runtimeStore.projectCatalogPromise.catch(() => {});
+  } else if (!state.projectsCatalogLoaded) {
+    await fetchProjectCatalog().catch(() => {});
+  }
+  return findProjectByReference(reference, sourceProjects);
 }
 
 
-export function openProjectDetailByReference(reference = {}, sourceProjects = state.projects, context = null) {
-  const project = findProjectByReference(reference, sourceProjects);
+export async function openProjectDetailByReference(reference = {}, sourceProjects = state.projects, context = null) {
+  const requestId = runtimeStore.projectDetailRequestId + 1;
+  runtimeStore.projectDetailRequestId = requestId;
+
+  let project = findProjectByReference(reference, sourceProjects);
   if (!project) {
     return;
   }
-  state.selectedProjectId = project.id || reference.projectId || '';
+
+  const projectId = project.id || reference.projectId || '';
+  state.selectedProjectId = projectId;
   state.projectDetailContext = context;
-  renderProjectDetailModal(project);
+
+  const renderIfCurrent = (candidate) => {
+    if (requestId !== runtimeStore.projectDetailRequestId || !candidate) {
+      return;
+    }
+    renderProjectDetailModal(candidate);
+  };
+
+  if (projectNeedsDetailFetch(project)) {
+    renderProjectDetailModalLoading(project);
+    const catalogProject = await warmProjectDetailFromCatalog(reference, sourceProjects);
+    if (catalogProject && !projectNeedsDetailFetch(catalogProject)) {
+      project = catalogProject;
+      renderIfCurrent(project);
+    }
+  } else {
+    renderProjectDetailModal(project);
+  }
+
+  const { fetchProjectDetail } = await import('../domain/project-catalog.mjs');
+  try {
+    const fullProject = await fetchProjectDetail(projectId);
+    if (requestId !== runtimeStore.projectDetailRequestId) {
+      return;
+    }
+    if (!fullProject || state.selectedProjectId !== fullProject.id) {
+      return;
+    }
+    renderProjectDetailModal(fullProject);
+  } catch (error) {
+    console.warn('Project detail enrichment failed', error);
+    if (requestId !== runtimeStore.projectDetailRequestId) {
+      return;
+    }
+    if (projectNeedsDetailFetch(project)) {
+      renderProjectDetailModalLoadError(project, error);
+    }
+  }
 }
 
 
@@ -491,10 +605,6 @@ export function openProjectDetailById(projectId, sourceProjects = state.projects
 
 
 export function handleProjectDetailsClick(event) {
-  if (event.target.closest('[data-drill-project-close]') || event.target === elements.drillProjectModal) {
-    closeDrillProjectModal();
-    return;
-  }
   if (event.target.closest('[data-project-detail-close]') || event.target === elements.projectDetailModal) {
     closeProjectDetailModal();
     return;

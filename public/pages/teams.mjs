@@ -4,14 +4,16 @@ import { escapeHtml, displayOrDash, formatDate } from '../lib/format.mjs';
 import { bindTooltipTriggers, hideTooltip, tooltipDataAttr } from '../dashboard/tooltip.mjs';
 import { renderEmptyState } from '../dashboard/empty-state.mjs';
 import { renderInsightCards } from '../dashboard/insight-card.mjs';
+import { mountAnnualEntryStructure } from '../dashboard/annual-entry-structure.mjs';
 import {
   DASHBOARD_METRICS_ENDPOINT,
   TEAM_METRICS_ENDPOINT,
   TEAM_METRICS_BATCH_ENDPOINT,
   TEAM_RESPONSIBILITY_REVIEW_ENDPOINT,
+  TEAM_WORK_COMPLETION_ENDPOINT,
   fetchJson,
 } from '../lib/api.mjs';
-import { currentPageId, ownerReviewModuleVisible } from '../lib/router.mjs';
+import { currentPageId, ownerReviewModuleVisible, parsePageHash } from '../lib/router.mjs';
 import {
   resolveTeamOwner,
   resolveTeamDashboardContext,
@@ -19,44 +21,59 @@ import {
   resolveOwnerReviewDashboardContext,
   ensureTeamOwnerOptions,
   teamOwnerOptions,
+  teamOwnerDirectoryReady,
 } from '../domain/personnel.mjs';
 import {
   ownerTierRows,
   formatMetricValue,
   riskClass,
-  collectRiskProjectQueue,
-  riskQueueProjects,
-  riskDutyHeadline,
-  riskDiagnosisCounts,
-  riskActionRowCounts,
-  riskItemImpactCount,
   buildOwnerTierDrillFilter,
-  findUrgentStatusItem,
   metricDefinitionTooltip,
 } from '../domain/metrics-display.mjs';
 import { renderTeamHeroStat } from '../components/team-hero-stat.mjs';
 import { renderLegacyTeamSummaryKpis, renderOwnerMonthlyTierBoard } from '../components/drill-modal.mjs';
-import { openProjectDetailByReference } from '../components/project-workbench.mjs';
 import {
   renderOwnerReviewDashboard,
   closeOwnerReviewMemberModal,
   closeOwnerReviewDecisionModal,
   ownerReviewVisibleReview,
   ownerReviewPreferredPersonName,
-  ownerReviewDispatchStats,
-  pendingOwnerReviewDispatchStats,
-  buildDailyDispatchActions,
-  buildRiskActionTabs,
-  renderRiskActionTabs,
-  renderDailyDispatchActions,
-  renderOwnerReviewFloorReminderQueue,
-  renderRiskProjectQueue,
 } from './owner-review.mjs';
+import {
+  closeTeamCompletionMemberModal,
+  handleTeamCompletionFilterClick,
+  handleTeamCompletionMemberClick,
+  handleTeamCompletionMemberModalClick,
+  handleTeamCompletionMemberModalKeydown,
+  handleTeamCompletionMonthClick,
+  openTeamCompletionMemberModal,
+  openTeamCompletionMonthModal,
+  renderTeamWorkCompletionDashboard,
+  renderTeamWorkCompletionError,
+  renderTeamWorkCompletionLoading,
+  syncTeamCompletionControls,
+} from './team-work-completion.mjs';
 import { runtimeStore } from '../lib/runtime-flags.mjs';
 import { teamOwnerDisplayName } from '../domain/personnel.mjs';
-import { OWNER_REVIEW_CACHE_LIMIT, TEAM_OWNER_STORAGE_KEY } from '../lib/constants.mjs';
+import { OWNER_REVIEW_CACHE_LIMIT, TEAM_OWNER_STORAGE_KEY, TEAM_WORK_COMPLETION_CACHE_LIMIT } from '../lib/constants.mjs';
 import { enhanceTeamOwnerSelect, renderFilterSelect } from '../components/filter-bar.mjs';
 import { closeProjectDetailModal } from '../components/project-detail-modal.mjs';
+
+const OWNER_REVIEW_FETCH_TIMEOUT_MS = 90_000;
+
+export {
+  closeTeamCompletionMemberModal,
+  handleTeamCompletionFilterClick,
+  handleTeamCompletionMemberClick,
+  handleTeamCompletionMemberModalClick,
+  handleTeamCompletionMemberModalKeydown,
+  handleTeamCompletionMonthClick,
+  openTeamCompletionMemberModal,
+  openTeamCompletionMonthModal,
+  renderTeamWorkCompletionDashboard,
+  renderTeamWorkCompletionError,
+  renderTeamWorkCompletionLoading,
+};
 
 export function resetOwnerReviewViewState() {
   state.ownerReviewSearchQuery = '';
@@ -72,6 +89,7 @@ export function resetOwnerReviewViewState() {
 
 export function resetOwnerReviewForTeamOwnerChange() {
   resetOwnerReviewViewState();
+  closeTeamCompletionMemberModal();
   closeOwnerReviewMemberModal();
   closeOwnerReviewDecisionModal();
 }
@@ -98,6 +116,13 @@ export function cachedOwnerReview(owner = resolveOwnerReviewOwner(), dashboardCo
 }
 
 
+function abortPendingOwnerReviewRequests() {
+  for (const entry of runtimeStore.ownerReviewRequestPromises.values()) {
+    entry.controller?.abort?.();
+  }
+}
+
+
 export function rememberOwnerReview(payload, owner = payload?.owner || '', dashboardContext = payload?.dashboardContext || 'all') {
   if (!payload?.owner && !owner) {
     return;
@@ -119,6 +144,68 @@ export function pruneOwnerReviewCache(maxEntries = OWNER_REVIEW_CACHE_LIMIT) {
     return;
   }
   state.ownerReviewByKey = Object.fromEntries(entries.slice(entries.length - maxEntries));
+}
+
+export function resolveTeamWorkCompletionYear() {
+  const routeYear = Number(parsePageHash().year || 0);
+  if (Number.isFinite(routeYear) && routeYear >= 2000 && routeYear <= 2100) {
+    return routeYear;
+  }
+  return Number(state.teamWorkCompletionYear || new Date().getFullYear());
+}
+
+
+export function teamWorkCompletionCacheKey(
+  owner = resolveTeamOwner(),
+  dashboardContext = resolveTeamDashboardContext(),
+  year = resolveTeamWorkCompletionYear()
+) {
+  return `${ownerReviewSnapshotCacheKey()}:${teamMetricsContextKey(dashboardContext)}:${owner || ''}:${Number(year) || ''}`;
+}
+
+
+export function cachedTeamWorkCompletion(
+  owner = resolveTeamOwner(),
+  dashboardContext = resolveTeamDashboardContext(),
+  year = resolveTeamWorkCompletionYear()
+) {
+  return state.teamWorkCompletionByKey?.[teamWorkCompletionCacheKey(owner, dashboardContext, year)] || null;
+}
+
+
+export function rememberTeamWorkCompletion(
+  payload,
+  owner = payload?.owner || '',
+  dashboardContext = payload?.dashboardContext || 'all',
+  year = payload?.year || resolveTeamWorkCompletionYear()
+) {
+  if (!payload?.owner && !owner) {
+    return;
+  }
+  const requestedKey = teamWorkCompletionCacheKey(owner || payload.owner, dashboardContext, year);
+  const canonicalKey = teamWorkCompletionCacheKey(payload.owner || owner, dashboardContext, year);
+  state.teamWorkCompletionByKey = {
+    ...state.teamWorkCompletionByKey,
+    [requestedKey]: payload,
+    [canonicalKey]: payload,
+  };
+  pruneTeamWorkCompletionCache();
+}
+
+
+export function pruneTeamWorkCompletionCache(maxEntries = TEAM_WORK_COMPLETION_CACHE_LIMIT) {
+  const entries = Object.entries(state.teamWorkCompletionByKey || {});
+  if (entries.length <= maxEntries) {
+    return;
+  }
+  state.teamWorkCompletionByKey = Object.fromEntries(entries.slice(entries.length - maxEntries));
+}
+
+
+function abortPendingTeamWorkCompletionRequests() {
+  for (const entry of runtimeStore.teamWorkCompletionRequestPromises.values()) {
+    entry.controller?.abort?.();
+  }
 }
 
 
@@ -146,11 +233,12 @@ export function ensureTeamMetricsCacheContext(dashboardContext = resolveTeamDash
   if (force || state.teamMetricsBatchKey !== contextKey) {
     state.teamMetricsByOwner = {};
     state.teamMetricsBatchKey = contextKey;
-runtimeStore.teamMetricsBatchPromises = new Map();
-runtimeStore.teamMetricsPreloadToken += 1;
+    runtimeStore.teamMetricsBatchPromises = new Map();
+    runtimeStore.teamMetricsCacheGeneration += 1;
+    runtimeStore.teamMetricsPreloadToken += 1;
     if (runtimeStore.teamMetricsPreloadTimer) {
       clearTimeout(runtimeStore.teamMetricsPreloadTimer);
-runtimeStore.teamMetricsPreloadTimer = null;
+      runtimeStore.teamMetricsPreloadTimer = null;
     }
   }
   return contextKey;
@@ -189,6 +277,7 @@ export async function loadTeamMetricsBatch(
   { force = false, background = false } = {}
 ) {
   const contextKey = ensureTeamMetricsCacheContext(dashboardContext, { force });
+  const generation = runtimeStore.teamMetricsCacheGeneration;
   const uniqueOwners = Array.from(new Set(owners.filter(Boolean)));
   if (!uniqueOwners.length) {
     return state.teamMetricsByOwner;
@@ -213,8 +302,11 @@ export async function loadTeamMetricsBatch(
   if (!background) {
     state.teamMetricsBatchLoading = true;
   }
-  const promise = fetchJson(`${TEAM_METRICS_BATCH_ENDPOINT}?${params}`)
+  const promise = fetchJson(`${TEAM_METRICS_BATCH_ENDPOINT}?${params}`, { timeoutMs: 60_000 })
     .then((payload) => {
+      if (generation !== runtimeStore.teamMetricsCacheGeneration || state.teamMetricsBatchKey !== contextKey) {
+        return state.teamMetricsByOwner;
+      }
       const metricsByOwner = normalizeTeamMetricsByOwner(payload, uniqueOwners);
       state.teamMetricsByOwner = {
         ...state.teamMetricsByOwner,
@@ -227,17 +319,78 @@ export async function loadTeamMetricsBatch(
       return state.teamMetricsByOwner;
     })
     .catch((error) => {
-      if (!background) {
+      if (!background && generation === runtimeStore.teamMetricsCacheGeneration && state.teamMetricsBatchKey === contextKey) {
         state.teamMetricsBatchLoading = false;
       }
       throw error;
     })
     .finally(() => {
-runtimeStore.teamMetricsBatchPromises.delete(cacheKey);
+      if (runtimeStore.teamMetricsBatchPromises.get(cacheKey) === promise) {
+        runtimeStore.teamMetricsBatchPromises.delete(cacheKey);
+      }
     });
 
-runtimeStore.teamMetricsBatchPromises.set(cacheKey, promise);
+  runtimeStore.teamMetricsBatchPromises.set(cacheKey, promise);
   return promise;
+}
+
+
+export function cancelTeamMetricsPreload() {
+  runtimeStore.teamMetricsPreloadToken += 1;
+  if (runtimeStore.teamMetricsPreloadTimer) {
+    clearTimeout(runtimeStore.teamMetricsPreloadTimer);
+    runtimeStore.teamMetricsPreloadTimer = null;
+  }
+}
+
+
+export function cancelTeamWorkCompletionPreload() {
+  runtimeStore.teamWorkCompletionPreloadToken += 1;
+  if (runtimeStore.teamWorkCompletionPreloadTimer) {
+    clearTimeout(runtimeStore.teamWorkCompletionPreloadTimer);
+    runtimeStore.teamWorkCompletionPreloadTimer = null;
+  }
+}
+
+
+export function scheduleTeamWorkCompletionPreload(
+  dashboardContext = resolveTeamDashboardContext(),
+  priorityOwner = resolveTeamOwner(),
+  year = resolveTeamWorkCompletionYear()
+) {
+  const normalizedYear = Number(year) || new Date().getFullYear();
+  const owners = teamMetricsOwnerList(priorityOwner).filter(
+    (owner) =>
+      owner &&
+      owner !== priorityOwner &&
+      !cachedTeamWorkCompletion(owner, dashboardContext, normalizedYear)
+  );
+  if (!owners.length) {
+    return;
+  }
+
+  cancelTeamWorkCompletionPreload();
+  const token = runtimeStore.teamWorkCompletionPreloadToken;
+  let index = 0;
+
+  const runNext = () => {
+    if (token !== runtimeStore.teamWorkCompletionPreloadToken) {
+      return;
+    }
+    const owner = owners[index];
+    index += 1;
+    if (!owner) {
+      return;
+    }
+    loadTeamWorkCompletion(owner, dashboardContext, normalizedYear, { background: true }).catch((error) => {
+      console.warn('Team work completion background preload failed', error);
+    });
+    if (index < owners.length && token === runtimeStore.teamWorkCompletionPreloadToken) {
+      runtimeStore.teamWorkCompletionPreloadTimer = setTimeout(runNext, 1500);
+    }
+  };
+
+  runtimeStore.teamWorkCompletionPreloadTimer = setTimeout(runNext, 2500);
 }
 
 
@@ -250,7 +403,7 @@ export function scheduleTeamMetricsPreload(dashboardContext = resolveTeamDashboa
     return;
   }
 
-runtimeStore.teamMetricsPreloadToken += 1;
+  runtimeStore.teamMetricsPreloadToken += 1;
   const token = runtimeStore.teamMetricsPreloadToken;
   let index = 0;
   if (runtimeStore.teamMetricsPreloadTimer) {
@@ -271,18 +424,18 @@ runtimeStore.teamMetricsPreloadToken += 1;
       }
     }
     if (index < owners.length && token === runtimeStore.teamMetricsPreloadToken) {
-runtimeStore.teamMetricsPreloadTimer = setTimeout(runNextChunk, 160);
+      runtimeStore.teamMetricsPreloadTimer = setTimeout(runNextChunk, 1200);
     }
   };
 
-runtimeStore.teamMetricsPreloadTimer = setTimeout(runNextChunk, 240);
+  runtimeStore.teamMetricsPreloadTimer = setTimeout(runNextChunk, 1800);
 }
 
 
 export async function loadTeamMetrics(
   owner = resolveTeamOwner(),
   dashboardContext = resolveTeamDashboardContext(),
-  { forceBatch = false } = {}
+  { forceBatch = false, forceRefresh = false } = {}
 ) {
   if (!owner) {
     state.teamMetrics = null;
@@ -293,21 +446,29 @@ export async function loadTeamMetrics(
   }
 
   const requestId = ++runtimeStore.teamMetricsRequestId;
-  ensureTeamMetricsCacheContext(dashboardContext, { force: forceBatch });
+  const force = Boolean(forceBatch || forceRefresh);
+  const previousMetrics = state.teamMetrics?.owner ? state.teamMetrics : null;
+  ensureTeamMetricsCacheContext(dashboardContext, { force });
   const cachedMetrics = state.teamMetricsByOwner?.[owner] || null;
-  state.teamMetrics = cachedMetrics || null;
-  state.teamMetricsLoading = !cachedMetrics;
+  const staleMetrics = !cachedMetrics && !force ? previousMetrics : null;
+  const visibleMetrics = cachedMetrics || staleMetrics;
+  state.teamMetrics = visibleMetrics || null;
+  state.teamMetricsLoading = !visibleMetrics;
   state.teamMetricsError = '';
   state.selectedTeamOwner = owner;
   if (cachedMetrics) {
     localStorage.setItem(TEAM_OWNER_STORAGE_KEY, cachedMetrics.owner || owner);
   }
-  if (currentPageId() === 'teams') {
+  if (currentPageId() === 'teams' && !staleMetrics) {
     renderTeamDashboard();
+  }
+  if (cachedMetrics && !force) {
+    scheduleTeamMetricsPreload(dashboardContext, cachedMetrics.owner || owner);
+    return cachedMetrics;
   }
 
   try {
-    const metricsByOwner = await loadTeamMetricsBatch(dashboardContext, [owner], { force: forceBatch });
+    const metricsByOwner = await loadTeamMetricsBatch(dashboardContext, [owner], { force });
     if (requestId !== runtimeStore.teamMetricsRequestId) {
       return null;
     }
@@ -333,6 +494,13 @@ export async function loadTeamMetrics(
     if (requestId !== runtimeStore.teamMetricsRequestId) {
       return null;
     }
+    if (staleMetrics) {
+      state.teamMetrics = staleMetrics;
+      state.teamMetricsLoading = false;
+      state.teamMetricsError = error?.message || 'Team metrics refresh failed';
+      state.selectedTeamOwner = owner;
+      return staleMetrics;
+    }
     state.teamMetrics = null;
     state.teamMetricsLoading = false;
     state.teamMetricsError = error?.message || 'Team metrics load failed';
@@ -345,9 +513,261 @@ export async function loadTeamMetrics(
 }
 
 
+export async function loadTeamWorkCompletion(
+  owner = resolveTeamOwner(),
+  dashboardContext = resolveTeamDashboardContext(),
+  year = resolveTeamWorkCompletionYear(),
+  { forceRefresh = false, background = false } = {}
+) {
+  if (!owner) {
+    if (!teamOwnerDirectoryReady()) {
+      state.teamWorkCompletionLoading = true;
+      state.teamWorkCompletionError = '';
+      state.teamWorkCompletionRefreshStatus = '';
+      state.teamWorkCompletionRefreshError = '';
+      state.teamWorkCompletionSwitchTarget = '';
+      if (currentPageId() === 'teams') {
+        renderTeamWorkCompletionLoading(state.selectedTeamOwner);
+      }
+      return null;
+    }
+    state.teamWorkCompletion = null;
+    state.teamWorkCompletionLoading = false;
+    state.teamWorkCompletionError = '';
+    renderTeamWorkCompletionDashboard();
+    return null;
+  }
+
+  const normalizedYear = Number(year) || new Date().getFullYear();
+  const cachedReview = cachedTeamWorkCompletion(owner, dashboardContext, normalizedYear);
+  if (cachedReview && !forceRefresh) {
+    state.teamWorkCompletion = cachedReview;
+    state.teamWorkCompletionYear = cachedReview.year || normalizedYear;
+    state.teamWorkCompletionLoading = false;
+    state.teamWorkCompletionError = '';
+    state.teamWorkCompletionRefreshStatus = '';
+    state.teamWorkCompletionRefreshError = '';
+    state.selectedTeamOwner = cachedReview.owner || owner;
+    localStorage.setItem(TEAM_OWNER_STORAGE_KEY, cachedReview.owner || owner);
+    if (!background && currentPageId() === 'teams') {
+      renderTeamWorkCompletionDashboard(cachedReview);
+    }
+    if (!background) {
+      scheduleTeamWorkCompletionPreload(dashboardContext, cachedReview.owner || owner, normalizedYear);
+    }
+    return cachedReview;
+  }
+
+  const requestKey = `${background ? 'bg:' : ''}${teamWorkCompletionCacheKey(owner, dashboardContext, normalizedYear)}`;
+  const existingRequest = runtimeStore.teamWorkCompletionRequestPromises.get(requestKey);
+  if (existingRequest) {
+    if (background || existingRequest.requestId === runtimeStore.teamWorkCompletionRequestId) {
+      return existingRequest.promise;
+    }
+  }
+
+  const requestId = background ? 0 : ++runtimeStore.teamWorkCompletionRequestId;
+  if (!background) {
+    abortPendingTeamWorkCompletionRequests();
+  }
+  const previousReview = state.teamWorkCompletion?.owner ? state.teamWorkCompletion : null;
+  const staleReview = !cachedReview && !background ? previousReview : null;
+  const visibleReview = cachedReview || staleReview;
+  const switchingOwner = Boolean(staleReview && staleReview.owner && staleReview.owner !== owner);
+  if (!background) {
+    if (visibleReview) {
+      state.teamWorkCompletion = visibleReview;
+    }
+    state.teamWorkCompletionYear = normalizedYear;
+    state.teamWorkCompletionLoading = !cachedReview;
+    state.teamWorkCompletionError = '';
+    state.teamWorkCompletionRefreshStatus = cachedReview ? '' : switchingOwner ? 'switching' : visibleReview ? 'refreshing' : '';
+    state.teamWorkCompletionRefreshError = '';
+    state.teamWorkCompletionSwitchTarget = switchingOwner ? owner : '';
+    state.selectedTeamOwner = owner;
+    if (currentPageId() === 'teams') {
+      if (!visibleReview) {
+        renderTeamWorkCompletionLoading(owner);
+      } else {
+        renderTeamWorkCompletionDashboard(visibleReview);
+      }
+    }
+  }
+
+  const params = new URLSearchParams();
+  params.set('owner', owner);
+  params.set('context', dashboardContext || 'all');
+  params.set('year', String(normalizedYear));
+
+  const requestController = new AbortController();
+  const requestEntry = { requestId, promise: null, controller: requestController };
+  requestEntry.promise = (async () => {
+    try {
+      const payload = await fetchJson(`${TEAM_WORK_COMPLETION_ENDPOINT}?${params}`, {
+        signal: requestController.signal,
+        timeoutMs: 60_000,
+      });
+      if (!background && requestId !== runtimeStore.teamWorkCompletionRequestId) {
+        return null;
+      }
+      rememberTeamWorkCompletion(payload, owner, dashboardContext, normalizedYear);
+      if (background) {
+        return payload;
+      }
+      state.teamWorkCompletion = payload;
+      state.teamWorkCompletionLoading = false;
+      state.teamWorkCompletionError = '';
+      state.teamWorkCompletionRefreshStatus = '';
+      state.teamWorkCompletionRefreshError = '';
+      state.teamWorkCompletionSwitchTarget = '';
+      state.teamWorkCompletionYear = payload.year || normalizedYear;
+      state.selectedTeamOwner = payload.owner || owner;
+      localStorage.setItem(TEAM_OWNER_STORAGE_KEY, payload.owner || owner);
+      if (currentPageId() === 'teams') {
+        renderTeamWorkCompletionDashboard(payload);
+      }
+      scheduleTeamWorkCompletionPreload(dashboardContext, payload.owner || owner, normalizedYear);
+      return payload;
+    } catch (error) {
+      if (!background && requestId !== runtimeStore.teamWorkCompletionRequestId) {
+        return null;
+      }
+      if (background) {
+        throw error;
+      }
+      if (visibleReview) {
+        state.teamWorkCompletion = visibleReview;
+        state.teamWorkCompletionLoading = false;
+        state.teamWorkCompletionError = '';
+        state.teamWorkCompletionRefreshStatus = 'stale';
+        state.teamWorkCompletionRefreshError = error?.message || 'Team work completion refresh failed';
+        state.teamWorkCompletionSwitchTarget = '';
+        if (currentPageId() === 'teams') {
+          renderTeamWorkCompletionDashboard(visibleReview);
+        }
+        return visibleReview;
+      }
+      state.teamWorkCompletion = null;
+      state.teamWorkCompletionLoading = false;
+      state.teamWorkCompletionError = error?.message || 'Team work completion load failed';
+      state.teamWorkCompletionRefreshStatus = '';
+      state.teamWorkCompletionRefreshError = '';
+      if (currentPageId() === 'teams') {
+        renderTeamWorkCompletionError(state.teamWorkCompletionError);
+      }
+      throw error;
+    }
+  })().finally(() => {
+    if (runtimeStore.teamWorkCompletionRequestPromises.get(requestKey) === requestEntry) {
+      runtimeStore.teamWorkCompletionRequestPromises.delete(requestKey);
+    }
+  });
+  runtimeStore.teamWorkCompletionRequestPromises.set(requestKey, requestEntry);
+  return requestEntry.promise;
+}
+
+
+function navigateTeamWorkCompletion(owner, dashboardContext, year) {
+  const params = new URLSearchParams();
+  if (owner) {
+    params.set('owner', owner);
+  }
+  if (dashboardContext) {
+    params.set('dashboardContext', dashboardContext);
+  }
+  if (Number.isFinite(Number(year))) {
+    params.set('year', String(Number(year)));
+  }
+  const query = params.toString();
+  window.location.hash = query ? `#teams?${query}` : '#teams';
+}
+
+
+function normalizeTeamDashboardScopeContext(dashboardContext = 'all') {
+  return dashboardContext === 'all' ? '' : dashboardContext;
+}
+
+
+export async function loadTeamDashboardScope(
+  owner = resolveTeamOwner(),
+  dashboardContext = 'all',
+  year = resolveTeamWorkCompletionYear()
+) {
+  if (!owner) {
+    return null;
+  }
+
+  const routeContext = normalizeTeamDashboardScopeContext(dashboardContext);
+  const results = await Promise.allSettled([
+    loadTeamMetrics(owner, routeContext),
+    loadTeamWorkCompletion(owner, dashboardContext, year),
+    loadOwnerResponsibilityReview(owner, routeContext),
+  ]);
+  const failed = results.find((result) => result.status === 'rejected');
+  if (failed && results.every((result) => result.status === 'rejected')) {
+    throw failed.reason;
+  }
+  return results;
+}
+
+
+export function handleTeamWorkCompletionContextClick(event) {
+  const button = event.target.closest('[data-team-completion-context]');
+  if (!button) {
+    return null;
+  }
+  event.preventDefault();
+
+  const dashboardContext = button.dataset.teamCompletionContext || 'all';
+  const owner = resolveTeamOwner();
+  const year = resolveTeamWorkCompletionYear();
+  syncTeamCompletionControls(state.teamWorkCompletion, dashboardContext);
+  navigateTeamWorkCompletion(owner, normalizeTeamDashboardScopeContext(dashboardContext), year);
+  return loadTeamDashboardScope(owner, dashboardContext, year).catch((error) => {
+    console.warn('Team dashboard scope switch failed', error);
+    syncTeamCompletionControls(state.teamWorkCompletion);
+    return null;
+  });
+}
+
+
+export function handleTeamWorkCompletionYearChange() {
+  const owner = resolveTeamOwner();
+  const dashboardContext = resolveTeamDashboardContext() || 'all';
+  const year = Number(elements.teamCompletionYearSelect?.value || new Date().getFullYear());
+  state.teamWorkCompletionYear = year;
+  navigateTeamWorkCompletion(owner, normalizeTeamDashboardScopeContext(dashboardContext), year);
+  return loadTeamDashboardScope(owner, dashboardContext, year).catch((error) => {
+    console.warn('Team dashboard scope year switch failed', error);
+    return null;
+  });
+}
+
+
+export async function loadTeamAnnualEntryStructure(year) {
+  const owner = state.teamMetrics?.owner || state.selectedTeamOwner || resolveTeamOwner();
+  if (!owner) {
+    return null;
+  }
+
+  const dashboardContext = state.teamMetrics?.dashboardContext || resolveTeamDashboardContext();
+  const params = new URLSearchParams();
+  params.set('profile', 'ownerMonthly');
+  params.set('owner', owner);
+  params.set('context', dashboardContext || 'all');
+  if (Number.isFinite(Number(year))) {
+    params.set('year', String(Number(year)));
+  }
+
+  const payload = await fetchJson(`${DASHBOARD_METRICS_ENDPOINT}?${params}`);
+  return payload?.annualEntryStructure || null;
+}
+
+
 export async function loadOwnerResponsibilityReview(
   owner = resolveOwnerReviewOwner(),
-  dashboardContext = resolveOwnerReviewDashboardContext()
+  dashboardContext = resolveOwnerReviewDashboardContext(),
+  { forceRefresh = false } = {}
 ) {
   if (!owner) {
     state.ownerReview = null;
@@ -358,8 +778,32 @@ export async function loadOwnerResponsibilityReview(
     return null;
   }
 
-  const requestId = ++runtimeStore.ownerReviewRequestId;
   const cachedReview = cachedOwnerReview(owner, dashboardContext);
+  if (cachedReview && !forceRefresh) {
+    state.ownerReview = cachedReview;
+    state.ownerReviewLoading = false;
+    state.ownerReviewError = '';
+    state.ownerReviewRefreshStatus = '';
+    state.ownerReviewRefreshError = '';
+    const visiblePayload = ownerReviewVisibleReview(cachedReview);
+    const hasSelectedPerson = visiblePayload?.people?.some((item) => item.name === state.selectedOwnerReviewPerson);
+    if (!hasSelectedPerson) {
+      state.selectedOwnerReviewPerson = ownerReviewPreferredPersonName(visiblePayload);
+    }
+    if (ownerReviewModuleVisible()) {
+      renderOwnerReviewDashboard();
+    }
+    return cachedReview;
+  }
+
+  const requestKey = ownerReviewCacheKey(owner, dashboardContext);
+  const existingRequest = runtimeStore.ownerReviewRequestPromises.get(requestKey);
+  if (existingRequest?.requestId === runtimeStore.ownerReviewRequestId) {
+    return existingRequest.promise;
+  }
+
+  const requestId = ++runtimeStore.ownerReviewRequestId;
+  abortPendingOwnerReviewRequests();
   if (cachedReview) {
     state.ownerReview = cachedReview;
   }
@@ -379,67 +823,81 @@ export async function loadOwnerResponsibilityReview(
   params.set('owner', owner);
   params.set('context', dashboardContext || 'all');
 
-  try {
-    const payload = await fetchJson(`${TEAM_RESPONSIBILITY_REVIEW_ENDPOINT}?${params}`);
-    if (requestId !== runtimeStore.ownerReviewRequestId) {
-      return null;
-    }
-    const previousOwner = state.ownerReview?.owner || '';
-    state.ownerReview = payload;
-    rememberOwnerReview(payload, owner, dashboardContext);
-    state.ownerReviewLoading = false;
-    state.ownerReviewError = '';
-    state.ownerReviewRefreshStatus = '';
-    state.ownerReviewRefreshError = '';
-    const visiblePayload = ownerReviewVisibleReview(payload);
-    const hasSelectedPerson = visiblePayload?.people?.some((item) => item.name === state.selectedOwnerReviewPerson);
-    state.selectedOwnerReviewPerson =
-      hasSelectedPerson && previousOwner === payload.owner
-        ? state.selectedOwnerReviewPerson
-        : ownerReviewPreferredPersonName(visiblePayload);
-    if (previousOwner !== payload.owner) {
-      state.selectedOwnerReviewMember = '';
-      state.ownerReviewMemberFilter = 'all';
-    }
-    localStorage.setItem(TEAM_OWNER_STORAGE_KEY, payload.owner || owner);
-    if (ownerReviewModuleVisible()) {
-      renderOwnerReviewDashboard();
-    }
-    return payload;
-  } catch (error) {
-    if (requestId !== runtimeStore.ownerReviewRequestId) {
-      return null;
-    }
-    if (cachedReview) {
-      state.ownerReview = cachedReview;
+  const requestController = new AbortController();
+  const requestEntry = { requestId, promise: null, controller: requestController };
+  requestEntry.promise = (async () => {
+    try {
+      const payload = await fetchJson(`${TEAM_RESPONSIBILITY_REVIEW_ENDPOINT}?${params}`, {
+        timeoutMs: OWNER_REVIEW_FETCH_TIMEOUT_MS,
+        signal: requestController.signal,
+      });
+      if (requestId !== runtimeStore.ownerReviewRequestId) {
+        return null;
+      }
+      const previousOwner = state.ownerReview?.owner || '';
+      state.ownerReview = payload;
+      rememberOwnerReview(payload, owner, dashboardContext);
       state.ownerReviewLoading = false;
       state.ownerReviewError = '';
-      state.ownerReviewRefreshStatus = 'stale';
-      state.ownerReviewRefreshError = error?.message || 'Owner responsibility review refresh failed';
+      state.ownerReviewRefreshStatus = '';
+      state.ownerReviewRefreshError = '';
+      const visiblePayload = ownerReviewVisibleReview(payload);
+      const hasSelectedPerson = visiblePayload?.people?.some((item) => item.name === state.selectedOwnerReviewPerson);
+      state.selectedOwnerReviewPerson =
+        hasSelectedPerson && previousOwner === payload.owner
+          ? state.selectedOwnerReviewPerson
+          : ownerReviewPreferredPersonName(visiblePayload);
+      if (previousOwner !== payload.owner) {
+        state.selectedOwnerReviewMember = '';
+        state.ownerReviewMemberFilter = 'all';
+      }
+      localStorage.setItem(TEAM_OWNER_STORAGE_KEY, payload.owner || owner);
       if (ownerReviewModuleVisible()) {
         renderOwnerReviewDashboard();
       }
-      return cachedReview;
+      return payload;
+    } catch (error) {
+      if (requestId !== runtimeStore.ownerReviewRequestId) {
+        return null;
+      }
+      if (cachedReview) {
+        state.ownerReview = cachedReview;
+        state.ownerReviewLoading = false;
+        state.ownerReviewError = '';
+        state.ownerReviewRefreshStatus = 'stale';
+        state.ownerReviewRefreshError = error?.message || 'Owner responsibility review refresh failed';
+        if (ownerReviewModuleVisible()) {
+          renderOwnerReviewDashboard();
+        }
+        return cachedReview;
+      }
+      state.ownerReview = null;
+      state.ownerReviewLoading = false;
+      state.ownerReviewError = error?.message || 'Owner responsibility review load failed';
+      state.ownerReviewRefreshStatus = '';
+      state.ownerReviewRefreshError = '';
+      if (ownerReviewModuleVisible()) {
+        renderOwnerReviewDashboard();
+      }
+      throw error;
     }
-    state.ownerReview = null;
-    state.ownerReviewLoading = false;
-    state.ownerReviewError = error?.message || 'Owner responsibility review load failed';
-    state.ownerReviewRefreshStatus = '';
-    state.ownerReviewRefreshError = '';
-    if (ownerReviewModuleVisible()) {
-      renderOwnerReviewDashboard();
+  })().finally(() => {
+    if (runtimeStore.ownerReviewRequestPromises.get(requestKey) === requestEntry) {
+      runtimeStore.ownerReviewRequestPromises.delete(requestKey);
     }
-    throw error;
-  }
+  });
+  runtimeStore.ownerReviewRequestPromises.set(requestKey, requestEntry);
+  return requestEntry.promise;
 }
 
 
 export function clearTeamDashboardContent() {
-  hideTeamDataHealth();
   elements.teamKpiGrid.innerHTML = '';
   elements.teamAlertGrid.innerHTML = '';
   elements.teamProgressGrid.innerHTML = '';
   if (elements.teamEntryTrendBoard) {
+    runtimeStore.teamAnnualEntryStructureController?.destroy?.();
+    runtimeStore.teamAnnualEntryStructureController = null;
     elements.teamEntryTrendBoard.innerHTML = '';
   }
   if (elements.teamDifficultyBoard) {
@@ -448,25 +906,20 @@ export function clearTeamDashboardContent() {
   }
   setPanelInsight(elements.teamEntryTrendInsight, '');
   setPanelInsight(elements.teamStoreTierInsight, '');
-  setPanelInsight(elements.teamSummaryInsight, '');
   setPanelInsight(elements.teamAlertsInsight, '');
 }
 
 
 export function renderTeamDashboardLoading(owner = state.selectedTeamOwner) {
   const ownerName = teamOwnerDisplayName(owner);
-  elements.teamDashboardTitle.textContent = '小组情况';
+  elements.teamDashboardTitle.textContent = '负责人项目盘面';
   elements.teamHeadline.innerHTML = `
     <span class="team-refresh-chip">
       <span class="team-refresh-dot" aria-hidden="true"></span>
       ${escapeHtml(ownerName ? `正在刷新 ${ownerName}` : '正在刷新小组数据')}
     </span>
   `;
-  elements.teamHeroStats.innerHTML = [
-    renderTeamHeroStat('延期率', '刷新中'),
-    renderTeamHeroStat('占部门比', '刷新中'),
-    renderTeamHeroStat('延期排名', '刷新中'),
-  ].join('');
+  elements.teamHeroStats.innerHTML = renderTeamHeroStoreTierDistribution({}, { loading: true });
   elements.teamDashboardMeta.textContent = '';
   if (elements.teamCoverageNote) {
     elements.teamCoverageNote.hidden = true;
@@ -483,7 +936,7 @@ export function renderTeamDashboardLoading(owner = state.selectedTeamOwner) {
 
 
 export function renderTeamDashboardError() {
-  elements.teamDashboardTitle.textContent = '小组情况';
+  elements.teamDashboardTitle.textContent = '负责人项目盘面';
   elements.teamHeadline.textContent = '团队数据加载失败，请稍后重试';
   elements.teamHeroStats.innerHTML = '';
   elements.teamDashboardMeta.textContent = '';
@@ -497,7 +950,6 @@ export function renderTeamDashboardError() {
     elements.teamDifficultyBoard.innerHTML = '';
     elements.teamDifficultyBoard.hidden = true;
   }
-  hideTeamDataHealth();
 }
 
 
@@ -519,7 +971,6 @@ export function renderTeamKpis(metrics) {
   }
 
 
-  setPanelInsight(elements.teamSummaryInsight, insights.summary);
   if (metrics.riskHealthAnalysis) {
     if (elements.teamAlertsSection) {
       elements.teamAlertsSection.hidden = true;
@@ -581,129 +1032,6 @@ export function renderTeamKpis(metrics) {
 }
 
 
-export function hideTeamDataHealth() {
-  if (!elements.teamDataHealthSection) {
-    return;
-  }
-  elements.teamDataHealthSection.hidden = true;
-  if (elements.teamDataHealthSummary) {
-    elements.teamDataHealthSummary.textContent = '';
-  }
-  if (elements.teamDataHealthBody) {
-    elements.teamDataHealthBody.innerHTML = '';
-  }
-}
-
-
-export function renderRiskAuditNote({ stateConflictImpactCount = 0, dataMissingImpactCount = 0 } = {}) {
-  return '';
-}
-
-
-export function renderTeamDataHealth(metrics) {
-  const analysis = metrics?.riskHealthAnalysis;
-  if (!elements.teamDataHealthSection || !analysis) {
-    hideTeamDataHealth();
-    return;
-  }
-
-  const riskItems = (analysis.riskItems || []).filter((item) => item.status !== 'closed' && item.source !== 'field_coverage');
-  const counts = riskDiagnosisCounts({ ...analysis, riskItems });
-  const urgentItem = findUrgentStatusItem(riskItems);
-  const queueProjects = riskQueueProjects(metrics);
-  const actionQueue = collectRiskProjectQueue(riskItems, queueProjects);
-  const actionRowCounts = riskActionRowCounts(actionQueue);
-  const queueCount = actionQueue.length;
-  const urgentCount = actionRowCounts.urgent || Number(urgentItem?.impactCount ?? metrics.urgentStatusProjects?.length ?? 0);
-  const openDelayedCount = actionRowCounts.delayed || Number(metrics.alerts?.openDelayed ?? metrics.openDelayedProjects?.length ?? 0);
-  const highRiskCount = actionRowCounts.highRisk;
-  const stateConflictCount = actionRowCounts.stateConflict;
-  const dataMissingCount = actionRowCounts.dataMissing;
-  const startLagCount = actionRowCounts.startLag;
-  const stateConflictImpactCount = riskItemImpactCount(riskItems, 'state_conflict');
-  const dataMissingImpactCount = riskItemImpactCount(riskItems, 'data_missing');
-  const dispatchStats = ownerReviewDispatchStats() || pendingOwnerReviewDispatchStats();
-  const floorReminderRows = dispatchStats?.floorReminderRows || [];
-  const scopedQueueCount = dispatchStats ? floorReminderRows.length : queueCount;
-  const immediateCount = urgentCount + openDelayedCount;
-  const dispatchActions = buildDailyDispatchActions(dispatchStats);
-  const actionTabs = buildRiskActionTabs({
-    queueCount: scopedQueueCount,
-    urgentCount,
-    openDelayedCount,
-    highRiskCount,
-    stateConflictCount,
-    dataMissingCount,
-    startLagCount,
-    dispatchStats,
-  });
-  elements.teamDataHealthSection.hidden = false;
-  const title = elements.teamDataHealthPanel?.querySelector('summary span');
-  if (title) {
-    title.textContent = dispatchStats ? '今日调度动作' : '今日处理动作';
-  }
-  const dispatchSummaryLead = dispatchStats
-    ? dispatchStats.pending
-      ? '团队负载待同步'
-      : dispatchStats.urgentRows.length
-      ? `${dispatchStats.urgentRows.length} 人需干预`
-      : `当前平面 ${dispatchStats.floorActive} 项 · ${dispatchStats.occupied}/${dispatchStats.memberCount} 人占用`
-    : '';
-  elements.teamDataHealthSummary.textContent =
-    dispatchStats
-      ? `今日调度 ${dispatchSummaryLead}${floorReminderRows.length ? ` · 责任内提醒 ${floorReminderRows.length} 项` : ''}`
-      : queueCount
-      ? `今日重点 ${queueCount} 项 · 先看紧急 / 延期`
-      : riskItems.length
-        ? `待核对 ${riskItems.length} 类 · 不进主队列`
-        : '暂无需处理风险';
-  if (elements.teamDataHealthPanel) {
-    elements.teamDataHealthPanel.open = true;
-  }
-
-  elements.teamDataHealthBody.innerHTML = `
-      <div class="risk-duty-brief">
-        <div class="risk-duty-copy">
-        <span>${dispatchStats ? '调度建议' : '处理建议'}</span>
-        <strong>${escapeHtml(
-          riskDutyHeadline({
-            actionRecommendation: analysis.summary?.actionRecommendation,
-            urgentCount,
-            openDelayedCount,
-            highRiskCount,
-            queueCount,
-            counts,
-            stateConflictCount,
-            dataMissingCount,
-            startLagCount,
-            dispatchStats,
-          })
-        )}</strong>
-        <p>${
-          dispatchStats
-            ? '先看负责人团队真实负载，再处理当前成员平面里的延期/临期提醒；本页只使用团队成员当前平面负载生成调度建议。'
-            : '建议先补齐责任人、阻塞原因和承诺时间；能当天闭环的直接关闭，不能闭环的标明下一次反馈时间。'
-        }</p>
-      </div>
-    </div>
-    <section class="risk-action-board risk-project-panel risk-duty-panel">
-      <div class="risk-duty-panel-head">
-        <h4>${dispatchStats ? '今日调度动作' : '建议今日处理'}</h4>
-        <span>${dispatchStats ? '只看团队真实负载和责任内平面提醒' : '点击店铺查看项目详情'}</span>
-      </div>
-      ${renderRiskActionTabs(actionTabs)}
-      ${renderDailyDispatchActions(dispatchActions)}
-      ${renderRiskAuditNote({ stateConflictImpactCount, dataMissingImpactCount })}
-      ${
-        dispatchStats
-          ? renderOwnerReviewFloorReminderQueue(floorReminderRows, { pending: dispatchStats.pending })
-          : renderRiskProjectQueue(riskItems, queueProjects, { limit: 6, queue: actionQueue })
-      }
-    </section>
-  `;
-}
-
-
 export function teamHeroSummaryParts(metrics) {
   const summary = metrics.summary || {};
   const total = summary.totalProjects ?? 0;
@@ -713,17 +1041,11 @@ export function teamHeroSummaryParts(metrics) {
 
   const inProgress = metrics.totals?.inProgress ?? summary.activeProjects ?? 0;
   const teamPaused = metrics.pausedCount ?? summary.pausedProjects ?? 0;
-  const responsibleWorkload = metrics.difficultySummary?.responsibleWeightedWorkload ?? 0;
   const chips = [
     { label: '总项目', amount: String(total), unit: '项' },
     { label: '进行中', amount: String(inProgress), unit: '项' },
-    responsibleWorkload
-      ? { label: '责任负荷', amount: compactWorkloadLabel(responsibleWorkload, ''), unit: '人月' }
-      : null,
-  ].filter(Boolean);
-  if (teamPaused > 0) {
-    chips.push({ label: '暂停', amount: String(teamPaused), unit: '家', tone: 'muted' });
-  }
+    { label: '暂停', amount: String(teamPaused), unit: '家', tone: teamPaused > 0 ? 'muted' : '' },
+  ];
   return chips;
 }
 
@@ -750,86 +1072,71 @@ export function renderTeamHeroSummary(metrics) {
 
 export { renderTeamHeroStat } from '../components/team-hero-stat.mjs';
 
+function teamHeroTierProjectCount(tierMetrics = {}) {
+  for (const key of ['projectCount', 'totalProjects', 'total', 'count']) {
+    const value = Number(tierMetrics[key]);
+    if (Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return 0;
+}
+
+
+export function teamHeroStoreTierParts(metrics = {}) {
+  const tiers = metrics.tiers || {};
+  const rows = ownerTierRows(metrics)
+    .map((row) => ({
+      ...row,
+      count: teamHeroTierProjectCount(tiers[row.key]),
+    }))
+    .filter((row) => row.count > 0);
+
+  const visibleRows = rows.slice(0, 5);
+  const hiddenCount = rows.slice(5).reduce((sum, row) => sum + row.count, 0);
+  if (hiddenCount > 0) {
+    visibleRows.push({ key: 'other', label: '其他', count: hiddenCount });
+  }
+  return visibleRows;
+}
+
+
+export function renderTeamHeroStoreTierDistribution(metrics = {}, { loading = false } = {}) {
+  if (loading) {
+    return renderTeamHeroStat('店态分布', '刷新中');
+  }
+
+  const rows = teamHeroStoreTierParts(metrics);
+  if (!rows.length) {
+    return renderTeamHeroStat('店态分布', '—');
+  }
+
+  return `
+    <div class="team-hero-tier-distribution" aria-label="店态分布">
+      <span class="team-hero-tier-title">店态分布</span>
+      <span class="team-hero-tier-items">
+        ${rows
+          .map(
+            (row) => `
+              <span class="team-hero-tier-item">
+                <span>${escapeHtml(row.label)}</span>
+                <b>${escapeHtml(String(row.count))}</b>
+              </span>
+            `
+          )
+          .join('')}
+      </span>
+    </div>
+  `;
+}
+
 
 export function renderTeamHero(metrics) {
-  const benchmark = metrics.benchmark || {};
-  elements.teamDashboardTitle.textContent = '小组情况';
+  elements.teamDashboardTitle.textContent = '负责人项目盘面';
   elements.teamHeadline.innerHTML = renderTeamHeroSummary(metrics);
   elements.teamDashboardMeta.textContent = '';
   renderFilterSelect(elements.teamOwnerSelect);
-
-  const delayedRate = benchmark.teamDelayedRate ?? 0;
-  elements.teamHeroStats.innerHTML = [
-    renderTeamHeroStat('延期率', `${delayedRate}%`, { tone: delayedRate >= 30 ? 'alert' : '' }),
-    renderTeamHeroStat('占部门比', `${benchmark.teamShareOfDepartment ?? 0}%`),
-    renderTeamHeroStat('延期排名', benchmark.rankAmongOwners ? `第 ${benchmark.rankAmongOwners}` : '—', {
-      tone: benchmark.rankAmongOwners === 1 && delayedRate >= 30 ? 'alert' : '',
-    }),
-  ].join('');
-}
-
-
-export function handleTeamDashboardClick(event) {
-  const toggle = event.target.closest('[data-risk-queue-toggle]');
-  if (toggle) {
-    event.preventDefault();
-    event.stopPropagation();
-    const panel = toggle.closest('.risk-project-panel');
-    const expanded = !panel?.classList.contains('is-expanded');
-    panel?.classList.toggle('is-expanded', expanded);
-    toggle.setAttribute('aria-expanded', String(expanded));
-    toggle.textContent = expanded ? toggle.dataset.expandedLabel || '收起项目' : toggle.dataset.collapsedLabel || '展开全部项目';
-    const status = panel?.querySelector('[data-risk-queue-status]');
-    if (status) {
-      status.textContent = expanded ? status.dataset.expandedStatus || '' : status.dataset.collapsedStatus || '';
-    }
-    return;
-  }
-
-  const row = event.target.closest('[data-risk-project-id]');
-  if (row) {
-    event.preventDefault();
-    event.stopPropagation();
-    openRiskProjectDetail(row);
-  }
-}
-
-
-export function riskProjectDetailContextFromRow(row) {
-  return {
-    action: row.dataset.riskAction || '',
-    reason: row.dataset.riskReason || '',
-    meta: row.dataset.riskMeta || '',
-    owner: row.dataset.riskOwner || '',
-    due: row.dataset.riskDue || '',
-  };
-}
-
-
-export function openRiskProjectDetail(row) {
-  const projectId = row?.dataset.riskProjectId || '';
-  const projectName = row?.dataset.riskProjectName || '';
-  if (!projectId && !projectName) {
-    return;
-  }
-  openProjectDetailByReference(
-    { projectId, projectName },
-    state.projects,
-    riskProjectDetailContextFromRow(row)
-  );
-}
-
-
-export function handleTeamDashboardKeydown(event) {
-  if (event.key !== 'Enter' && event.key !== ' ') {
-    return;
-  }
-  const row = event.target.closest('[data-risk-project-id]');
-  if (!row || event.target !== row) {
-    return;
-  }
-  event.preventDefault();
-  openRiskProjectDetail(row);
+  elements.teamHeroStats.innerHTML = renderTeamHeroStoreTierDistribution(metrics);
 }
 
 
@@ -841,7 +1148,7 @@ export function renderTeamDashboard() {
 
   const metrics = state.teamMetrics;
   if (!metrics?.owner) {
-    elements.teamDashboardTitle.textContent = '小组情况';
+    elements.teamDashboardTitle.textContent = '负责人项目盘面';
     elements.teamHeadline.textContent = '';
     elements.teamHeroStats.innerHTML = '';
     elements.teamDashboardMeta.textContent = '';
@@ -858,13 +1165,13 @@ export function renderTeamDashboard() {
   const insights = metrics.insights?.modules || {};
   renderTeamHero(metrics);
   renderTeamCoverageNote(metrics);
-  renderTeamDataHealth(metrics);
   renderTeamKpis(metrics);
   setPanelInsight(elements.teamStoreTierInsight, insights.storeTier);
 
   renderTeamEntryTrendBoard(metrics);
   renderTeamDifficultyBoard(metrics);
   renderTeamTierCharts(metrics);
+  renderTeamWorkCompletionDashboard();
   if (!elements.teamKpiGrid.hidden) {
     bindDashboardTooltips(elements.teamKpiGrid);
     bindDashboardTooltips(elements.teamProgressGrid);
@@ -1641,6 +1948,28 @@ export function renderTeamEntryTrendBoard(metrics) {
   if (!elements.teamEntryTrendBoard) {
     return;
   }
+  const annualEntryStructure = metrics.annualEntryStructure || null;
+  if (annualEntryStructure) {
+    if (!runtimeStore.teamAnnualEntryStructureController) {
+      runtimeStore.teamAnnualEntryStructureController = mountAnnualEntryStructure(elements.teamEntryTrendBoard, {
+        payload: annualEntryStructure,
+        onYearChange: loadTeamAnnualEntryStructure,
+        showStoreAgeTrendPointLabels: false,
+        showStoreAgeTrendSideLegend: true,
+      });
+    } else {
+      runtimeStore.teamAnnualEntryStructureController.update(annualEntryStructure);
+    }
+    setPanelInsight(
+      elements.teamEntryTrendInsight,
+      '按当前负责人项目口径汇总，复用首页年度结构、店态分布、省份贡献和项目明细。'
+    );
+    return;
+  }
+
+  runtimeStore.teamAnnualEntryStructureController?.destroy?.();
+  runtimeStore.teamAnnualEntryStructureController = null;
+
   const newStore = metrics.monthlyEntry?.newStore || [];
   const oldStore = metrics.monthlyEntry?.oldStore || [];
   const difficultyByMonth = metrics.monthlyEntry?.difficultyByMonth || [];
@@ -1950,9 +2279,6 @@ export function renderTeamCoverageNote(metrics) {
   }
   if ((coverage.storeNature ?? 100) < 50) {
     notes.push('店铺性质填写率较低，新店/老店拆分可能不完整');
-  }
-  if ((coverage.schemeStatus ?? 100) < 50) {
-    notes.push('方案情况字段填写率较低，方案延期指标可能回退到整体延期判断');
   }
   if (metrics.monthlyEntry?.usesUpdatedAtFallback) {
     notes.push('当前团队多数项目缺少进店月份字段，图表已启用更新时间回退');

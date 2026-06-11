@@ -44,6 +44,7 @@ function setupTestGlobals({ fetchImpl } = {}) {
   const location = { hash: '' };
   const history = { replaceState() {}, pushState() {} };
   const body = fakeElement();
+  const windowEventListeners = {};
   const documentRef = {
     querySelector: fakeElement,
     querySelectorAll: () => [],
@@ -56,8 +57,14 @@ function setupTestGlobals({ fetchImpl } = {}) {
   const windowRef = {
     location,
     history,
-    addEventListener() {},
-    removeEventListener() {},
+    __eventListeners: windowEventListeners,
+    addEventListener(type, listener) {
+      windowEventListeners[type] = windowEventListeners[type] || [];
+      windowEventListeners[type].push(listener);
+    },
+    removeEventListener(type, listener) {
+      windowEventListeners[type] = (windowEventListeners[type] || []).filter((item) => item !== listener);
+    },
     scrollTo() {},
     setTimeout,
     clearTimeout,
@@ -89,12 +96,26 @@ export async function loadPublicAppHarness({ fetchImpl } = {}) {
   runtimeStore.analysisAgentInFlight = false;
   runtimeStore.syncMessageTimer = null;
   runtimeStore.drillModalRequestId = 0;
+  runtimeStore.projectDetailRequestId = 0;
   runtimeStore.teamMetricsRequestId = 0;
+  runtimeStore.teamWorkCompletionRequestId = 0;
+  runtimeStore.teamWorkCompletionRequestPromises = new Map();
   runtimeStore.ownerReviewRequestId = 0;
+  runtimeStore.ownerReviewRequestPromises = new Map();
   runtimeStore.teamMetricsBatchPromises = new Map();
+  runtimeStore.teamMetricsCacheGeneration = 0;
   runtimeStore.teamMetricsPreloadTimer = null;
   runtimeStore.teamMetricsPreloadToken = 0;
+  runtimeStore.teamWorkCompletionPreloadTimer = null;
+  runtimeStore.teamWorkCompletionPreloadToken = 0;
+  runtimeStore.projectCatalogPromise = null;
+  runtimeStore.drillProjectsCache = new Map();
+  runtimeStore.drillResolvePromises = new Map();
+  runtimeStore.projectDetailCache = new Map();
+  runtimeStore.projectDetailPromises = new Map();
+  runtimeStore.profileDashboardPromises = new Map();
   runtimeStore.annualEntryStructureController = null;
+  runtimeStore.teamAnnualEntryStructureController = null;
 
   const moduleUrl = new URL('./app.js', import.meta.url);
   moduleUrl.searchParams.set('harness', String(Date.now()));
@@ -108,10 +129,14 @@ export async function loadPublicAppHarness({ fetchImpl } = {}) {
     parsePageHash: mod.parsePageHash,
     currentPageId: mod.currentPageId,
     showPage: mod.showPage,
+    init: mod.init,
+    bindEvents: mod.bindEvents,
     isDevelopmentDocumentationVisible: mod.isDevelopmentDocumentationVisible,
     applyDevelopmentDocumentationVisibility: mod.applyDevelopmentDocumentationVisibility,
     renderProjectWorkbenchEmptyState: mod.renderProjectWorkbenchEmptyState,
     loadTeamMetrics: mod.loadTeamMetrics,
+    loadProfileDashboard: mod.loadProfileDashboard,
+    loadTeamAnnualEntryStructure: mod.loadTeamAnnualEntryStructure,
     loadOwnerResponsibilityReview: mod.loadOwnerResponsibilityReview,
     navigateToOwnerReview: mod.navigateToOwnerReview,
     resetOwnerReviewForTeamOwnerChange: mod.resetOwnerReviewForTeamOwnerChange,
@@ -123,8 +148,6 @@ export async function loadPublicAppHarness({ fetchImpl } = {}) {
     collectRiskProjectQueue: mod.collectRiskProjectQueue,
     riskActionRowCounts: mod.riskActionRowCounts,
     riskDutyHeadline: mod.riskDutyHeadline,
-    renderTeamDataHealth: mod.renderTeamDataHealth,
-    renderRiskAuditNote: mod.renderRiskAuditNote,
     riskClass: mod.riskClass,
     renderProjectOwnersCell: mod.renderProjectOwnersCell,
     renderProjectTeamCell: mod.renderProjectTeamCell,
@@ -134,6 +157,19 @@ export async function loadPublicAppHarness({ fetchImpl } = {}) {
     readProjectStage: mod.readProjectStage,
     renderProjectDetailModal: mod.renderProjectDetailModal,
     renderProjectWorkbench: mod.renderProjectWorkbench,
+    loadTeamWorkCompletion: mod.loadTeamWorkCompletion,
+    loadTeamDashboardScope: mod.loadTeamDashboardScope,
+    loadSelectedTeamOwner: mod.loadSelectedTeamOwner,
+    renderTeamWorkCompletionDashboard: mod.renderTeamWorkCompletionDashboard,
+    handleTeamWorkCompletionContextClick: mod.handleTeamWorkCompletionContextClick,
+    handleTeamWorkCompletionYearChange: mod.handleTeamWorkCompletionYearChange,
+    handleTeamCompletionFilterClick: mod.handleTeamCompletionFilterClick,
+    handleTeamCompletionMemberClick: mod.handleTeamCompletionMemberClick,
+    handleTeamCompletionMonthClick: mod.handleTeamCompletionMonthClick,
+    handleTeamCompletionMemberModalClick: mod.handleTeamCompletionMemberModalClick,
+    openTeamCompletionMemberModal: mod.openTeamCompletionMemberModal,
+    openTeamCompletionMonthModal: mod.openTeamCompletionMonthModal,
+    closeTeamCompletionMemberModal: mod.closeTeamCompletionMemberModal,
     renderOwnerReviewTeamStructure: mod.renderOwnerReviewTeamStructure,
     renderOwnerReviewPersonRows: mod.renderOwnerReviewPersonRows,
     renderOwnerReviewDetailRows: mod.renderOwnerReviewDetailRows,

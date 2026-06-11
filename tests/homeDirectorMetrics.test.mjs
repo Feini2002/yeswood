@@ -502,6 +502,39 @@ test('buildDirectorOverviewModel derives safe command signals and risk queues', 
   assert.equal(Number.isFinite(model.summary.delayedRate), true);
 });
 
+test('buildDirectorOverviewModel prefers complete department profile totals over legacy summary kpis', () => {
+  const model = buildDirectorOverviewModel({
+    metrics: {
+      summary: {
+        totalProjects: 430,
+        activeProjects: 425,
+        delayedProjects: 9,
+        notStarted: 12,
+        pausedProjects: 6,
+      },
+      pausedCount: 6,
+      totalScopeCount: 436,
+    },
+    departmentMetrics: {
+      scopeCount: 438,
+      pausedCount: 8,
+      totalScopeCount: 446,
+      totals: {
+        inProgress: 438,
+        openDelayed: 0,
+        notStarted: 0,
+      },
+    },
+  });
+
+  assert.equal(model.summary.scopeCount, 438);
+  assert.equal(model.summary.totalScopeCount, 446);
+  assert.equal(model.summary.pausedCount, 8);
+  assert.equal(model.summary.inProgress, 438);
+  assert.equal(model.summary.openDelayed, 0);
+  assert.equal(model.summary.notStarted, 0);
+});
+
 test('buildDirectorOverviewModel surfaces DingTalk form project board signals', () => {
   const formProject = (id, group, startDate, hardStage, softStage, status = '') => ({
     id,
@@ -642,6 +675,53 @@ test('region matrix uses active projects, full store statuses, expandable provin
   assert.equal(matrix.provinceAudit.sourceLabelCount, 15);
   assert.equal(matrix.provinceAudit.canonicalLabelCount, 12);
   assert.equal(matrix.provinceAudit.issueCount, 0);
+});
+
+test('region and tier matrices omit unfilled store status while keeping projects in scope', () => {
+  const projects = [
+    {
+      id: 'filled',
+      name: 'filled',
+      province: '云南省',
+      storeStatus: '常规店',
+      rawFields: { 硬装项目进度: raw('施工图'), 组别: raw('直营') },
+    },
+    {
+      id: 'missing-status',
+      name: 'missing-status',
+      province: '云南省',
+      storeStatus: '未填写',
+      rawFields: { 硬装项目进度: raw('施工图'), 组别: raw('直营') },
+    },
+  ];
+
+  const model = buildDirectorOverviewModel({
+    departmentMetrics: {
+      tierLabels: { regular: '常规店', 'custom:未填写': '未填写' },
+      tierOrder: ['regular', 'custom:未填写'],
+      tiers: {
+        regular: { projectCount: 1, inProgress: 1, notStarted: 0, openDelayed: 0, schemeDoneYtd: 0 },
+        'custom:未填写': { projectCount: 1, inProgress: 0, notStarted: 1, openDelayed: 0, schemeDoneYtd: 0 },
+      },
+      monthlyOps: {
+        regular: { hardPlanVolume: 1 },
+        'custom:未填写': { hardPlanVolume: 0 },
+      },
+    },
+    projects,
+  });
+
+  assert.equal(model.regionMatrix.activeProjectCount, 2);
+  assert.deepEqual(model.regionMatrix.cols, ['常规店']);
+  assert.equal(
+    model.regionMatrix.cells.find((cell) => cell.province === '云南省' && cell.storeStatus === '常规店')?.total,
+    1
+  );
+  assert.equal(model.regionMatrix.cols.includes('未填写'), false);
+  assert.equal(model.tierMatrix.rows.length, 1);
+  assert.equal(model.tierMatrix.rows[0].label, '常规店');
+  assert.equal(model.monthlyOpsMatrix.columns.length, 1);
+  assert.equal(model.monthlyOpsMatrix.columns[0].label, '常规店');
 });
 
 test('buildDirectorOverviewModel handles empty inputs without NaN or thrown errors', () => {

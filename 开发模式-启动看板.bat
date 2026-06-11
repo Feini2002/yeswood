@@ -10,7 +10,7 @@ set "APP_ENTRY=.\src\backend\server.mjs"
 echo [dashboard] Development mode launcher
 echo [dashboard] Workspace: %CD%
 echo [dashboard] URL: http://localhost:%PORT%
-echo [dashboard] Steps: clear stale port ^> start server ^> health check ^> open browser ^> warm data
+echo [dashboard] Steps: clear stale port ^> start server ^> health check ^> warm data ^> open browser
 echo.
 
 if not exist ".\scripts\launch-dev-dashboard.ps1" (

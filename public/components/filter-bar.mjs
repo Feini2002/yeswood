@@ -1,7 +1,7 @@
 import { state } from '../lib/state.mjs';
 import { elements } from '../lib/dom.mjs';
 import { escapeHtml } from '../lib/format.mjs';
-import { HIDDEN_FILTER_VALUES, FILTERABLE_PAGES } from '../lib/constants.mjs';
+import { FILTERABLE_PAGES, isHiddenFilterValue } from '../lib/constants.mjs';
 import { currentPageId, parsePageHash } from '../lib/router.mjs';
 
 export function filterControlsForPage() {
@@ -76,10 +76,7 @@ export function toQuery(filters) {
 
 
 export function visibleFilterValues(values) {
-  return values.filter((value) => {
-    const label = String(value ?? '').trim();
-    return label && !HIDDEN_FILTER_VALUES.has(label);
-  });
+  return values.filter((value) => !isHiddenFilterValue(value));
 }
 
 

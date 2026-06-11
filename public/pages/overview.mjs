@@ -292,7 +292,7 @@ export function renderOverviewTierMatrix(model) {
   const tierCount = tierSummary.rowCount ?? matrix.rows.length;
   container.innerHTML = `
     <div class="overview-tier-note">
-      <strong>${tierCount} 类店态/strong>
+      <strong>${tierCount} 类店态</strong>
       <span>按数据源「店态」明细展开，高潜 / 旗舰 / 超一线 / 黑标不再折叠进其他。</span>
     </div>
     <div class="overview-matrix-scroll">

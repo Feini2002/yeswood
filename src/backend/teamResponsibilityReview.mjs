@@ -21,6 +21,7 @@ import { excludePausedProjects } from './metrics/pausedProjects.mjs';
 import { matchesDashboardContext, resolveOwnerMonthlyProjects } from './metrics/projectScopes.mjs';
 import { expandOwnerNames } from './responsibilityRepository.mjs';
 import { findResponsibilityIdentity } from './responsibilityIdentities.mjs';
+import { teamWithStaticGroups } from './teamStructureFallbacks.mjs';
 
 const HARD_SCHEME_DATE_FIELDS = ['硬装方案完成时间', '躺平内部审核结束时间', '内部审核结束时间'];
 const POINT_STATUS_FIELDS = ['点位完成情况'];
@@ -172,15 +173,6 @@ const DEFAULT_EXECUTION_SCOPE = {
   slotKeys: ['cd_designer', 'point_designer', 'vm_designer'],
   roleKeys: ['cdDesigner', 'pointDesigner', 'vmDesigner'],
   deliveryKeys: ['hardScheme', 'point', 'softScheme'],
-};
-
-const STATIC_OWNER_TEAM_GROUPS = {
-  苏佳蕾: [
-    { name: '直营1组', members: ['陈菲菲', '乔玲玲', '陈晶晶', '张莹莹', '李晓倩', '杨雪倩'] },
-    { name: '直营2组', members: ['陶媛媛', '梁玉贞', '安灵玲', '何赛平', '左忠淼', '古茂琨', '席创意'] },
-    { name: '直营3组', members: ['杨晓芸', '陈红燕', '臧传宝', '庞小琪', '杨诚', '禹凯鹏', '陈梦然', '占俊鑫'] },
-    { name: '直营4组', members: ['刘雯蓓', '董一凡', '郭后冲', '杨莉', '牛超凡', '侯喆'] },
-  ],
 };
 
 const INACTIVE_TEAM_MEMBER_NAMES = new Set(['李晓倩', '席创意', '侯喆']);
@@ -343,21 +335,6 @@ function executionScopeForTeam(team, architecture) {
 function executionDefinitions(scope) {
   const slotKeys = new Set(scope.slotKeys || []);
   return RESPONSIBILITY_DEFINITIONS.filter((definition) => slotKeys.has(definition.slotKey));
-}
-
-function hasExplicitTeamMembers(team) {
-  if ((team?.members || []).length || (team?.designers || []).length) {
-    return true;
-  }
-  return (team?.groups || []).some((group) => (group?.members || []).length);
-}
-
-function teamWithStaticGroups(team = {}) {
-  if (hasExplicitTeamMembers(team)) {
-    return team;
-  }
-  const groups = STATIC_OWNER_TEAM_GROUPS[team.owner];
-  return groups ? { ...team, groups } : team;
 }
 
 function projectIdentity(project) {

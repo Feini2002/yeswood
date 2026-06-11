@@ -123,6 +123,82 @@ test('month totals reconcile with annual totals and quadrant breakdown', () => {
   assert.equal(provinceSum, march.total);
 });
 
+test('annual entry keeps unfilled store status projects but omits them from store status rankings', () => {
+  const projects = [
+    directNew('filled', '2026-03-05', { storeStatus: '常规店' }),
+    sampleProject({
+      id: 'missing-status',
+      startDate: '2026-03-08',
+      storeStatus: '未填写',
+      rawFields: {
+        组别: raw('直营新店'),
+        店铺性质: raw('新店'),
+        店态: raw(''),
+        硬装项目进度: raw('施工图'),
+      },
+    }),
+  ];
+
+  const payload = buildAnnualEntryStructure(projects, { year: 2026 });
+  const march = payload.months.find((month) => month.month === 3);
+
+  assert.equal(march.total, 2);
+  assert.equal(march.projects.length, 2);
+  assert.equal(march.projects.some((project) => project.storeStatus === '未填写'), true);
+  assert.deepEqual(
+    march.storeStatuses.map((item) => item.label),
+    ['常规店']
+  );
+  assert.equal(march.storeStatuses.reduce((sum, item) => sum + item.total, 0), 1);
+});
+
+test('month entry payload includes project summaries for drill modals', () => {
+  const projects = [
+    directNew('d-new-3', '2026-03-05', { name: '杭州直营新店', province: '浙江省', cdOwner: '苏佳蕾' }),
+    sampleProject({
+      id: 'f-old-3',
+      name: '武汉加盟老店',
+      startDate: '2026-03-08',
+      province: '湖北省',
+      vmOwner: '杨晶晶',
+      rawFields: {
+        组别: raw('加盟老店'),
+        店铺性质: raw('老店改造'),
+        店态: raw('下沉店'),
+        硬装项目进度: raw('施工图'),
+      },
+    }),
+    directNew('paused', '2026-03-10', { hardStage: '暂停' }),
+  ];
+
+  const payload = buildAnnualEntryStructure(projects, { year: 2026 });
+  const march = payload.months.find((month) => month.month === 3);
+
+  assert.equal(march.projects.length, 2);
+  assert.deepEqual(
+    march.projects.map((project) => project.id),
+    ['d-new-3', 'f-old-3']
+  );
+  assert.deepEqual(march.projects[0], {
+    id: 'd-new-3',
+    name: '杭州直营新店',
+    startDate: '2026-03-05',
+    month: 3,
+    province: '浙江省',
+    storeStatus: '常规店',
+    status: '一般',
+    scope: 'direct',
+    scopeLabel: '直营',
+    storeAge: 'newStore',
+    storeAgeLabel: '新店',
+    quadrantKey: 'directNew',
+    quadrantLabel: '直营新店',
+    owner: '苏佳蕾',
+  });
+  assert.equal(march.quadrants.franchiseOld.projects[0].name, '武汉加盟老店');
+  assert.equal(march.quadrants.franchiseOld.projects[0].owner, '杨晶晶');
+});
+
 test('missing startDate is excluded from entry and counted in dataQuality', () => {
   const projects = [
     directNew('with-date', '2026-05-01'),
@@ -265,13 +341,88 @@ test('department currentYearEntry aligns with annualEntryStructure totals.entry'
   assert.equal(model.summary.currentYearEntry, payload.totals.entry);
 });
 
+test('ownerMonthly annualEntryStructure is scoped by owner and dashboard context', () => {
+  const scopedDirect = sampleProject({
+    id: 'owner-direct',
+    owner: 'Owner A',
+    startDate: '2026-03-05',
+    rawFields: {
+      '\u7ec4\u522b': raw('\u76f4\u8425\u65b0\u5e97'),
+      '\u5e97\u94fa\u6027\u8d28': raw('\u65b0\u5e97'),
+      '\u5e97\u6001': raw('\u5e38\u89c4\u5e97'),
+      '\u786c\u88c5\u9879\u76ee\u8fdb\u5ea6': raw('\u65bd\u5de5\u56fe'),
+    },
+  });
+  const scopedFranchise = sampleProject({
+    id: 'owner-franchise',
+    owner: 'Owner A',
+    startDate: '2026-04-06',
+    rawFields: {
+      '\u7ec4\u522b': raw('\u52a0\u76df\u65b0\u5e97'),
+      '\u5e97\u94fa\u6027\u8d28': raw('\u65b0\u5e97'),
+      '\u5e97\u6001': raw('\u5e38\u89c4\u5e97'),
+      '\u786c\u88c5\u9879\u76ee\u8fdb\u5ea6': raw('\u65bd\u5de5\u56fe'),
+    },
+  });
+  const otherOwner = sampleProject({
+    id: 'other-owner',
+    owner: 'Owner B',
+    startDate: '2026-05-07',
+    rawFields: {
+      '\u7ec4\u522b': raw('\u76f4\u8425\u65b0\u5e97'),
+      '\u5e97\u94fa\u6027\u8d28': raw('\u65b0\u5e97'),
+      '\u5e97\u6001': raw('\u5e38\u89c4\u5e97'),
+      '\u786c\u88c5\u9879\u76ee\u8fdb\u5ea6': raw('\u65bd\u5de5\u56fe'),
+    },
+  });
+
+  const allMetrics = composeDashboardMetrics(
+    [scopedDirect, scopedFranchise, otherOwner],
+    'ownerMonthly',
+    {
+      owner: 'Owner A',
+      team: { owner: 'Owner A' },
+      dashboardContext: 'all',
+      now: new Date('2026-06-01T00:00:00.000Z'),
+    }
+  );
+  const directMetrics = composeDashboardMetrics(
+    [scopedDirect, scopedFranchise, otherOwner],
+    'ownerMonthly',
+    {
+      owner: 'Owner A',
+      team: { owner: 'Owner A' },
+      dashboardContext: 'direct',
+      now: new Date('2026-06-01T00:00:00.000Z'),
+    }
+  );
+
+  assert.equal(allMetrics.currentYearEntry.count, 2);
+  assert.equal(allMetrics.annualEntryStructure.totals.entry, 2);
+  assert.equal(allMetrics.annualEntryStructure.totals.direct, 1);
+  assert.equal(allMetrics.annualEntryStructure.totals.franchise, 1);
+  assert.deepEqual(
+    allMetrics.annualEntryStructure.months.flatMap((month) => month.projects.map((project) => project.id)),
+    ['owner-direct', 'owner-franchise']
+  );
+
+  assert.equal(directMetrics.currentYearEntry.count, 1);
+  assert.equal(directMetrics.annualEntryStructure.totals.entry, 1);
+  assert.equal(directMetrics.annualEntryStructure.totals.direct, 1);
+  assert.equal(directMetrics.annualEntryStructure.totals.franchise, 0);
+  assert.deepEqual(
+    directMetrics.annualEntryStructure.months.flatMap((month) => month.projects.map((project) => project.id)),
+    ['owner-direct']
+  );
+});
+
 test('defaultMonth selects latest month with entry greater than zero', () => {
   const projects = [directNew('m3', '2026-03-01'), directNew('m5', '2026-05-01')];
   const payload = buildAnnualEntryStructure(projects, { year: 2026 });
   assert.equal(payload.defaultMonth, 5);
 });
 
-test('store status ranking keeps top eight and merges the rest into 其他', () => {
+test('store status distribution keeps every populated status without merging 其他', () => {
   const projects = Array.from({ length: 10 }, (_, index) =>
     sampleProject({
       id: `p-${index}`,
@@ -288,9 +439,9 @@ test('store status ranking keeps top eight and merges the rest into 其他', () 
 
   const payload = buildAnnualEntryStructure(projects, { year: 2026 });
   const june = payload.months.find((month) => month.month === 6);
-  assert.equal(june.storeStatuses.length, 9);
-  assert.equal(june.storeStatuses.at(-1).label, '其他');
-  assert.equal(june.storeStatuses.at(-1).total, 2);
+  assert.equal(june.storeStatuses.length, 10);
+  assert.equal(june.storeStatuses.some((item) => item.label === '其他'), false);
+  assert.equal(june.storeStatuses.reduce((sum, item) => sum + item.total, 0), 10);
 });
 
 test('property: annual entry structure keeps section 8 invariants on random mixes', () => {

@@ -132,6 +132,26 @@ test('composeDashboardMetrics returns tier blocks for department profile', () =>
   assert.ok(metrics.metricDefinitions.notStarted);
 });
 
+test('composeDashboardMetrics excludes unfilled store status from tier order', () => {
+  const projects = [
+    sampleProject({
+      id: 'filled',
+      rawFields: { 店态: { display: '常规店' }, 硬装项目进度: { display: '施工图' }, 组别: { display: '直营' } },
+    }),
+    sampleProject({
+      id: 'missing',
+      storeStatus: '未填写',
+      rawFields: { 硬装项目进度: { display: '施工图' }, 组别: { display: '直营' } },
+    }),
+  ];
+
+  const metrics = composeDashboardMetrics(projects, 'department');
+  assert.equal(metrics.scopeCount, 2);
+  assert.deepEqual(metrics.tierOrder, ['regular']);
+  assert.equal(metrics.tiers.regular.projectCount, 1);
+  assert.equal(metrics.tiers['custom:未填写'], undefined);
+});
+
 test('matchSlotForFieldName recognizes CD/VM 负责人 columns', () => {
   assert.equal(matchSlotForFieldName('CD负责人')?.slotKey, 'cd_owner');
   assert.equal(matchSlotForFieldName('VM负责人')?.slotKey, 'vm_owner');

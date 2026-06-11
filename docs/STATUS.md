@@ -1,6 +1,6 @@
 # 当前状态与路线图
 
-> 更新日期：2026-06-09  
+> 更新日期：2026-06-10  
 > 用途：记录当前系统状态、近期路线图和文档收口记录。长期契约请看 `docs/contracts/` 与 `docs/rules/`。
 
 ## 当前阶段
@@ -32,7 +32,8 @@
 - 本地人员主数据优先于钉钉项目字段，用于真实角色、硬装 / 软装 / 共同承担、团队归属、别名、在职状态等管理口径。
 - 硬装 Deadline 已有后端计算逻辑、工作日日历、规则文档、项目详情摘要、项目列表主提醒和 Deadline 复核入口。
 - 自动化测试覆盖后端数据规则、指标计算、安全边界和关键前端结构。
-- 前端大单体拆分已完成主体迁移：`public/app.js` 315 行入口编排；业务逻辑分布于 `lib/`、`domain/`、`components/`、`pages/`；`index.html` 引 `/styles/app.css`，根目录 `styles.css` 仅兼容重定向。计划必跑测试与全量 `node --test` 已通过。人工点验清单见拆分方案 §7.3，仍待 2K 桌面端走查。详见 [`handbook/frontend-split-plan.md`](./handbook/frontend-split-plan.md)。
+- 前端大单体拆分 **已收口并 archive**（2026-06-09）：`public/app.js` 315 行入口编排；业务分布于 `lib/`、`domain/`、`components/`、`pages/`；主规格见 `openspec/specs/frontend-architecture/spec.md`。验证：392/392 测试、2K 走查、OpenSpec validate 通过。
+- 首页「年度进店结构」模块 **V3 已落地**（2026-06-10）：单行状态带、季度 segmented tab、ECharts 主图丰满化、弹窗精简；实现于 `public/dashboard/annual-entry-structure.mjs`；需求稿见 [`17-home-entry-dashboard-design.md`](./17-home-entry-dashboard-design.md)，V3 追溯稿见 [`archive/2026-06-10-home-entry-structure-v3-plan.md`](./archive/2026-06-10-home-entry-structure-v3-plan.md)。
 
 ## 近期路线图
 
@@ -52,7 +53,7 @@
 - 增加本地编辑入口。
 - 增加字段配置和列展示配置。
 - 增加差异确认视图。
-- 按当前设计稿推进首页年度进店结构模块；生效需求稿见 [`17-home-entry-dashboard-design.md`](./17-home-entry-dashboard-design.md)，旧版追溯稿见 [`archive/page-specs/2026-06-home-entry-dashboard-design.md`](./archive/page-specs/2026-06-home-entry-dashboard-design.md)。
+- 首页年度进店结构 V3 已落地；后续迭代以 [`17-home-entry-dashboard-design.md`](./17-home-entry-dashboard-design.md) 为需求基准，V3 实现追溯见 [`archive/2026-06-10-home-entry-structure-v3-plan.md`](./archive/2026-06-10-home-entry-structure-v3-plan.md)。
 
 ### P3：复盘与维护
 
@@ -70,6 +71,9 @@
 - 2026-06-09：完成文档目录重构，主文档分为 `handbook/`、`contracts/`、`rules/` 与 `archive/`。
 - 2026-06-09：合并 `05 + 12` 为 [`contracts/dashboard-metrics.md`](./contracts/dashboard-metrics.md)，合并 `11 + 15` 为 [`contracts/personnel-and-responsibility-routing.md`](./contracts/personnel-and-responsibility-routing.md)，合并 `00 + 04` 为 [`contracts/data-authority.md`](./contracts/data-authority.md)。
 - 2026-06-09：`14` 硬装 Deadline 落地计划归档；首页年度进店结构看板保留为当前需求稿，旧版追溯稿放入 archive。
+- 2026-06-09：OpenSpec 基线当前已归档 `frontend-architecture`；下一批按 `security-boundary`、`data-authority`、`field-mapping`、`dashboard-metrics`、`personnel-responsibility-routing`、`hard-decoration-deadlines` 顺序补齐。
+- 2026-06-09：OpenSpec 契约体系优化完成第一阶段：前端架构、安全边界、数据权威、字段映射、指标、人员责任、硬装 Deadline 已形成 baseline specs；未来 P2 本地编辑和差异确认必须先走 OpenSpec change。
+- 2026-06-10：首页年度进店结构 V3 实现收口；`docs/18`、`docs/19`、`docs/20` 过程稿迁入 `docs/archive/`（`2026-06-09-home-entry-*`、`2026-06-10-home-entry-structure-v3-plan.md`），`docs/` 根目录仅保留生效需求稿 `17`。
 
 ## 文档更新路由
 
@@ -89,10 +93,16 @@
 
 ## 最近验证记录
 
-本轮拆分收尾验证记录：
+前端拆分收尾验证（2026-06-09）：
 
 ```text
-node --test：392/392 通过
-public 模块 import 冒烟：42/42 通过
-备注：使用 Node 内置 node:sqlite 时会输出 ExperimentalWarning，当前为已知技术选择提示。
+node --test：392/392 通过（退出码 0）
+前端定向组：120/120 通过（含 frontendSplitPolicy.test.mjs）
+openspec validate split-frontend-monolith：valid
+openspec validate --all：1 passed, 0 failed
+2K 浏览器走查：通过（证据记录保留在本节与 archived OpenSpec tasks）
+走查修复：project-workbench.mjs 补 import hideProjectAssignmentAlert
+备注：node:sqlite ExperimentalWarning 为已知提示；4300 内网模式本轮未补验
+OpenSpec：split-frontend-monolith 已 archive → openspec/changes/archive/2026-06-09-split-frontend-monolith/
+主规格：openspec/specs/frontend-architecture/spec.md
 ```

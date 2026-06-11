@@ -1,4 +1,4 @@
-﻿import { startDevReload } from './realtime.js';
+import { startDevReload } from './realtime.js';
 import { initTooltipSystem } from './dashboard/tooltip.mjs';
 import { state } from './lib/state.mjs';
 import { elements } from './lib/dom.mjs';
@@ -31,8 +31,13 @@ import * as teamsPage from './pages/teams.mjs';
 import {
   renderAll,
   loadDashboard,
+  loadProjectCatalog,
+  applyVisibleProjects,
+  loadTeamPageModules,
   loadFilters,
   refresh,
+  softRefresh,
+  hardRefresh,
   debounce,
   syncDingTalk,
   runAnalysisAgent,
@@ -64,14 +69,42 @@ const {
   handleProjectDetailsClick,
   handleProjectDetailsKeydown,
 } = projectWorkbench;
-const { handleDashboardDrillClick, handleDashboardDrillKeydown, handleGlobalModalKeydown, renderDrillProjectRows } = drillModal;
+const {
+  handleDashboardDrillClick,
+  handleDashboardDrillKeydown,
+  handleGlobalModalKeydown,
+  handleDrillProjectModalClick,
+  renderDrillProjectRows,
+} = drillModal;
 
 configureViewCoordinator({
   renderProjectWorkbench,
   renderDrillProjectRows,
 });
 const { renderProjectDetailModal } = projectDetailModal;
-const { loadTeamMetrics, loadOwnerResponsibilityReview, renderTeamDashboard, renderTeamDashboardError, renderTeamDataHealth, renderRiskAuditNote, handleTeamDashboardClick, handleTeamDashboardKeydown, resetOwnerReviewForTeamOwnerChange } = teamsPage;
+const {
+  cancelTeamMetricsPreload,
+  cancelTeamWorkCompletionPreload,
+  loadTeamMetrics,
+  loadTeamWorkCompletion,
+  loadTeamDashboardScope,
+  loadTeamAnnualEntryStructure,
+  loadOwnerResponsibilityReview,
+  renderTeamDashboard,
+  renderTeamDashboardError,
+  renderTeamWorkCompletionDashboard,
+  handleTeamWorkCompletionContextClick,
+  handleTeamWorkCompletionYearChange,
+  handleTeamCompletionFilterClick,
+  handleTeamCompletionMemberClick,
+  handleTeamCompletionMemberModalClick,
+  handleTeamCompletionMemberModalKeydown,
+  handleTeamCompletionMonthClick,
+  openTeamCompletionMemberModal,
+  openTeamCompletionMonthModal,
+  closeTeamCompletionMemberModal,
+  resetOwnerReviewForTeamOwnerChange,
+} = teamsPage;
 const {
   renderOwnerReviewTeamStructure,
   renderOwnerReviewPersonRows,
@@ -114,18 +147,29 @@ const { loadProfileDashboard, renderProfilePage } = profileShared;
 const { openRulesInfoDialog } = rulesPage;
 
 export function bindEvents() {
-  const debouncedRefresh = debounce(refresh, 180);
-  elements.searchInput.addEventListener('input', debouncedRefresh);
+  const debouncedSoftRefresh = debounce(() => {
+    softRefresh().catch((error) => {
+      console.warn('Filter refresh failed', error);
+    });
+  }, 180);
+  elements.searchInput.addEventListener('input', debouncedSoftRefresh);
   [
     elements.provinceFilter,
     elements.businessTypeFilter,
     elements.storeStatusFilter,
     elements.statusFilter,
-  ].forEach((select) => select.addEventListener('change', refresh));
+  ].forEach((select) =>
+    select.addEventListener('change', () => {
+      softRefresh().catch((error) => {
+        console.warn('Filter refresh failed', error);
+      });
+    })
+  );
   document.addEventListener('click', handleFilterSelectClick);
   document.addEventListener('keydown', handleFilterSelectKeydown);
   document.addEventListener('keydown', handleDashboardDrillKeydown);
   document.addEventListener('keydown', handleGlobalModalKeydown);
+  document.addEventListener('keydown', handleTeamCompletionMemberModalKeydown);
   document.addEventListener('keydown', handleOwnerReviewKeydown);
   if (elements.detailsViewTabs) {
     elements.detailsViewTabs.addEventListener('click', handleDetailsViewTabClick);
@@ -143,11 +187,46 @@ export function bindEvents() {
     elements.rulesInfoOpen.addEventListener('click', openRulesInfoDialog);
   }
   elements.teamOwnerSelect.addEventListener('change', () => {
-    resetOwnerReviewForTeamOwnerChange();
-    navigateToTeam(elements.teamOwnerSelect.value);
+    loadSelectedTeamOwner(elements.teamOwnerSelect.value).catch((error) => {
+      console.warn('Team owner switch failed', error);
+    });
   });
   if (elements.ownerReviewContextTabs) {
-    elements.ownerReviewContextTabs.addEventListener('click', handleOwnerReviewContextClick);
+    elements.ownerReviewContextTabs.addEventListener('click', (event) => {
+      const selection = handleOwnerReviewContextClick(event);
+      if (!selection) {
+        return;
+      }
+      loadOwnerResponsibilityReview(selection.owner, selection.dashboardContext)
+        .then(() => renderOwnerReviewDashboard())
+        .catch((error) => {
+          console.warn('Owner responsibility review context switch failed', error);
+        });
+    });
+  }
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('[data-team-completion-context]')) {
+      return;
+    }
+    handleTeamWorkCompletionContextClick(event);
+  });
+  if (elements.teamCompletionYearSelect) {
+    elements.teamCompletionYearSelect.addEventListener('change', handleTeamWorkCompletionYearChange);
+  }
+  if (elements.teamCompletionHeroStats) {
+    elements.teamCompletionHeroStats.addEventListener('click', handleTeamCompletionFilterClick);
+  }
+  if (elements.teamCompletionMonthlyChart) {
+    elements.teamCompletionMonthlyChart.addEventListener('click', handleTeamCompletionMonthClick);
+  }
+  if (elements.teamCompletionGroupGrid) {
+    elements.teamCompletionGroupGrid.addEventListener('click', handleTeamCompletionMemberClick);
+  }
+  if (elements.teamCompletionMemberGrid) {
+    elements.teamCompletionMemberGrid.addEventListener('click', handleTeamCompletionMemberClick);
+  }
+  if (elements.teamCompletionMemberModal) {
+    elements.teamCompletionMemberModal.addEventListener('click', handleTeamCompletionMemberModalClick);
   }
   if (elements.ownerReviewBorrowToggle) {
     elements.ownerReviewBorrowToggle.addEventListener('change', () => {
@@ -183,11 +262,10 @@ export function bindEvents() {
   if (elements.ownerReviewDecisionModal) {
     elements.ownerReviewDecisionModal.addEventListener('click', handleOwnerReviewDecisionModalClick);
   }
-  if (elements.teamDataHealthBody) {
-    elements.teamDataHealthBody.addEventListener('click', handleTeamDashboardClick);
-    elements.teamDataHealthBody.addEventListener('keydown', handleTeamDashboardKeydown);
-  }
   document.addEventListener('click', handleDashboardDrillClick);
+  if (elements.drillProjectModal) {
+    elements.drillProjectModal.addEventListener('click', handleDrillProjectModalClick);
+  }
   if (elements.teamTierKpiBoard) {
     elements.teamTierKpiBoard.addEventListener('click', handleDashboardDrillClick);
   }
@@ -205,16 +283,33 @@ export function bindEvents() {
   window.addEventListener('hashchange', () => showPage(currentPageId()));
 }
 
+async function loadSelectedTeamOwner(owner = elements.teamOwnerSelect.value) {
+  cancelTeamMetricsPreload();
+  cancelTeamWorkCompletionPreload();
+  resetOwnerReviewForTeamOwnerChange();
+  navigateToTeam(owner);
+  const dashboardContext = resolveTeamDashboardContext();
+  await loadTeamWorkCompletion(owner, dashboardContext);
+  const results = await Promise.allSettled([
+    loadTeamMetrics(owner, dashboardContext),
+    loadOwnerResponsibilityReview(owner, dashboardContext),
+  ]);
+  const failed = results.find((result) => result.status === 'rejected');
+  if (failed && results.every((result) => result.status === 'rejected')) {
+    throw failed.reason;
+  }
+  return results;
+}
+
 export async function init() {
   initTooltipSystem();
-  showPage(currentPageId());
+  showPage(currentPageId(), { skipPageDataLoad: true });
   bindEvents();
   updateSyncControl();
   updateAnalysisAgentControl();
   startDevReload();
   renderDashboardStatusState('loading');
   try {
-    await loadFilters();
     await loadDashboard();
   } catch (error) {
     renderDashboardStatusState('error', error);
@@ -236,7 +331,7 @@ configureRouter({
   detailsRouteFiltersChanged,
   renderAllFilterSelects,
   renderPendingDetailsDrill,
-  refresh,
+  refresh: softRefresh,
   tierStoreStatusLabel,
   renderPausedProjectToggle,
   updateAnalysisAgentControl,
@@ -246,9 +341,17 @@ configureRouter({
   resolveTeamDashboardContext,
   resolveOwnerReviewOwner,
   resolveOwnerReviewDashboardContext,
+  loadTeamPageModules,
   loadTeamMetrics,
+  loadTeamWorkCompletion,
+  ensurePageProjects: async () => {
+    await loadProjectCatalog();
+    await applyVisibleProjects();
+    renderAll();
+  },
   renderTeamDashboard,
   renderTeamDashboardError,
+  renderTeamWorkCompletionDashboard,
   loadOwnerResponsibilityReview,
   renderOwnerReviewDashboard,
   loadProfileDashboard,
@@ -266,6 +369,8 @@ export {
   applyDevelopmentDocumentationVisibility,
   renderProjectWorkbenchEmptyState,
   loadTeamMetrics,
+  loadSelectedTeamOwner,
+  loadTeamAnnualEntryStructure,
   loadOwnerResponsibilityReview,
   navigateToOwnerReview,
   resetOwnerReviewForTeamOwnerChange,
@@ -277,8 +382,6 @@ export {
   collectRiskProjectQueue,
   riskActionRowCounts,
   riskDutyHeadline,
-  renderTeamDataHealth,
-  renderRiskAuditNote,
   riskClass,
   renderProjectOwnersCell,
   renderProjectTeamCell,
@@ -288,7 +391,20 @@ export {
   readProjectStage,
   renderProjectDetailModal,
   renderProjectWorkbench,
+  loadProfileDashboard,
   renderOwnerReviewTeamStructure,
+  loadTeamWorkCompletion,
+  loadTeamDashboardScope,
+  renderTeamWorkCompletionDashboard,
+  handleTeamWorkCompletionContextClick,
+  handleTeamWorkCompletionYearChange,
+  handleTeamCompletionFilterClick,
+  handleTeamCompletionMemberClick,
+  handleTeamCompletionMemberModalClick,
+  handleTeamCompletionMonthClick,
+  openTeamCompletionMemberModal,
+  openTeamCompletionMonthModal,
+  closeTeamCompletionMemberModal,
   renderOwnerReviewPersonRows,
   renderOwnerReviewDetailRows,
   renderOwnerReviewMemberModal,

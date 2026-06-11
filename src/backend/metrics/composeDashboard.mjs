@@ -1,4 +1,10 @@
-import { isOtherStoreTierKey, matchesOwnerMonthlyTier, readStoreTier, readStoreTierLabel } from './fieldSemantics.mjs';
+import {
+  hasClassifiableStoreStatus,
+  isOtherStoreTierKey,
+  matchesOwnerMonthlyTier,
+  readStoreTier,
+  readStoreTierLabel,
+} from './fieldSemantics.mjs';
 import {
   calculateFieldCoverage,
   calculateMonthlyOps,
@@ -82,6 +88,9 @@ function compareTierKeys(a, b, labels = {}) {
 function resolveTierLabels(scopedProjects, tiers) {
   const labels = { ...TIER_LABELS };
   for (const project of scopedProjects) {
+    if (!hasClassifiableStoreStatus(project)) {
+      continue;
+    }
     const key = readStoreTier(project);
     const label = readStoreTierLabel(project);
     if (key && label && !labels[key]) {
@@ -100,7 +109,14 @@ function resolveProfileTiers(profile, scopedProjects) {
     return fallbackTiers;
   }
 
-  const tierKeys = Array.from(new Set(scopedProjects.map((project) => readStoreTier(project)).filter(Boolean)));
+  const tierKeys = Array.from(
+    new Set(
+      scopedProjects
+        .filter(hasClassifiableStoreStatus)
+        .map((project) => readStoreTier(project))
+        .filter(Boolean)
+    )
+  );
   if (!tierKeys.length) {
     return fallbackTiers;
   }
@@ -162,6 +178,7 @@ export function composeDashboardMetrics(allProjects, profileId, options = {}) {
   const tierLabels = resolveTierLabels(metricsProjects, tiers);
   const tierValues = {};
   const monthlyOps = {};
+  const entryStructureProjects = profile.id === 'ownerMonthly' ? scopedProjects : allProjects;
 
   const owner = options.team?.owner || options.owner || '';
   const ownerIdentity = owner ? findResponsibilityIdentity(owner, options.personnelArchitecture || {}) : null;
@@ -176,12 +193,14 @@ export function composeDashboardMetrics(allProjects, profileId, options = {}) {
   for (const tier of tiers) {
     tierValues[tier] = {
       ...calculateTierKpis(metricsProjects, tier, baseMetricOptions),
-      projectCount: metricsProjects.filter((project) =>
-        profile.id === 'ownerMonthly'
-          ? matchesOwnerMonthlyTier(project, tier)
-          : tier === 'other'
-            ? isOtherStoreTierKey(readStoreTier(project))
-            : readStoreTier(project) === tier
+      projectCount: metricsProjects.filter(
+        (project) =>
+          hasClassifiableStoreStatus(project) &&
+          (profile.id === 'ownerMonthly'
+            ? matchesOwnerMonthlyTier(project, tier)
+            : tier === 'other'
+              ? isOtherStoreTierKey(readStoreTier(project))
+              : readStoreTier(project) === tier)
       ).length,
     };
     monthlyOps[tier] = calculateMonthlyOps(metricsProjects, tier, baseMetricOptions);
@@ -196,7 +215,7 @@ export function composeDashboardMetrics(allProjects, profileId, options = {}) {
     scopeCount: metricsProjects.length,
     pausedCount: pausedProjects.length,
     totalScopeCount: scopedProjects.length,
-    currentYearEntry: buildCurrentYearEntry(allProjects, profile.id, options),
+    currentYearEntry: buildCurrentYearEntry(entryStructureProjects, profile.id, options),
     tiers: tierValues,
     monthlyOps,
     totals: buildTotals(tierValues, monthlyOps, tiers),
@@ -218,6 +237,13 @@ export function composeDashboardMetrics(allProjects, profileId, options = {}) {
 
   if (profile.id === 'department') {
     payload.annualEntryStructure = buildAnnualEntryStructure(allProjects, {
+      now: options.now,
+      year: options.year,
+    });
+  }
+
+  if (profile.id === 'ownerMonthly') {
+    payload.annualEntryStructure = buildAnnualEntryStructure(scopedProjects, {
       now: options.now,
       year: options.year,
     });

@@ -110,29 +110,29 @@ function Wait-DashboardHealth {
 function Warm-DashboardData {
   param(
     [int]$ListenPort,
-    [int]$TimeoutSec = 15
+    [int]$TimeoutSec = 45
   )
 
-  $deadline = (Get-Date).AddSeconds($TimeoutSec)
-  $snapshotUrl = "http://127.0.0.1:$ListenPort/api/snapshot"
+  $warmupUrl = "http://127.0.0.1:$ListenPort/api/dashboard-warmup"
 
-  Write-Host "[dashboard] Warming up dashboard data after browser open..."
-  while ((Get-Date) -lt $deadline) {
-    try {
-      $response = Invoke-WebRequest -Uri $snapshotUrl -UseBasicParsing -TimeoutSec 5
-      if ($response.StatusCode -eq 200) {
-        $snapshot = $response.Content | ConvertFrom-Json
-        $records = if ($null -ne $snapshot.totalRecords) { [int]$snapshot.totalRecords } else { 0 }
-        Write-Host "[dashboard] Data ready: $records project(s), synced at $($snapshot.syncedAt)"
+  Write-Host "[dashboard] Warming dashboard data before browser open (timeout ${TimeoutSec}s)..."
+  try {
+    $response = Invoke-WebRequest -Uri $warmupUrl -UseBasicParsing -TimeoutSec $TimeoutSec
+    if ($response.StatusCode -eq 200) {
+      $snapshot = $response.Content | ConvertFrom-Json
+      $records = if ($null -ne $snapshot.totalRecords) { [int]$snapshot.totalRecords } else { 0 }
+      $features = if ($null -ne $snapshot.features) { ($snapshot.features -join ', ') } else { '' }
+      if ($snapshot.warmed -eq $false) {
+        Write-Host "[dashboard] Warmup skipped/failed; opening browser anyway: $($snapshot.warning)" -ForegroundColor Yellow
         return $snapshot
       }
-    } catch {
-      # Snapshot build can block the event loop briefly on cold start.
+      Write-Host "[dashboard] Data ready: $records project(s), synced at $($snapshot.syncedAt), warmed: $features"
+      return $snapshot
     }
-    Start-Sleep -Seconds 1
+  } catch {
+    Write-Host "[dashboard] Data warmup timed out or failed; opening browser anyway: $($_.Exception.Message)" -ForegroundColor Yellow
   }
 
-  Write-Host "[dashboard] Data warmup is still running; the page will finish loading it." -ForegroundColor Yellow
   return $null
 }
 
@@ -175,12 +175,16 @@ try {
   }
 
   Wait-DashboardHealth -ListenPort $Port -TimeoutSec 60
+  $warmup = Warm-DashboardData -ListenPort $Port -TimeoutSec 45
   Start-Process "http://localhost:$Port/"
-  Write-Host '[dashboard] Browser opened; dashboard data can keep warming in the page.'
+  if ($null -ne $warmup) {
+    Write-Host '[dashboard] Browser opened; dashboard data was warmed before page load.'
+  } else {
+    Write-Host '[dashboard] Browser opened; dashboard data may keep warming in the page.'
+  }
   Write-Host "[dashboard] Server PID: $($server.Id)"
   Write-Host "[dashboard] Logs: $stdoutLog"
   Write-Host '[dashboard] Press Ctrl+C to stop.'
-  [void](Warm-DashboardData -ListenPort $Port -TimeoutSec 15)
 
   while (-not $server.HasExited) {
     Start-Sleep -Seconds 1

@@ -71,7 +71,7 @@ export function teamOwnerDisplayName(owner) {
 
 
 export function teamOwnerOptions() {
-  const ownerRoles = (state.fullMetrics?.personnel?.roles || []).filter((role) =>
+  const ownerRoles = (state.metrics?.personnel?.roles || state.fullMetrics?.personnel?.roles || []).filter((role) =>
     ['cdOwner', 'vmOwner'].includes(role.key)
   );
   const options = new Map();
@@ -105,6 +105,12 @@ export function teamOwnerOptions() {
     }
   }
   return Array.from(options.values());
+}
+
+
+export function teamOwnerDirectoryReady() {
+  const roles = state.metrics?.personnel?.roles ?? state.fullMetrics?.personnel?.roles;
+  return Array.isArray(roles);
 }
 
 

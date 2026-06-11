@@ -4,8 +4,13 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createProjectSnapshot, getSnapshot, syncProjects } from '../src/backend/syncService.mjs';
+import { createProjectSnapshot, clearSnapshotCache, getSnapshot, syncProjects } from '../src/backend/syncService.mjs';
 import { resolveFieldMap } from '../src/backend/fieldResolver.mjs';
+import {
+  ownersFromSnapshot,
+  readPrecomputedTeamMetricsBatch,
+  readPrecomputedTeamWorkCompletion,
+} from '../src/backend/precomputeTeamDashboards.mjs';
 
 test('createProjectSnapshot excludes accidental rows from metrics, filters, and details', () => {
   const fieldMap = {
@@ -72,6 +77,7 @@ test('syncProjects seeds SQLite and getSnapshot reads the SQLite final project v
     mode: 'mock',
     cacheFile: path.join(tempDir, 'dashboard-cache.json'),
     databaseFile: path.join(tempDir, 'app.sqlite'),
+    precomputeDir: path.join(tempDir, 'precomputed'),
     dingtalk: {
       fieldMap: {},
       pageSize: 100,
@@ -96,12 +102,129 @@ test('syncProjects seeds SQLite and getSnapshot reads the SQLite final project v
   assert.ok(snapshot.filters.provinces.length > 0);
 });
 
+test('syncProjects schedules dashboard precompute after returning the SQLite refreshed snapshot', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-sqlite-precompute-'));
+  let queuedPrecompute = null;
+  const config = {
+    mode: 'mock',
+    cacheFile: path.join(tempDir, 'dashboard-cache.json'),
+    databaseFile: path.join(tempDir, 'app.sqlite'),
+    precomputeDir: path.join(tempDir, 'precomputed'),
+    precomputeScheduler: (task) => {
+      queuedPrecompute = task;
+    },
+    dingtalk: {
+      fieldMap: {},
+      pageSize: 100,
+      maxPages: 1,
+    },
+  };
+
+  const synced = await syncProjects({ config, source: 'mock' });
+  const [owner] = ownersFromSnapshot(synced, synced.personnelArchitecture);
+  assert.equal(typeof queuedPrecompute, 'function');
+  assert.equal(
+    readPrecomputedTeamWorkCompletion(config, synced, synced.personnelArchitecture, {
+      owner,
+      dashboardContext: 'all',
+      year: new Date().getFullYear(),
+    }),
+    null
+  );
+  assert.equal(
+    readPrecomputedTeamMetricsBatch(config, synced, synced.personnelArchitecture, {
+      owners: [owner],
+      dashboardContext: 'all',
+    }),
+    null
+  );
+
+  await queuedPrecompute();
+  const payload = readPrecomputedTeamWorkCompletion(config, synced, synced.personnelArchitecture, {
+    owner,
+    dashboardContext: 'all',
+    year: new Date().getFullYear(),
+  });
+  const metricsPayload = readPrecomputedTeamMetricsBatch(config, synced, synced.personnelArchitecture, {
+    owners: [owner],
+    dashboardContext: 'all',
+  });
+
+  assert.ok(owner);
+  assert.equal(payload?.readOnly, true);
+  assert.equal(payload?.owner, owner);
+  assert.equal(typeof payload?.projectsById, 'object');
+  assert.equal(metricsPayload?.readOnly, true);
+  assert.equal(metricsPayload?.metricsByOwner?.[owner]?.owner, owner);
+});
+
+test('getSnapshot schedules dashboard precompute when reading an existing SQLite snapshot', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-sqlite-existing-precompute-'));
+  const baseConfig = {
+    mode: 'mock',
+    cacheFile: path.join(tempDir, 'dashboard-cache.json'),
+    databaseFile: path.join(tempDir, 'app.sqlite'),
+    precomputeDir: path.join(tempDir, 'precomputed'),
+    dingtalk: {
+      fieldMap: {},
+      pageSize: 100,
+      maxPages: 1,
+    },
+  };
+  await syncProjects({
+    config: {
+      ...baseConfig,
+      precomputeEnabled: false,
+    },
+    source: 'mock',
+  });
+
+  let queuedPrecompute = null;
+  const config = {
+    ...baseConfig,
+    precomputeScheduler: (task) => {
+      queuedPrecompute = task;
+    },
+  };
+
+  const snapshot = await getSnapshot(config);
+  const [owner] = ownersFromSnapshot(snapshot, snapshot.personnelArchitecture);
+  assert.ok(owner);
+  assert.equal(typeof queuedPrecompute, 'function');
+  assert.equal(
+    readPrecomputedTeamMetricsBatch(config, snapshot, snapshot.personnelArchitecture, {
+      owners: [owner],
+      dashboardContext: 'all',
+    }),
+    null
+  );
+
+  await queuedPrecompute();
+  const metricsPayload = readPrecomputedTeamMetricsBatch(config, snapshot, snapshot.personnelArchitecture, {
+    owners: [owner],
+    dashboardContext: 'all',
+  });
+
+  assert.equal(metricsPayload?.metricsByOwner?.[owner]?.owner, owner);
+});
+
+test('clearSnapshotCache clears the precompute manifest index', () => {
+  const config = {
+    precomputeIndex: new Map([['hash', { snapshotHash: 'hash' }]]),
+  };
+
+  clearSnapshotCache(config);
+
+  assert.equal(config.precomputeIndex, null);
+});
+
 test('getSnapshot reuses the current in-process snapshot for unchanged data files', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-snapshot-cache-'));
   const config = {
     mode: 'mock',
     cacheFile: path.join(tempDir, 'dashboard-cache.json'),
     databaseFile: path.join(tempDir, 'app.sqlite'),
+    precomputeDir: path.join(tempDir, 'precomputed'),
     dingtalk: {
       fieldMap: {},
       pageSize: 100,

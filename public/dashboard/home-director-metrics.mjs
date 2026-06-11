@@ -4,6 +4,7 @@ import {
   deriveProjectWorkflowFacts,
   readRawFieldDisplay,
 } from './project-lifecycle.mjs';
+import { isClassifiableStoreStatus } from '../lib/constants.mjs';
 import { isStandardProvinceDisplayName, provinceDisplayName } from './province-display.mjs';
 
 export { readRawFieldDisplay } from './project-lifecycle.mjs';
@@ -405,6 +406,16 @@ function projectBoardSummary(projects = [], now = new Date()) {
   };
 }
 
+function readMatrixStoreStatus(project) {
+  const label = normalizeText(project.storeStatus) || readRawFieldDisplay(project, FIELD_ALIASES.storeTier) || '未设置';
+  return isClassifiableStoreStatus(label) ? label : '';
+}
+
+function isClassifiableTierLabel(label, key = '') {
+  const resolved = String(label ?? '').trim() || (String(key).startsWith('custom:') ? key.slice('custom:'.length) : String(key));
+  return isClassifiableStoreStatus(resolved);
+}
+
 function countBy(items, keyFn) {
   const map = new Map();
   for (const item of items || []) {
@@ -723,7 +734,8 @@ function buildRegionMatrix(projects = []) {
   const allRows = rowCounts.map((item) => item.label);
   const rows = allRows.slice(0, HOME_REGION_ROW_LIMIT);
   const overflowRows = allRows.slice(HOME_REGION_ROW_LIMIT);
-  const allCols = countBy(activeProjects, (project) => project.storeStatus);
+  const matrixProjects = activeProjects.filter((project) => readMatrixStoreStatus(project));
+  const allCols = countBy(matrixProjects, (project) => readMatrixStoreStatus(project));
   const cols = allCols.map((item) => item.label);
   const cells = new Map();
   for (const row of allRows) {
@@ -731,10 +743,10 @@ function buildRegionMatrix(projects = []) {
       cells.set(`${row}::${col}`, { province: row, storeStatus: col, total: 0, direct: 0, franchise: 0, other: 0 });
     }
   }
-  for (const project of activeProjects) {
+  for (const project of matrixProjects) {
     const row = displayProvinceName(project.province);
-    const col = normalizeText(project.storeStatus) || '未设置';
-    if (!cells.has(`${row}::${col}`)) {
+    const col = readMatrixStoreStatus(project);
+    if (!col || !cells.has(`${row}::${col}`)) {
       continue;
     }
     const cell = cells.get(`${row}::${col}`);
@@ -773,7 +785,11 @@ function buildRegionMatrix(projects = []) {
 function buildTierMatrix(departmentMetrics = {}) {
   const tiers = departmentMetrics?.tiers || {};
   const labels = departmentMetrics?.tierLabels || {};
-  const order = Array.isArray(departmentMetrics?.tierOrder) && departmentMetrics.tierOrder.length ? departmentMetrics.tierOrder : Object.keys(tiers);
+  const order = (
+    Array.isArray(departmentMetrics?.tierOrder) && departmentMetrics.tierOrder.length
+      ? departmentMetrics.tierOrder
+      : Object.keys(tiers)
+  ).filter((key) => isClassifiableTierLabel(labels[key], key));
   const metrics = [
     { key: 'projectCount', label: '项目数', tone: 'teal' },
     { key: 'inProgress', label: '推进中', tone: 'green' },
@@ -806,8 +822,12 @@ function buildTierMatrix(departmentMetrics = {}) {
 function buildMonthlyOpsMatrix(departmentMetrics = {}) {
   const monthlyOps = departmentMetrics?.monthlyOps || {};
   const labels = departmentMetrics?.tierLabels || {};
-  const order = Array.isArray(departmentMetrics?.tierOrder) && departmentMetrics.tierOrder.length ? departmentMetrics.tierOrder : Object.keys(monthlyOps);
-  const columns = order.filter((key) => monthlyOps[key]).map((key) => ({ key, label: labels[key] || key }));
+  const order = (
+    Array.isArray(departmentMetrics?.tierOrder) && departmentMetrics.tierOrder.length
+      ? departmentMetrics.tierOrder
+      : Object.keys(monthlyOps)
+  ).filter((key) => monthlyOps[key] && isClassifiableTierLabel(labels[key], key));
+  const columns = order.map((key) => ({ key, label: labels[key] || key }));
   const rows = HOME_MONTHLY_OPS_METRICS.map((metric) => {
     const values = columns.map((column) => ({
       tier: column.key,

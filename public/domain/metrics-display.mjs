@@ -5,6 +5,7 @@ import {
   FALLBACK_STORE_TIER_ROWS,
   OWNER_TIER_METRIC_ORDER,
   OWNER_TIER_METRIC_META,
+  isClassifiableStoreStatus,
   normalizeDashboardContext,
 } from '../lib/constants.mjs';
 import { currentPageId } from '../lib/router.mjs';
@@ -29,7 +30,8 @@ export function ownerTierRows(metrics = {}) {
       key,
       label: labels[key] || (key.startsWith('custom:') ? key.slice('custom:'.length) : key),
       storeStatus: labels[key] || '',
-    }));
+    }))
+    .filter((row) => isClassifiableStoreStatus(row.storeStatus || row.label));
   return rows.length ? rows : FALLBACK_STORE_TIER_ROWS;
 }
 
@@ -500,35 +502,7 @@ export function riskDutyHeadline({
   queueCount,
   counts,
   startLagCount = 0,
-  dispatchStats = null,
 }) {
-  if (dispatchStats) {
-    const floorReminderCount = dispatchStats.floorReminderRows?.length || 0;
-    const actions = [];
-    if (dispatchStats.pending) {
-      actions.push('团队负载同步后确认是否需要调人支援');
-    }
-    if (dispatchStats.urgentRows.length) {
-      actions.push(`${dispatchStats.urgentRows.length} 名过载成员先安排支援或拆分承接`);
-    }
-    if (dispatchStats.highRiskGroup) {
-      actions.push(`${dispatchStats.highRiskGroup.name} 先做组内复盘`);
-    }
-    if (floorReminderCount) {
-      actions.push(`${floorReminderCount} 项责任内平面延期/临期先补反馈时间`);
-    }
-    if (!dispatchStats.pending && !dispatchStats.urgentRows.length && !dispatchStats.highRiskGroup && !floorReminderCount) {
-      return `当前团队真实负载不高：当前平面 ${dispatchStats.floorActive} 项，${dispatchStats.occupied}/${dispatchStats.memberCount} 人占用，保留 ${dispatchStats.availableRows.length} 名可调配人手；只核对责任内平面延期/临期。`;
-    }
-    if (dispatchStats.availableRows.length) {
-      actions.push(`保留 ${dispatchStats.availableRows.length} 名可调配人手`);
-    }
-    if (actions.length) {
-      return `建议优先调度：${actions.join('、')}。先看真实负载，再处理责任内平面提醒。`;
-    }
-    return '当前暂无需立即调度的成员或责任内平面提醒，保持常规巡检。';
-  }
-
   if (String(actionRecommendation || '').trim()) {
     return String(actionRecommendation).trim();
   }

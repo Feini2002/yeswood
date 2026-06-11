@@ -9,9 +9,11 @@ import {
 } from './constants.mjs';
 
 let routerHooks = {};
+let activePageId = '';
 
 export function configureRouter(hooks = {}) {
   routerHooks = { ...routerHooks, ...hooks };
+  activePageId = '';
 }
 
 export function isDevelopmentDocumentationVisible() {
@@ -85,6 +87,7 @@ export function parsePageHash() {
     profile: params.get('profile') || '',
     dashboardContext: params.get('dashboardContext') || '',
     month: params.get('month') || '',
+    year: params.get('year') || '',
   };
 }
 
@@ -162,10 +165,12 @@ export function applyHashSearch() {
   applyHashRouteParams();
 }
 
-export function showPage(pageId = currentPageId()) {
+export function showPage(pageId = currentPageId(), options = {}) {
   normalizeLegacyOwnerReviewRoute();
   applyDevelopmentDocumentationVisibility();
   pageId = currentPageId();
+  const skipPageDataLoad = Boolean(options.skipPageDataLoad);
+  const pageChanged = activePageId !== pageId;
   elements.pageSections.forEach((section) => {
     const active = section.dataset.page === pageId;
     section.classList.toggle('is-active', active);
@@ -192,31 +197,37 @@ export function showPage(pageId = currentPageId()) {
   }
   routerHooks.renderPausedProjectToggle?.();
   routerHooks.updateAnalysisAgentControl?.();
-  window.scrollTo(0, 0);
+  if (pageChanged) {
+    window.scrollTo(0, 0);
+  }
   applyHashSearch();
+  activePageId = pageId;
 
-  if (pageId === 'teams') {
+  if (!skipPageDataLoad && pageChanged && pageId === 'teams') {
     routerHooks.ensureTeamOwnerOptions?.();
     routerHooks.ensureOwnerReviewControls?.();
-    const owner = routerHooks.resolveTeamOwner?.() || '';
-    const dashboardContext = routerHooks.resolveTeamDashboardContext?.() || '';
     routerHooks
-      .loadTeamMetrics?.(owner, dashboardContext)
-      ?.then(() => routerHooks.renderTeamDashboard?.())
+      .loadTeamPageModules?.()
+      ?.then(() => {
+        routerHooks.renderTeamDashboard?.();
+        routerHooks.renderTeamWorkCompletionDashboard?.();
+        routerHooks.renderOwnerReviewDashboard?.();
+      })
       ?.catch((error) => {
         console.warn('Team dashboard load failed', error);
         routerHooks.renderTeamDashboardError?.();
       });
+  }
+
+  if (!skipPageDataLoad && pageChanged && (pageId === 'overview' || pageId === 'details')) {
     routerHooks
-      .loadOwnerResponsibilityReview?.(owner, dashboardContext)
-      ?.then(() => routerHooks.renderOwnerReviewDashboard?.())
+      .ensurePageProjects?.()
       ?.catch((error) => {
-        console.warn('Owner responsibility review load failed', error);
-        routerHooks.renderOwnerReviewDashboard?.();
+        console.warn('Page project catalog load failed', error);
       });
   }
 
-  if (pageId === 'franchise' || pageId === 'direct') {
+  if (!skipPageDataLoad && pageChanged && (pageId === 'franchise' || pageId === 'direct')) {
     routerHooks
       .loadProfileDashboard?.(pageId)
       ?.then(() => routerHooks.renderProfilePage?.(pageId))

@@ -12,3 +12,6 @@
 | `2026-06-hard-decoration-deadline-linkage-plan.md` | `docs/14-hard-decoration-deadline-linkage-plan.md` | 硬装 Deadline 联动落地计划（第一版提醒已落地，KPI 待实施） |
 | `page-specs/owner-review.md` | 根 README 迁出 | 负责人复盘页 UI 规格 |
 | `page-specs/2026-06-home-entry-dashboard-design.md` | `docs/17-home-entry-dashboard-design.md`（旧版） | 首页年度进店结构看板旧版追溯稿；当前生效需求见 `docs/17-home-entry-dashboard-design.md` |
+| `2026-06-09-home-entry-dashboard-redesign-plan.md` | `docs/18-home-entry-dashboard-redesign-plan.md` | 首页进店结构改版草案（已被 V3 取代） |
+| `2026-06-09-home-entry-module-agent-optimization-summary.md` | `docs/19-home-entry-module-agent-optimization-summary.md` | 多 Agent 改造方案汇总稿（已被 V3 取代） |
+| `2026-06-10-home-entry-structure-v3-plan.md` | `docs/20-home-entry-structure-v3-plan.md` | 首页进店结构 V3 落地稿（已实现；实现锚点 `public/dashboard/annual-entry-structure.mjs`） |

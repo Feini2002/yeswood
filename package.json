@@ -6,5 +6,8 @@
   "scripts": {
     "dev": "node ./src/backend/server.mjs",
     "test": "node --test"
+  },
+  "devDependencies": {
+    "echarts": "^6.1.0"
   }
 }

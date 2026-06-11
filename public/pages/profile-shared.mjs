@@ -5,6 +5,7 @@ import { bindTooltipTriggers, tooltipDataAttr } from '../dashboard/tooltip.mjs';
 import { renderInsightCard, renderInsightCards } from '../dashboard/insight-card.mjs';
 import { renderEmptyState } from '../dashboard/empty-state.mjs';
 import { DASHBOARD_METRICS_ENDPOINT, fetchJson } from '../lib/api.mjs';
+import { runtimeStore } from '../lib/runtime-flags.mjs';
 import {
   OVERVIEW_KPI_METRICS,
   OWNER_TIER_METRIC_META,
@@ -332,7 +333,7 @@ export async function loadProfileMetrics(profile) {
 
 export async function loadProfileProjects(profile) {
   try {
-    const payload = await fetchJson(`/api/projects?profile=${encodeURIComponent(profile)}`);
+    const payload = await fetchJson(`/api/projects?profile=${encodeURIComponent(profile)}&view=summary`);
     const projects = Array.isArray(payload?.items) ? payload.items : [];
     state.profileProjects[profile] = projects;
     return projects;
@@ -343,12 +344,42 @@ export async function loadProfileProjects(profile) {
 }
 
 
-export async function loadProfileDashboard(profile) {
-  const [metrics, projects] = await Promise.all([
+export async function loadProfileDashboard(profile, { forceRefresh = false } = {}) {
+  if (!profile) {
+    return { metrics: null, projects: [] };
+  }
+
+  if (!forceRefresh && state.profileDashboardLoaded?.[profile]) {
+    return {
+      metrics: state.profileMetrics[profile] ?? null,
+      projects: state.profileProjects[profile] || [],
+    };
+  }
+
+  const existingRequest = runtimeStore.profileDashboardPromises.get(profile);
+  if (existingRequest) {
+    return existingRequest;
+  }
+
+  const request = Promise.all([
     loadProfileMetrics(profile),
     loadProfileProjects(profile),
-  ]);
-  return { metrics, projects };
+  ])
+    .then(([metrics, projects]) => {
+      state.profileDashboardLoaded = {
+        ...state.profileDashboardLoaded,
+        [profile]: true,
+      };
+      return { metrics, projects };
+    })
+    .finally(() => {
+      if (runtimeStore.profileDashboardPromises.get(profile) === request) {
+        runtimeStore.profileDashboardPromises.delete(profile);
+      }
+    });
+
+  runtimeStore.profileDashboardPromises.set(profile, request);
+  return request;
 }
 
 

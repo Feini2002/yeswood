@@ -12,7 +12,7 @@ test('Chinese development launcher keeps local hot reload enabled', async () => 
 
   assert.match(bat, /set "PORT=4200"/);
   assert.match(bat, /if not exist "\.\\scripts\\launch-dev-dashboard\.ps1"/);
-  assert.match(bat, /health check \^> open browser \^> warm data/);
+  assert.match(bat, /health check \^> warm data \^> open browser/);
   assert.match(launcher, /HOST=127\.0\.0\.1|'127\.0\.0\.1'/);
   assert.match(launcher, /DASHBOARD_DEV_RELOAD=1|'1'/);
   assert.match(launcher, /DASHBOARD_AUTO_UPDATE_ENABLED=1|'1'/);
@@ -22,7 +22,7 @@ test('Chinese development launcher keeps local hot reload enabled', async () => 
   assert.match(ps1, /Logs:/);
 });
 
-test('development launcher opens the browser after health and before data warmup', async () => {
+test('development launcher warms dashboard data after health and before opening the browser', async () => {
   const ps1 = await readFile(join(process.cwd(), 'scripts', 'launch-dev-dashboard.ps1'), 'utf8');
 
   assert.match(ps1, /function Wait-DashboardHealth/);
@@ -38,7 +38,8 @@ test('development launcher opens the browser after health and before data warmup
   assert.notEqual(browserIndex, -1);
   assert.notEqual(warmIndex, -1);
   assert.ok(healthIndex < browserIndex, 'browser must wait for server health');
-  assert.ok(browserIndex < warmIndex, 'data warmup must not block opening the browser');
+  assert.ok(healthIndex < warmIndex, 'data warmup must wait for server health');
+  assert.ok(warmIndex < browserIndex, 'browser must wait for dashboard data warmup');
   assert.doesNotMatch(
     ps1,
     /Wait-DashboardReady -ListenPort \$Port -TimeoutSec 120\s+Start-Process "http:\/\/localhost:\$Port\/"/,

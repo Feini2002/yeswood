@@ -134,7 +134,7 @@ function Wait-DashboardReady {
 
   $deadline = (Get-Date).AddSeconds($TimeoutSec)
   $healthUrl = "http://127.0.0.1:$ListenPort/api/health"
-  $snapshotUrl = "http://127.0.0.1:$ListenPort/api/snapshot"
+  $warmupUrl = "http://127.0.0.1:$ListenPort/api/dashboard-warmup"
   $healthReady = $false
 
   Write-Host '[dashboard] Waiting for server health...'
@@ -155,20 +155,19 @@ function Wait-DashboardReady {
     throw "Health check timed out after ${TimeoutSec}s."
   }
 
-  Write-Host '[dashboard] Warming up dashboard data...'
-  while ((Get-Date) -lt $deadline) {
-    try {
-      $response = Invoke-WebRequest -Uri $snapshotUrl -UseBasicParsing -TimeoutSec 20
-      if ($response.StatusCode -eq 200) {
-        $snapshot = $response.Content | ConvertFrom-Json
-        $records = if ($null -ne $snapshot.totalRecords) { [int]$snapshot.totalRecords } else { 0 }
-        Write-Host "[dashboard] Data ready: $records project(s), synced at $($snapshot.syncedAt)"
-        return $snapshot
-      }
-    } catch {
-      # Snapshot build can block the event loop briefly on cold start.
+  Write-Host '[dashboard] Warming dashboard data...'
+  try {
+    $remaining = [Math]::Max(1, [int]($deadline - (Get-Date)).TotalSeconds)
+    $response = Invoke-WebRequest -Uri $warmupUrl -UseBasicParsing -TimeoutSec $remaining
+    if ($response.StatusCode -eq 200) {
+      $snapshot = $response.Content | ConvertFrom-Json
+      $records = if ($null -ne $snapshot.totalRecords) { [int]$snapshot.totalRecords } else { 0 }
+      $features = if ($null -ne $snapshot.features) { ($snapshot.features -join ', ') } else { '' }
+      Write-Host "[dashboard] Data ready: $records project(s), synced at $($snapshot.syncedAt), warmed: $features"
+      return $snapshot
     }
-    Start-Sleep -Seconds 1
+  } catch {
+    throw "Dashboard data did not become ready within ${TimeoutSec}s. $($_.Exception.Message)"
   }
 
   throw "Dashboard data did not become ready within ${TimeoutSec}s."

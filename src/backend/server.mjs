@@ -3,25 +3,44 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
+import zlib from 'node:zlib';
 import { pathToFileURL } from 'node:url';
+
+const gzipAsync = promisify(zlib.gzip);
 
 import { getConfig, paths } from './config.mjs';
 import { openInitializedDatabase } from './database.mjs';
 import { logger } from './logger.mjs';
 import { savePersonnelArchitectureToDatabase } from './personnelRepository.mjs';
-import { calculateDashboardMetrics, calculateTeamDashboardMetrics, createFieldCatalog, createFilterOptions, filterProjects } from './projectData.mjs';
+import { calculateDashboardMetrics, createFieldCatalog, createFilterOptions, filterProjects } from './projectData.mjs';
 import { buildAnnualEntryStructure } from './metrics/buildAnnualEntryStructure.mjs';
 import { composeDashboardMetrics } from './metrics/composeDashboard.mjs';
 import { DASHBOARD_CONTEXTS, resolveCanonicalOwner } from './metrics/projectScopes.mjs';
 import { splitPersonnelNames } from './personnelNames.mjs';
 import { buildTeamResponsibilityReview } from './teamResponsibilityReview.mjs';
-import { buildTeamOwnerRates, enrichTeamDashboardMetrics } from './teamInsights.mjs';
-import { clearSnapshotCache, getSnapshot, readConfiguredPersonnelArchitecture, syncProjects } from './syncService.mjs';
+import { buildTeamWorkCompletionReview } from './teamWorkCompletionReview.mjs';
+import { buildTeamOwnerRates } from './teamInsights.mjs';
+import {
+  clearSnapshotCache,
+  ensureDashboardPrecompute,
+  getSnapshot,
+  readConfiguredPersonnelArchitecture,
+  syncProjects,
+} from './syncService.mjs';
 import { reserveSyncGate } from './syncGate.mjs';
-import { withAgentChannelOutput } from './agents/agentWorker.mjs';
-import { buildRiskHealthAnalysis } from './agents/riskHealthAnalysis.mjs';
 import { buildDepartmentOperationsAnalysis } from './agents/departmentOperationsAgent.mjs';
-import { readLatestRiskHealthAnalysis, saveRiskHealthAnalysis } from './riskHealthRepository.mjs';
+import { findProjectInSnapshot, summarizeProject, summarizeProjects } from './projectPresentation.mjs';
+import {
+  precomputeSnapshotHash,
+  readPrecomputedDashboardSession,
+  readPrecomputedTeamMetricsBatch,
+  readPrecomputedTeamResponsibilityReview,
+  readPrecomputedTeamWorkCompletion,
+} from './precomputeTeamDashboards.mjs';
+import { attachDepartmentOperations, buildTeamMetricsPayload, resolveTeamForOwner } from './teamMetricsPayload.mjs';
+
+let activeApiRequest = null;
 
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -123,12 +142,25 @@ function resolvePublicDir(config = {}) {
   return path.resolve(config.publicDir || paths.publicDir);
 }
 
-function sendJson(response, statusCode, payload) {
-  response.writeHead(statusCode, {
+async function sendJson(response, statusCode, payload) {
+  const body = JSON.stringify(payload);
+  const request = activeApiRequest;
+  const acceptEncoding = String(request?.headers['accept-encoding'] || '');
+  const headers = {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
-  });
-  response.end(JSON.stringify(payload));
+  };
+
+  if (body.length > 1024 && acceptEncoding.includes('gzip')) {
+    headers['content-encoding'] = 'gzip';
+    headers.vary = 'Accept-Encoding';
+    response.writeHead(statusCode, headers);
+    response.end(await gzipAsync(body));
+    return;
+  }
+
+  response.writeHead(statusCode, headers);
+  response.end(body);
 }
 
 function sendNotAllowed(response, allowedMethods = ['GET', 'POST', 'PUT']) {
@@ -148,6 +180,25 @@ function publicSyncPayload(snapshot) {
   };
 }
 
+function publicSnapshotPayload(snapshot, config = {}) {
+  return {
+    source: snapshot.source,
+    syncedAt: snapshot.syncedAt,
+    sourceRecords: snapshot.sourceRecords,
+    totalRecords: snapshot.totalRecords,
+    ignoredRecords: snapshot.ignoredRecords || 0,
+    fieldCount: Array.isArray(snapshot.fieldCatalog) ? snapshot.fieldCatalog.length : 0,
+    storage: snapshot.storage || 'json',
+    databaseReady: Boolean(snapshot.databaseReady),
+    dashboardSyncEnabled: Boolean(config.dashboardSyncEnabled),
+    dashboardAutoUpdateEnabled: Boolean(config.dashboardAutoUpdateEnabled),
+    developerDocumentationVisible: Boolean(config.devReloadEnabled),
+    dashboardDisplayMode: config.devReloadEnabled ? 'development' : 'intranet',
+    personnelArchitecture: snapshot.personnelArchitecture || null,
+    readOnly: true,
+  };
+}
+
 function parseDashboardContext(value, { defaultValue = 'all', paramName = 'context' } = {}) {
   const context = String(value || defaultValue).trim() || defaultValue;
   if (!DASHBOARD_CONTEXTS.has(context)) {
@@ -156,21 +207,23 @@ function parseDashboardContext(value, { defaultValue = 'all', paramName = 'conte
   return context;
 }
 
+function parseCompletionYear(value, { defaultValue = new Date().getFullYear(), paramName = 'year' } = {}) {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    return defaultValue;
+  }
+  if (!/^\d{4}$/.test(raw)) {
+    throw new HttpError(400, `${paramName} must be a four-digit year`);
+  }
+  const year = Number(raw);
+  if (year < 2000 || year > 2100) {
+    throw new HttpError(400, `${paramName} must be between 2000 and 2100`);
+  }
+  return year;
+}
+
 function teamMetricsSnapshotHash(snapshot = {}, architecture = {}) {
-  return crypto
-    .createHash('sha1')
-    .update(
-      JSON.stringify({
-        source: snapshot.source || '',
-        storage: snapshot.storage || '',
-        syncedAt: snapshot.syncedAt || '',
-        totalRecords: snapshot.totalRecords || 0,
-        ignoredRecords: snapshot.ignoredRecords || 0,
-        projects: snapshot.projects || [],
-        personnelArchitecture: architecture || {},
-      })
-    )
-    .digest('hex');
+  return precomputeSnapshotHash(snapshot, architecture);
 }
 
 function teamMetricsCacheForConfig(config) {
@@ -180,76 +233,135 @@ function teamMetricsCacheForConfig(config) {
   return config.teamMetricsCache;
 }
 
-function pruneTeamMetricsCache(cache, maxEntries = 9) {
+function teamWorkCompletionCacheForConfig(config) {
+  if (!config.teamWorkCompletionCache) {
+    config.teamWorkCompletionCache = new Map();
+  }
+  return config.teamWorkCompletionCache;
+}
+
+function teamResponsibilityReviewCacheForConfig(config) {
+  if (!config.teamResponsibilityReviewCache) {
+    config.teamResponsibilityReviewCache = new Map();
+  }
+  return config.teamResponsibilityReviewCache;
+}
+
+function pruneKeyedResponseCache(cache, maxEntries = 24) {
   while (cache.size > maxEntries) {
     const oldestKey = cache.keys().next().value;
     cache.delete(oldestKey);
   }
 }
 
-function resolveTeamForOwner(owner, architecture = {}) {
-  return (
-    (Array.isArray(architecture.teams) ? architecture.teams : []).find((item) => item.owner === owner) || {
+function resolveTeamWorkCompletionReview(config, snapshot, architecture, team, options = {}) {
+  const owner = team?.owner || options.requestedOwner || '';
+  const dashboardContext = options.dashboardContext || 'all';
+  const year = Number(options.year) || new Date().getFullYear();
+  const cache = teamWorkCompletionCacheForConfig(config);
+  const cacheKey = `${teamMetricsSnapshotHash(snapshot, architecture)}:${dashboardContext}:${year}:${owner}`;
+  if (cache.has(cacheKey)) {
+    return cache.get(cacheKey);
+  }
+
+  const payload =
+    readPrecomputedTeamWorkCompletion(config, snapshot, architecture, {
       owner,
-      cdLeads: [],
-      vmLeads: [],
-    }
-  );
+      requestedOwner: options.requestedOwner,
+      dashboardContext,
+      year,
+    }) ||
+    buildTeamWorkCompletionReview(snapshot.projects || [], team, {
+      ...options,
+      dashboardContext,
+      year,
+    });
+  cache.set(cacheKey, payload);
+  pruneKeyedResponseCache(cache, 36);
+  return payload;
 }
 
-function buildTeamMetricsPayload(config, snapshot, architecture, owner, dashboardContext, options = {}) {
-  const team = resolveTeamForOwner(owner, architecture);
-  const metrics = enrichTeamDashboardMetrics(
-    snapshot.projects || [],
-    calculateTeamDashboardMetrics(snapshot.projects || [], team, architecture, { dashboardContext }),
-    architecture,
-    { ownerRates: options.ownerRates }
-  );
-  const riskHealthAnalysis = resolveRiskHealthAnalysis(config, metrics, { owner, dashboardContext });
-  return {
-    ...metrics,
-    agentWorker: withAgentChannelOutput(metrics.agentWorker, 'riskHealth', riskHealthAnalysis),
-    riskHealthAnalysis,
-    readOnly: true,
-    dashboardContext,
-    owner,
-  };
+function resolveTeamResponsibilityReview(config, snapshot, architecture, team, options = {}) {
+  const owner = team?.owner || '';
+  const dashboardContext = options.dashboardContext || 'all';
+  const month = options.month || '';
+  const cache = teamResponsibilityReviewCacheForConfig(config);
+  const cacheKey = `${teamMetricsSnapshotHash(snapshot, architecture)}:${dashboardContext}:${month}:${owner}`;
+  if (cache.has(cacheKey)) {
+    return cache.get(cacheKey);
+  }
+
+  const payload =
+    readPrecomputedTeamResponsibilityReview(config, snapshot, architecture, {
+      owner,
+      dashboardContext,
+      month,
+    }) ||
+    buildTeamResponsibilityReview(snapshot.projects || [], team, {
+      month,
+      dashboardContext,
+      personnelArchitecture: architecture,
+    });
+  cache.set(cacheKey, payload);
+  pruneKeyedResponseCache(cache, 36);
+  return payload;
 }
 
-function compactDepartmentOperationsForOwner(departmentOperations = {}, owner = '') {
-  const ownerRecommendation = departmentOperations.ownerRecommendations?.[owner] || null;
-  return {
-    channel: departmentOperations.channel,
-    agentName: departmentOperations.agentName,
-    promptVersion: departmentOperations.promptVersion,
-    promptHash: departmentOperations.promptHash,
-    modelName: departmentOperations.modelName,
-    mode: departmentOperations.mode,
-    runMode: departmentOperations.runMode,
-    analysisScope: departmentOperations.analysisScope,
-    inputSnapshotHash: departmentOperations.inputSnapshotHash,
-    generatedAt: departmentOperations.generatedAt,
-    status: departmentOperations.status,
-    context: departmentOperations.context,
-    summary: {
-      ...(departmentOperations.summary || {}),
-      text: ownerRecommendation?.headline || departmentOperations.summary?.text || '',
-    },
-    facts: departmentOperations.facts || {},
-    ownerRecommendation,
-    departmentRecommendations: departmentOperations.departmentRecommendations || [],
-    limitations: departmentOperations.limitations || [],
-  };
+function metricsResponseCacheForConfig(config) {
+  if (!config.metricsResponseCache) {
+    config.metricsResponseCache = new Map();
+  }
+  return config.metricsResponseCache;
 }
 
-function attachDepartmentOperations(metrics = {}, departmentOperations = {}) {
-  const owner = metrics.owner || '';
-  const ownerDepartmentOperations = compactDepartmentOperationsForOwner(departmentOperations, owner);
-  return {
-    ...metrics,
-    departmentOperations: ownerDepartmentOperations,
-    agentWorker: withAgentChannelOutput(metrics.agentWorker, 'departmentOperations', ownerDepartmentOperations),
-  };
+function projectsIdsCacheForConfig(config) {
+  if (!config.projectsIdsCache) {
+    config.projectsIdsCache = new Map();
+  }
+  return config.projectsIdsCache;
+}
+
+function snapshotMetricsCacheKey(snapshot = {}, filters = {}) {
+  return crypto
+    .createHash('sha1')
+    .update(
+      JSON.stringify({
+        syncedAt: snapshot.syncedAt || '',
+        totalRecords: snapshot.totalRecords || 0,
+        filters,
+      })
+    )
+    .digest('hex');
+}
+
+function pruneMetricsResponseCache(cache, maxEntries = 24) {
+  while (cache.size > maxEntries) {
+    const oldestKey = cache.keys().next().value;
+    cache.delete(oldestKey);
+  }
+}
+
+function resolveDashboardMetrics(config, snapshot, filters = {}) {
+  const cache = metricsResponseCacheForConfig(config);
+  const cacheKey = snapshotMetricsCacheKey(snapshot, filters);
+  if (cache.has(cacheKey)) {
+    return cache.get(cacheKey);
+  }
+
+  const projects = filterProjects(snapshot.projects || [], filters, {
+    personnelArchitecture: snapshot.personnelArchitecture,
+  });
+  const metrics = calculateDashboardMetrics(projects, { personnelArchitecture: snapshot.personnelArchitecture });
+  cache.set(cacheKey, metrics);
+  pruneMetricsResponseCache(cache);
+  return metrics;
+}
+
+function pruneTeamMetricsCache(cache, maxEntries = 9) {
+  while (cache.size > maxEntries) {
+    const oldestKey = cache.keys().next().value;
+    cache.delete(oldestKey);
+  }
 }
 
 function ownersFromPersonnelMetrics(snapshot = {}, architecture = {}) {
@@ -298,7 +410,34 @@ function requestedTeamOwners(url, snapshot, architecture) {
   return owners;
 }
 
+function buildTeamMetricsBatchResponse(owners, rawMetricsByOwner, dashboardContext) {
+  const departmentOperations = buildDepartmentOperationsAnalysis({
+    dashboardContext,
+    currentOwner: owners[0] || '',
+    metricsByOwner: rawMetricsByOwner,
+  });
+  const metricsByOwner = Object.fromEntries(
+    owners.map((owner) => [owner, attachDepartmentOperations(rawMetricsByOwner[owner], departmentOperations)])
+  );
+
+  return {
+    owners,
+    metricsByOwner,
+    departmentOperations,
+    dashboardContext,
+    readOnly: true,
+  };
+}
+
 function resolveTeamMetricsBatch(config, snapshot, architecture, owners, dashboardContext) {
+  const precomputed = readPrecomputedTeamMetricsBatch(config, snapshot, architecture, {
+    owners,
+    dashboardContext,
+  });
+  if (precomputed) {
+    return buildTeamMetricsBatchResponse(owners, precomputed.metricsByOwner, dashboardContext);
+  }
+
   const cache = teamMetricsCacheForConfig(config);
   const snapshotHash = teamMetricsSnapshotHash(snapshot, architecture);
   const cacheKey = `${snapshotHash}:${dashboardContext}`;
@@ -323,21 +462,68 @@ function resolveTeamMetricsBatch(config, snapshot, architecture, owners, dashboa
   }
 
   const rawMetricsByOwner = Object.fromEntries(owners.map((owner) => [owner, bucket.metricsByOwner.get(owner)]));
-  const departmentOperations = buildDepartmentOperationsAnalysis({
+  return buildTeamMetricsBatchResponse(owners, rawMetricsByOwner, dashboardContext);
+}
+
+function resolveDashboardSession(config, snapshot, architecture, owner, dashboardContext, year) {
+  const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
+  const team = owner ? resolveTeamForOwner(owner, architecture) : null;
+  const precomputed = readPrecomputedDashboardSession(config, snapshot, architecture, {
+    owner,
+    requestedOwner: owner,
     dashboardContext,
-    currentOwner: owners[0] || '',
-    metricsByOwner: rawMetricsByOwner,
+    year,
   });
-  const metricsByOwner = Object.fromEntries(
-    owners.map((owner) => [owner, attachDepartmentOperations(bucket.metricsByOwner.get(owner), departmentOperations)])
-  );
+  const metricsBatch = owner ? resolveTeamMetricsBatch(config, snapshot, architecture, [owner], dashboardContext) : null;
+
+  if (precomputed) {
+    return {
+      ...precomputed,
+      snapshot: {
+        ...precomputed.snapshot,
+        ...publicSnapshotPayload(snapshot, config),
+      },
+      team: {
+        ...precomputed.team,
+        metrics: metricsBatch?.metricsByOwner?.[owner] || precomputed.team.metrics || null,
+      },
+    };
+  }
+
+  const workCompletion = owner
+    ? resolveTeamWorkCompletionReview(config, snapshot, architecture, team, {
+        requestedOwner: owner,
+        dashboardContext,
+        personnelArchitecture: architecture,
+        year,
+      })
+    : null;
+  const responsibilityReview = owner
+    ? resolveTeamResponsibilityReview(config, snapshot, architecture, team, {
+        dashboardContext,
+        personnelArchitecture: architecture,
+      })
+    : null;
 
   return {
-    owners,
-    metricsByOwner,
-    departmentOperations,
-    dashboardContext,
+    schemaVersion: 1,
     readOnly: true,
+    snapshotHash,
+    snapshot: publicSnapshotPayload(snapshot, config),
+    filters: snapshot.filters || createFilterOptions(snapshot.projects || []),
+    metrics: resolveDashboardMetrics(config, snapshot, {}),
+    departmentMetrics: composeDashboardMetrics(snapshot.projects || [], 'department', {
+      dashboardContext: 'all',
+      personnelArchitecture: architecture,
+    }),
+    team: {
+      owner,
+      dashboardContext,
+      year,
+      metrics: metricsBatch?.metricsByOwner?.[owner] || null,
+      workCompletion,
+      responsibilityReview,
+    },
   };
 }
 
@@ -465,43 +651,22 @@ function assertPersonnelEditAllowed(request, config) {
   return { allowed: true };
 }
 
-function resolveRiskHealthAnalysis(config, metrics, { owner, dashboardContext }) {
-  const generated = buildRiskHealthAnalysis(metrics, { owner, dashboardContext });
-  if (!config.databaseFile) {
-    return {
-      ...generated,
-      createdBy: 'live_preview',
-      modelName: 'deterministic-js',
-    };
-  }
-
-  const database = openInitializedDatabase(config.databaseFile);
+async function handleApi(request, response, url, config) {
+  activeApiRequest = request;
   try {
-    const existing = readLatestRiskHealthAnalysis(database, { owner, dashboardContext });
-    if (
-      existing &&
-      existing.inputSnapshotHash === generated.inputSnapshotHash &&
-      existing.promptHash === generated.promptHash
-    ) {
-      return existing;
-    }
-    saveRiskHealthAnalysis(database, generated, {
-      createdBy: 'manual_agent',
-      modelName: 'deterministic-js',
-    });
-    return readLatestRiskHealthAnalysis(database, { owner, dashboardContext }) || generated;
+    return await handleApiRequest(request, response, url, config);
   } finally {
-    database.close();
+    activeApiRequest = null;
   }
 }
 
-async function handleApi(request, response, url, config) {
+async function handleApiRequest(request, response, url, config) {
   if (url.pathname === '/api/health') {
     if (!['GET', 'HEAD'].includes(request.method)) {
       sendNotAllowed(response, ['GET', 'HEAD']);
       return true;
     }
-    sendJson(response, 200, { ok: true, readOnly: true });
+    await sendJson(response, 200, { ok: true, readOnly: true });
     return true;
   }
 
@@ -526,7 +691,7 @@ async function handleApi(request, response, url, config) {
 
     const allowed = assertSyncAllowed(request, config);
     if (!allowed.allowed) {
-      sendJson(response, allowed.status, { error: allowed.message });
+      await sendJson(response, allowed.status, { error: allowed.message });
       return true;
     }
 
@@ -534,7 +699,7 @@ async function handleApi(request, response, url, config) {
     const source = body.source || config.mode;
     const gate = reserveSyncGate(config);
     if (!gate.allowed) {
-      sendJson(response, gate.status, { error: gate.message });
+      await sendJson(response, gate.status, { error: gate.message });
       return true;
     }
 
@@ -542,7 +707,7 @@ async function handleApi(request, response, url, config) {
       const snapshot = await syncProjects({ config, source });
       gate.commit?.();
       logger.info('Dashboard data synced', { source: snapshot.source, totalRecords: snapshot.totalRecords });
-      sendJson(response, 200, publicSyncPayload(snapshot));
+      await sendJson(response, 200, publicSyncPayload(snapshot));
       return true;
     } catch (error) {
       gate.release?.();
@@ -558,13 +723,13 @@ async function handleApi(request, response, url, config) {
 
     const allowed = assertDashboardSyncAllowed(request, config);
     if (!allowed.allowed) {
-      sendJson(response, allowed.status, { error: allowed.message });
+      await sendJson(response, allowed.status, { error: allowed.message });
       return true;
     }
 
     const gate = reserveSyncGate(config);
     if (!gate.allowed) {
-      sendJson(response, gate.status, { error: gate.message });
+      await sendJson(response, gate.status, { error: gate.message });
       return true;
     }
 
@@ -572,7 +737,7 @@ async function handleApi(request, response, url, config) {
       const snapshot = await syncProjects({ config, source: config.mode });
       gate.commit?.();
       logger.info('Dashboard data synced from browser', { source: snapshot.source, totalRecords: snapshot.totalRecords });
-      sendJson(response, 200, publicSyncPayload(snapshot));
+      await sendJson(response, 200, publicSyncPayload(snapshot));
       return true;
     } catch (error) {
       gate.release?.();
@@ -583,7 +748,7 @@ async function handleApi(request, response, url, config) {
   if (url.pathname === '/api/personnel/architecture') {
     if (request.method === 'GET') {
       const architecture = await readConfiguredPersonnelArchitecture(config);
-      sendJson(response, 200, {
+      await sendJson(response, 200, {
         ...architecture,
         storage: config.databaseFile ? 'sqlite' : 'json',
         editable: Boolean(config.databaseFile),
@@ -594,7 +759,7 @@ async function handleApi(request, response, url, config) {
     if (request.method === 'PUT') {
       const gate = assertPersonnelEditAllowed(request, config);
       if (!gate.allowed) {
-        sendJson(response, gate.status, { error: gate.message });
+        await sendJson(response, gate.status, { error: gate.message });
         return true;
       }
 
@@ -604,13 +769,13 @@ async function handleApi(request, response, url, config) {
       try {
         const saved = savePersonnelArchitectureToDatabase(database, architecture);
         clearSnapshotCache(config);
-        sendJson(response, 200, {
+        await sendJson(response, 200, {
           ...saved,
           storage: 'sqlite',
           editable: true,
         });
       } catch (error) {
-        sendJson(response, 400, { error: error.message || 'Invalid personnel architecture' });
+        await sendJson(response, 400, { error: error.message || 'Invalid personnel architecture' });
       } finally {
         database.close();
       }
@@ -628,38 +793,112 @@ async function handleApi(request, response, url, config) {
 
   if (url.pathname === '/api/snapshot') {
     const snapshot = await getSnapshot(config);
-    sendJson(response, 200, {
-      source: snapshot.source,
-      syncedAt: snapshot.syncedAt,
-      sourceRecords: snapshot.sourceRecords,
-      totalRecords: snapshot.totalRecords,
-      ignoredRecords: snapshot.ignoredRecords || 0,
-      fieldCount: Array.isArray(snapshot.fieldCatalog) ? snapshot.fieldCatalog.length : 0,
-      storage: snapshot.storage || 'json',
-      databaseReady: Boolean(snapshot.databaseReady),
-      dashboardSyncEnabled: Boolean(config.dashboardSyncEnabled),
-      dashboardAutoUpdateEnabled: Boolean(config.dashboardAutoUpdateEnabled),
-      developerDocumentationVisible: Boolean(config.devReloadEnabled),
-      dashboardDisplayMode: config.devReloadEnabled ? 'development' : 'intranet',
-      readOnly: true,
-    });
+    await sendJson(response, 200, publicSnapshotPayload(snapshot, config));
+    return true;
+  }
+
+  if (url.pathname === '/api/dashboard-session') {
+    const dashboardContext = parseDashboardContext(
+      url.searchParams.get('context') || url.searchParams.get('dashboardContext')
+    );
+    const year = parseCompletionYear(url.searchParams.get('year'));
+    const snapshot = await getSnapshot(config);
+    const architecture = snapshot.personnelArchitecture || (await readConfiguredPersonnelArchitecture(config));
+    const owners = requestedTeamOwners(url, snapshot, architecture);
+    const owner = owners[0] || '';
+    await sendJson(response, 200, resolveDashboardSession(config, snapshot, architecture, owner, dashboardContext, year));
+    return true;
+  }
+
+  if (url.pathname === '/api/dashboard-warmup') {
+    if (!['GET', 'HEAD'].includes(request.method)) {
+      sendNotAllowed(response, ['GET', 'HEAD']);
+      return true;
+    }
+    const snapshot = await getSnapshot(config);
+    const architecture = snapshot.personnelArchitecture || {};
+    const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
+    try {
+      const result = await ensureDashboardPrecompute(snapshot, config);
+      await sendJson(response, 200, {
+        ok: true,
+        warmed: true,
+        readOnly: true,
+        source: snapshot.source,
+        syncedAt: snapshot.syncedAt,
+        totalRecords: snapshot.totalRecords,
+        snapshotHash: result?.snapshotHash || snapshotHash,
+        features: result?.features || [],
+      });
+    } catch (error) {
+      logger.warn('Dashboard warmup precompute failed', { message: error?.message || String(error) });
+      await sendJson(response, 200, {
+        ok: true,
+        warmed: false,
+        readOnly: true,
+        source: snapshot.source,
+        syncedAt: snapshot.syncedAt,
+        totalRecords: snapshot.totalRecords,
+        snapshotHash,
+        features: [],
+        warning: error?.message || String(error),
+      });
+    }
     return true;
   }
 
   if (url.pathname === '/api/filters') {
     const snapshot = await getSnapshot(config);
-    sendJson(response, 200, snapshot.filters || createFilterOptions(snapshot.projects || []));
+    await sendJson(response, 200, snapshot.filters || createFilterOptions(snapshot.projects || []));
     return true;
   }
 
   if (url.pathname === '/api/projects') {
     const snapshot = await getSnapshot(config);
+    const projectId = String(url.searchParams.get('id') || '').trim();
+    const view = String(url.searchParams.get('view') || 'summary').trim().toLowerCase();
+
+    if (projectId) {
+      const project = findProjectInSnapshot(snapshot.projects || [], projectId);
+      if (!project) {
+        await sendJson(response, 404, { error: 'Project not found' });
+        return true;
+      }
+      await sendJson(response, 200, {
+        item: view === 'summary' ? summarizeProject(project) : project,
+        readOnly: true,
+      });
+      return true;
+    }
+
     const projects = filterProjects(snapshot.projects || [], apiFiltersFromUrl(url), {
       personnelArchitecture: snapshot.personnelArchitecture,
     });
-    sendJson(response, 200, {
-      items: projects,
-      total: projects.length,
+    const fields = String(url.searchParams.get('fields') || 'items').trim().toLowerCase();
+    if (fields === 'ids') {
+      const filters = apiFiltersFromUrl(url);
+      const cache = projectsIdsCacheForConfig(config);
+      const cacheKey = snapshotMetricsCacheKey(snapshot, filters);
+      if (cache.has(cacheKey)) {
+        await sendJson(response, 200, cache.get(cacheKey));
+        return true;
+      }
+      const payload = {
+        ids: projects.map((project) => project.id),
+        total: projects.length,
+        readOnly: true,
+      };
+      cache.set(cacheKey, payload);
+      pruneMetricsResponseCache(cache, 48);
+      await sendJson(response, 200, payload);
+      return true;
+    }
+
+    const items = view === 'full' ? projects : summarizeProjects(projects);
+    await sendJson(response, 200, {
+      items,
+      total: items.length,
+      view: view === 'full' ? 'full' : 'summary',
       fieldCatalog: snapshot.fieldCatalog || createFieldCatalog(projects),
       readOnly: true,
     });
@@ -668,12 +907,12 @@ async function handleApi(request, response, url, config) {
 
   if (url.pathname === '/api/metrics') {
     const snapshot = await getSnapshot(config);
-    const projects = filterProjects(snapshot.projects || [], apiFiltersFromUrl(url), {
-      personnelArchitecture: snapshot.personnelArchitecture,
-    });
-    sendJson(response, 200, {
-      ...calculateDashboardMetrics(projects, { personnelArchitecture: snapshot.personnelArchitecture }),
-      total: projects.length,
+    const filters = apiFiltersFromUrl(url);
+    await sendJson(response, 200, {
+      ...resolveDashboardMetrics(config, snapshot, filters),
+      total: filterProjects(snapshot.projects || [], filters, {
+        personnelArchitecture: snapshot.personnelArchitecture,
+      }).length,
       readOnly: true,
     });
     return true;
@@ -685,12 +924,12 @@ async function handleApi(request, response, url, config) {
     const allowedProfiles = new Set(['department', 'direct', 'franchise', 'ownerMonthly']);
 
     if (!allowedProfiles.has(profile)) {
-      sendJson(response, 400, { error: 'profile must be one of department, direct, franchise, ownerMonthly' });
+      await sendJson(response, 400, { error: 'profile must be one of department, direct, franchise, ownerMonthly' });
       return true;
     }
 
     if (profile === 'ownerMonthly' && !owner.trim()) {
-      sendJson(response, 400, { error: 'owner query parameter is required for ownerMonthly profile' });
+      await sendJson(response, 400, { error: 'owner query parameter is required for ownerMonthly profile' });
       return true;
     }
 
@@ -709,7 +948,7 @@ async function handleApi(request, response, url, config) {
     const dashboardContext = parseDashboardContext(url.searchParams.get('context'));
     const yearParam = url.searchParams.get('year');
     const year = yearParam ? Number(yearParam) : undefined;
-    sendJson(response, 200, {
+    await sendJson(response, 200, {
       ...composeDashboardMetrics(snapshot.projects || [], profile, {
         owner: resolvedOwner,
         team,
@@ -726,7 +965,7 @@ async function handleApi(request, response, url, config) {
     const snapshot = await getSnapshot(config);
     const yearParam = url.searchParams.get('year');
     const year = yearParam ? Number(yearParam) : undefined;
-    sendJson(response, 200, {
+    await sendJson(response, 200, {
       ...buildAnnualEntryStructure(snapshot.projects || [], {
         year: Number.isFinite(year) ? year : undefined,
       }),
@@ -741,14 +980,14 @@ async function handleApi(request, response, url, config) {
     const architecture = snapshot.personnelArchitecture || (await readConfiguredPersonnelArchitecture(config));
     const owners = requestedTeamOwners(url, snapshot, architecture);
 
-    sendJson(response, 200, resolveTeamMetricsBatch(config, snapshot, architecture, owners, dashboardContext));
+    await sendJson(response, 200, resolveTeamMetricsBatch(config, snapshot, architecture, owners, dashboardContext));
     return true;
   }
 
   if (url.pathname === '/api/team-responsibility-review') {
     const ownerParam = url.searchParams.get('owner') || '';
     if (!ownerParam.trim()) {
-      sendJson(response, 400, { error: 'owner query parameter is required' });
+      await sendJson(response, 400, { error: 'owner query parameter is required' });
       return true;
     }
 
@@ -758,8 +997,8 @@ async function handleApi(request, response, url, config) {
     const team = resolveTeamForOwner(owner, architecture);
     const dashboardContext = parseDashboardContext(url.searchParams.get('context'));
     const month = url.searchParams.get('month') || '';
-    sendJson(response, 200, {
-      ...buildTeamResponsibilityReview(snapshot.projects || [], team, {
+    await sendJson(response, 200, {
+      ...resolveTeamResponsibilityReview(config, snapshot, architecture, team, {
         month,
         dashboardContext,
         personnelArchitecture: architecture,
@@ -769,10 +1008,37 @@ async function handleApi(request, response, url, config) {
     return true;
   }
 
+  if (url.pathname === '/api/team-work-completion') {
+    const ownerParam = url.searchParams.get('owner') || '';
+    if (!ownerParam.trim()) {
+      await sendJson(response, 400, { error: 'owner query parameter is required' });
+      return true;
+    }
+
+    const dashboardContext = parseDashboardContext(url.searchParams.get('context'));
+    const year = parseCompletionYear(url.searchParams.get('year'));
+    const snapshot = await getSnapshot(config);
+    const architecture = snapshot.personnelArchitecture || (await readConfiguredPersonnelArchitecture(config));
+    const owner = resolveCanonicalOwner(ownerParam, architecture);
+    const team = resolveTeamForOwner(owner, architecture);
+
+    await sendJson(
+      response,
+      200,
+      resolveTeamWorkCompletionReview(config, snapshot, architecture, team, {
+        requestedOwner: ownerParam,
+        dashboardContext,
+        personnelArchitecture: architecture,
+        year,
+      })
+    );
+    return true;
+  }
+
   if (url.pathname === '/api/team-metrics') {
     const ownerParam = url.searchParams.get('owner') || '';
     if (!ownerParam.trim()) {
-      sendJson(response, 400, { error: 'owner query parameter is required' });
+      await sendJson(response, 400, { error: 'owner query parameter is required' });
       return true;
     }
 
@@ -783,7 +1049,7 @@ async function handleApi(request, response, url, config) {
     const metrics = resolveTeamMetricsBatch(config, snapshot, architecture, [owner], dashboardContext).metricsByOwner[
       owner
     ];
-    sendJson(response, 200, {
+    await sendJson(response, 200, {
       ...metrics,
       requestedOwner: ownerParam !== owner ? ownerParam : undefined,
     });
@@ -853,7 +1119,7 @@ export function createServer(config = getConfig()) {
       applySecurityHeaders(response);
       response.setHeader('x-dashboard-mode', 'readonly');
       if (String(request.url || '').length > MAX_REQUEST_URL_LENGTH) {
-        sendJson(response, 414, { error: 'Request URL is too long' });
+        await sendJson(response, 414, { error: 'Request URL is too long' });
         return;
       }
       const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
@@ -865,11 +1131,11 @@ export function createServer(config = getConfig()) {
       await serveStatic(request, response, url, serverConfig.publicDir);
     } catch (error) {
       if (isHttpError(error)) {
-        sendJson(response, error.statusCode, { error: error.publicMessage || 'Bad request' });
+        await sendJson(response, error.statusCode, { error: error.publicMessage || 'Bad request' });
         return;
       }
       logger.error(error.message);
-      sendJson(response, 500, { error: 'Internal server error' });
+      await sendJson(response, 500, { error: 'Internal server error' });
     }
   });
 

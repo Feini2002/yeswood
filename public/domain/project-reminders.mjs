@@ -173,6 +173,24 @@ export function hasHardDeadlineException(project = {}) {
 }
 
 
+export function isHardDeadlineKeyDateException(reminder = {}) {
+  if (!reminder || !isHardDeadlineReminder(reminder)) {
+    return false;
+  }
+  const title = String(reminder.title || '');
+  const message = String(reminder.message || '');
+  const combined = `${title}${message}`;
+  return (
+    ['manual_review', 'missing_field', 'conflict'].includes(reminder.type) ||
+    reminder.source === 'missing_field' ||
+    reminder.nodeKey === 'ruleBasis' ||
+    reminder.missing ||
+    /硬装\s*Deadline/i.test(combined) ||
+    /暂不能计算|暂不统计|待复核/.test(combined)
+  );
+}
+
+
 export function hardDeadlineExceptionReason(project = {}, reminder = null) {
   if (reminder?.message) {
     return reminder.message;
@@ -241,7 +259,7 @@ export function resolvePrimaryProjectKeyDate(project) {
         label: '上会',
         discipline: 'hard',
         stage: hardStage,
-        message: '待填上会日期',
+        message: '待上会',
         missing: true,
       });
     }
@@ -250,7 +268,7 @@ export function resolvePrimaryProjectKeyDate(project) {
         label: '复尺',
         discipline: 'hard',
         stage: hardStage,
-        message: '待填复尺时间',
+        message: '待复尺',
         missing: true,
       });
     }
@@ -259,7 +277,7 @@ export function resolvePrimaryProjectKeyDate(project) {
         label: '平面开始',
         discipline: 'hard',
         stage: hardStage,
-        message: '待填平面开始时间',
+        message: '待平面开始',
         missing: true,
       });
     }
@@ -269,7 +287,7 @@ export function resolvePrimaryProjectKeyDate(project) {
         raw: readProjectNodeValue(project, 'floorPlanStart'),
         discipline: 'hard',
         stage: hardStage || '平面阶段',
-        message: '待填躺平内部审核结束时间',
+        message: '待平面结束',
         missing: true,
       });
     }
@@ -278,7 +296,7 @@ export function resolvePrimaryProjectKeyDate(project) {
         label: '施工图初稿',
         discipline: 'hard',
         stage: hardStage || '施工图阶段',
-        message: '待填施工图初稿完成时间',
+        message: '待施工图初稿',
         missing: true,
       });
     }
@@ -288,7 +306,7 @@ export function resolvePrimaryProjectKeyDate(project) {
         raw: readProjectNodeValue(project, 'constructionDraft'),
         discipline: 'hard',
         stage: hardStage || '施工图阶段',
-        message: '待填施工图完成审核时间',
+        message: '待施工图审核',
         missing: true,
       });
     }
@@ -301,7 +319,7 @@ export function resolvePrimaryProjectKeyDate(project) {
         label: '点位',
         discipline: 'soft',
         stage: softStage,
-        message: '软装点位待跟进',
+        message: '待点位跟进',
         missing: true,
       });
     }
@@ -310,7 +328,7 @@ export function resolvePrimaryProjectKeyDate(project) {
         label: '点位完成',
         discipline: 'soft',
         stage: softStage,
-        message: '待填点位完成时间',
+        message: '待点位完成',
         missing: true,
       });
     }
@@ -319,7 +337,7 @@ export function resolvePrimaryProjectKeyDate(project) {
         label: '软装方案',
         discipline: 'soft',
         stage: softStage,
-        message: '待填软装方案开始时间',
+        message: '待软装方案',
         missing: true,
       });
     }
@@ -330,7 +348,7 @@ export function resolvePrimaryProjectKeyDate(project) {
         raw: readProjectNodeValue(project, 'softSchemeStart'),
         discipline: 'soft',
         stage: softStage,
-        message: '待填软装发项目群时间',
+        message: '待软装完成',
         missing: true,
       });
     }
@@ -340,7 +358,7 @@ export function resolvePrimaryProjectKeyDate(project) {
         raw: softDoneRaw,
         discipline: 'soft',
         stage: softStage,
-        message: '待填软装完成情况',
+        message: '待软装完成情况',
         missing: true,
       });
     }
@@ -352,7 +370,7 @@ export function resolvePrimaryProjectKeyDate(project) {
         label: '产品清单接收',
         discipline: 'followup',
         stage: softStage,
-        message: '待填产品清单接收时间',
+        message: '待产品清单接收',
         missing: true,
         kind: 'followup',
       });
@@ -362,7 +380,7 @@ export function resolvePrimaryProjectKeyDate(project) {
         label: '采购',
         discipline: 'followup',
         stage: softStage,
-        message: '待填采购时间',
+        message: '待采购',
         missing: true,
         kind: 'followup',
       });
@@ -372,7 +390,7 @@ export function resolvePrimaryProjectKeyDate(project) {
         label: '采购情况',
         discipline: 'followup',
         stage: softStage,
-        message: '待填采购完成情况',
+        message: '待采购完成情况',
         missing: true,
         kind: 'followup',
       });
@@ -391,7 +409,7 @@ export function resolvePrimaryProjectKeyDate(project) {
         label: '摆场',
         discipline: 'followup',
         stage: softStage,
-        message: '待填摆场文件或摆场时间',
+        message: '待摆场',
         missing: true,
         kind: 'followup',
       });
@@ -456,7 +474,7 @@ export function resolvePointHandoffReminder(project) {
     label: '点位完成',
     discipline: 'soft',
     stage: readEffectiveWorkflowStage(project, 'soft') || '点位设计',
-    message: '待填点位完成时间',
+    message: '待点位完成',
     missing: true,
   });
 }
@@ -464,7 +482,7 @@ export function resolvePointHandoffReminder(project) {
 
 export function resolveProjectKeyDateReminders(project) {
   const systemPrimary = normalizeSystemProjectReminder(project?.primaryReminder);
-  if (systemPrimary) {
+  if (systemPrimary && !isHardDeadlineKeyDateException(systemPrimary)) {
     return [systemPrimary];
   }
   const primary = resolvePrimaryProjectKeyDate(project);
@@ -484,12 +502,14 @@ export function resolveProjectKeyDate(project) {
 
 export function formatProjectReminderText(keyDate) {
   if (keyDate.source === 'system_deadline' || keyDate.kind === 'system_deadline') {
-    return [keyDate.label, keyDate.formatted !== '--' ? keyDate.formatted : '', keyDate.title || keyDate.message]
+    const title = String(keyDate.title || '');
+    const detail = /硬装\s*Deadline/i.test(title) ? keyDate.message || '' : title || keyDate.message;
+    return [keyDate.label, keyDate.formatted !== '--' ? keyDate.formatted : '', detail]
       .filter(Boolean)
       .join(' · ');
   }
   if (keyDate.missing && keyDate.message) {
-    return keyDate.label ? `${keyDate.label} · ${keyDate.message}` : keyDate.message;
+    return keyDate.message;
   }
   if (keyDate.formatted === '--' && !keyDate.message) {
     return keyDate.label || '--';

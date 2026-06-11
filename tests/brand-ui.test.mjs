@@ -218,21 +218,19 @@ test('frontend exposes team dashboard section with owner switcher', async () => 
   assert.match(js, /dashboard\/tooltip\.mjs/);
   assert.match(js, /profileHasRenderableSummary/);
   assert.match(js, /initTooltipSystem/);
-  assert.match(js, /handleTeamDashboardClick/);
   assert.match(html, /id="teamTierKpiBoard"/);
   assert.doesNotMatch(html, /id="teamMonthlyOpsBoard"/);
-  assert.match(html, /id="teamDataHealthSection"/);
+  assert.doesNotMatch(html, /id="teamDataHealthSection"/);
   assert.match(html, /团队项目数量/);
   assert.doesNotMatch(html, /负责人压力排行/);
   assert.doesNotMatch(js, /延 \$\{owner\.delayedCount\} \/ 急 \$\{owner\.urgentCount\}/);
   assert.doesNotMatch(js, /延期 \$\{owner\.delayedCount\} · 紧急 \$\{owner\.urgentCount\}/);
-  assert.match(html, /今日调度动作/);
+  assert.doesNotMatch(html, /今日调度动作/);
   assert.match(js, /renderOwnerMonthlyTierBoard/);
-  assert.match(js, /renderTeamDataHealth/);
+  assert.doesNotMatch(js, /renderTeamDataHealth/);
   assert.match(js, /riskDutyHeadline/);
-  assert.match(js, /renderRiskActionTabs/);
-  assert.match(js, /risk-action-table/);
-  assert.match(js, /data-risk-queue-toggle/);
+  assert.doesNotMatch(js, /renderRiskActionTabs/);
+  assert.doesNotMatch(js, /data-risk-queue-toggle/);
   assert.doesNotMatch(js, /data-drill-title="负责人相关项目明细"/);
   assert.doesNotMatch(js, /<h4>处置分诊<\/h4>/);
   assert.doesNotMatch(js, /今日值班建议/);
@@ -256,7 +254,7 @@ test('frontend exposes team dashboard section with owner switcher', async () => 
   assert.match(css, /\.chart-tooltip/);
 });
 
-test('frontend exposes team load workbench inside team dashboard', async () => {
+test('frontend exposes team work completion module inside team dashboard', async () => {
   const [html, js, css] = await Promise.all([
     readFile(join(publicDir, 'index.html'), 'utf8'),
     readFrontendJsBundle(),
@@ -271,6 +269,23 @@ test('frontend exposes team load workbench inside team dashboard', async () => {
 
   const teamSection =
     html.match(/<section class="dashboard-page team-dashboard" id="teams"[\s\S]*?<section class="dashboard-page" id="details"/)?.[0] || '';
+  assert.match(teamSection, /class="team-section team-work-completion-module team-top-module"/);
+  assert.match(teamSection, /id="teamWorkCompletionModule"[\s\S]*团队工作完成情况/);
+  assert.match(
+    teamSection,
+    /class="[^"]*team-completion-overview-module[^"]*"[\s\S]*id="teamCompletionHeroStats"[\s\S]*id="teamCompletionMonthlyChart"/
+  );
+  assert.doesNotMatch(teamSection, /id="teamCompletionInProgress"/);
+  assert.match(js, /loadTeamCompletionECharts/);
+  assert.match(js, /buildTeamCompletionMonthlyChartOption/);
+  assert.doesNotMatch(teamSection, /<h4>团队整体完成情况<\/h4>/);
+  assert.match(
+    teamSection,
+    /class="[^"]*team-completion-groups-module[^"]*"[\s\S]*小组完成情况[\s\S]*id="teamCompletionGroupGrid"[\s\S]*id="teamCompletionDataQuality"/
+  );
+  assert.match(teamSection, /id="teamCompletionMonthlyChart"/);
+  assert.match(teamSection, /id="teamCompletionGroupGrid"/);
+  assert.match(teamSection, /id="teamCompletionMemberGrid"/);
   assert.match(teamSection, /class="team-section team-load-module owner-review-dashboard"/);
   assert.match(teamSection, /id="teamLoadModule"/);
   assert.match(teamSection, /团队负载工作台/);
@@ -309,6 +324,10 @@ test('frontend exposes team load workbench inside team dashboard', async () => {
   assert.match(teamSection, /id="ownerReviewDecisionModalBody"/);
   assert.match(js, /TEAM_RESPONSIBILITY_REVIEW_ENDPOINT/);
   assert.match(js, /\/api\/team-responsibility-review/);
+  assert.match(js, /TEAM_WORK_COMPLETION_ENDPOINT/);
+  assert.match(js, /\/api\/team-work-completion/);
+  assert.match(js, /loadTeamWorkCompletion/);
+  assert.match(js, /renderTeamWorkCompletionDashboard/);
   assert.match(js, /loadOwnerResponsibilityReview/);
   assert.match(js, /renderOwnerReviewDashboard/);
   assert.match(js, /OWNER_REVIEW_STATIC_TEAM_STRUCTURE/);
@@ -316,10 +335,11 @@ test('frontend exposes team load workbench inside team dashboard', async () => {
     js.match(/const OWNER_REVIEW_STATIC_TEAM_STRUCTURE = \{[\s\S]*?\n\};/)?.[0] || '';
   assert.match(ownerReviewStructureBlock, /苏佳蕾/);
   assert.match(ownerReviewStructureBlock, /直营硬装 · CD设计师 · 进行中平面方案/);
-  assert.match(ownerReviewStructureBlock, /直营1组[\s\S]*陈菲菲[\s\S]*乔玲玲[\s\S]*陈晶晶[\s\S]*张莹莹[\s\S]*杨雪倩[\s\S]*李晓倩/);
-  assert.match(ownerReviewStructureBlock, /直营2组[\s\S]*陶媛媛[\s\S]*梁玉贞[\s\S]*安灵玲[\s\S]*何赛平[\s\S]*左忠淼[\s\S]*古茂琨[\s\S]*席创意/);
-  assert.match(ownerReviewStructureBlock, /直营3组[\s\S]*杨晓芸[\s\S]*陈红燕[\s\S]*臧传宝[\s\S]*庞小琪[\s\S]*杨诚[\s\S]*禹凯鹏[\s\S]*陈梦然[\s\S]*占俊鑫/);
-  assert.match(ownerReviewStructureBlock, /直营4组[\s\S]*刘雯蓓[\s\S]*董一凡[\s\S]*郭后冲[\s\S]*杨莉[\s\S]*牛超凡[\s\S]*侯喆/);
+  assert.match(ownerReviewStructureBlock, /直营1组[\s\S]*陈菲菲[\s\S]*乔玲玲[\s\S]*陈晶晶[\s\S]*张莹莹[\s\S]*杨雪倩/);
+  assert.match(ownerReviewStructureBlock, /直营2组[\s\S]*陶媛媛[\s\S]*梁玉贞[\s\S]*安灵玲[\s\S]*何赛平[\s\S]*左忠淼[\s\S]*古茂琨/);
+  assert.match(ownerReviewStructureBlock, /直营3组[\s\S]*杨晓芸[\s\S]*陈红燕[\s\S]*臧传宝[\s\S]*庞小琪[\s\S]*禹凯鹏[\s\S]*陈梦然[\s\S]*占俊鑫/);
+  assert.match(ownerReviewStructureBlock, /直营4组[\s\S]*刘雯蓓[\s\S]*董一凡[\s\S]*郭后冲[\s\S]*杨莉[\s\S]*牛超凡/);
+  assert.doesNotMatch(ownerReviewStructureBlock, /李晓倩|席创意|侯喆/);
   assert.doesNotMatch(ownerReviewStructureBlock, /组长|广州|青岛|校招|项目预留格/);
   assert.match(js, /renderOwnerReviewTeamStructure/);
   assert.match(js, /function ownerReviewStructureLoadModel/);
@@ -354,7 +374,7 @@ test('frontend exposes team load workbench inside team dashboard', async () => {
   assert.match(js, /data-owner-review-copy-summary/);
   assert.match(js, /handleOwnerReviewKeydown/);
   assert.match(js, /resetOwnerReviewForTeamOwnerChange/);
-  assert.match(js, /loadOwnerResponsibilityReview\(owner, dashboardContext\)/);
+  assert.match(js, /loadTeamWorkCompletion\(owner, dashboardContext\)/);
   const ownerReviewHeroSummary = js.match(/function renderOwnerReviewHeroSummary\(review\) \{[\s\S]*?\n\}/)?.[0] || '';
   assert.match(ownerReviewHeroSummary, /执行负载/);
   assert.doesNotMatch(ownerReviewHeroSummary, /团队项目|责任项|本月完成|延期未闭环/);
@@ -363,6 +383,35 @@ test('frontend exposes team load workbench inside team dashboard', async () => {
   assert.doesNotMatch(js, /owner-review-owner-select-shell/);
   assert.doesNotMatch(js, /ownerReviewMonthSelect|owner-review-month-select-shell|params\.set\('month'/);
   assert.match(css, /\.owner-review-dashboard/);
+  assert.match(css, /\.team-work-completion-module/);
+  assert.match(css, /\.team-completion-overview-module/);
+  assert.match(css, /\.team-completion-overview-module\.is-empty[\s\S]*\.team-completion-hero-stats/);
+  assert.match(css, /\.team-completion-hero-stats > \.empty-state/);
+  assert.match(css, /\.team-completion-groups-module/);
+  assert.match(css, /\.team-completion-group-titleline\s*\{[\s\S]*?display:\s*flex/);
+  assert.match(css, /\.team-completion-group-titleline\s*\{[\s\S]*?align-items:\s*baseline/);
+  assert.match(css, /\.team-completion-group-lead\s*\{[\s\S]*?font-weight:\s*950/);
+  assert.match(css, /\.team-completion-group-card strong\s*\{[\s\S]*?font-size:\s*16px/);
+  assert.match(css, /\.team-completion-group-card small\s*\{[\s\S]*?font-size:\s*13px/);
+  assert.match(css, /\.team-completion-metric/);
+  assert.match(css, /\.team-completion-member-modal-stats/);
+  assert.match(css, /\.team-completion-monthly-chart/);
+  assert.match(css, /\.team-completion-chart-host/);
+  assert.doesNotMatch(css, /\.team-completion-month-buttons/);
+  const completionOverviewRule = css.match(/\.team-completion-overview-module\s*\{[\s\S]*?\}/)?.[0] || '';
+  const completionStatsRule = [...css.matchAll(/^\.team-completion-hero-stats\s*\{[\s\S]*?\}/gm)].at(-1)?.[0] || '';
+  const completionChartPanelRule = css.match(/\.team-completion-chart-panel\s*\{[\s\S]*?\}/)?.[0] || '';
+  const completionMetricRule = css.match(/\.team-completion-metric\s*\{[\s\S]*?\}/)?.[0] || '';
+  assert.match(completionOverviewRule, /border:\s*0/);
+  assert.match(completionOverviewRule, /background:\s*transparent/);
+  assert.match(completionStatsRule, /border:\s*0/);
+  assert.match(completionStatsRule, /background:\s*transparent/);
+  assert.match(completionChartPanelRule, /border:\s*0/);
+  assert.match(completionChartPanelRule, /border-top:\s*1px solid/);
+  assert.match(completionChartPanelRule, /background:\s*transparent/);
+  assert.match(completionMetricRule, /border-right:\s*1px solid/);
+  assert.doesNotMatch(completionMetricRule, /border-left/);
+  assert.match(css, /\.team-completion-group-grid/);
   assert.match(css, /\.owner-review-hero/);
   assert.match(css, /\.owner-review-hero-title/);
   assert.match(css, /\.owner-review-headline/);
@@ -397,6 +446,23 @@ test('owner review member modal keeps close button inside the dialog bounds', as
 
   assert.match(closeRule, /top:\s*12px/);
   assert.match(closeRule, /right:\s*12px/);
+});
+
+test('drill project modal keeps the close control stable in the header corner', async () => {
+  const css = await readStylesBundle();
+  const headerRule = css.match(/\.drill-project-header\s*\{[\s\S]*?\}/)?.[0] || '';
+  const actionRule = css.match(/\.drill-project-actions\s*\{[\s\S]*?\}/)?.[0] || '';
+  const closeRule = css.match(/\.drill-project-actions\s+\.modal-close-button\s*\{[\s\S]*?\}/)?.[0] || '';
+
+  assert.match(headerRule, /position:\s*relative/);
+  assert.match(headerRule, /padding:\s*18px\s+76px\s+14px\s+22px/);
+  assert.match(actionRule, /position:\s*absolute/);
+  assert.match(actionRule, /top:\s*14px/);
+  assert.match(actionRule, /right:\s*18px/);
+  assert.match(closeRule, /display:\s*inline-grid/);
+  assert.match(closeRule, /place-items:\s*center/);
+  assert.match(closeRule, /padding:\s*0/);
+  assert.match(closeRule, /flex:\s*0\s+0\s+38px/);
 });
 
 test('team dashboard no longer renders legacy collaboration load ranking', async () => {
@@ -546,6 +612,37 @@ test('team dashboard preloads owner metrics and switches from local cache', asyn
   assert.match(js, /renderOwnerReviewRefreshBadge/);
   assert.match(css, /\.team-refresh-chip\.is-warning/);
   assert.match(js, /\/api\/team-metrics-batch/);
+});
+
+test('team top modules share annual entry structure surface language', async () => {
+  const [html, css] = await Promise.all([
+    readFile(join(publicDir, 'index.html'), 'utf8'),
+    readStylesBundle(),
+  ]);
+  const latestRule = (pattern) => [...css.matchAll(pattern)].at(-1)?.[0] || '';
+  const ruleContaining = (pattern, text) => [...css.matchAll(pattern)].map((match) => match[0]).find((rule) => rule.includes(text)) || '';
+  const topModuleRule = latestRule(/\.team-top-module\s*\{[\s\S]*?\}/g);
+  const heroRule = ruleContaining(/\.team-dashboard \.team-hero\s*\{[\s\S]*?\}/g, 'minmax(260px, 0.34fr)');
+  const opsRule = latestRule(/\.team-ops-overview-section\s*\{[\s\S]*?\}/g);
+  const tierBoardRule = latestRule(/\.tier-kpi-board\s*\{[\s\S]*?\}/g);
+  const tierRowLabelRule = latestRule(/\.tier-kpi-row-label\s*\{[\s\S]*?\}/g);
+  const alertCellRule = latestRule(/\.tier-kpi-row \.insight-card\.is-alert\s*\{[\s\S]*?\}/g);
+
+  assert.match(html, /class="team-hero team-top-module"/);
+  assert.match(html, /class="team-section team-ops-overview-section team-top-module"/);
+  assert.match(html, /负责人项目运营情况/);
+  assert.match(html, /id="teamCompletionScopeNote"/);
+  assert.doesNotMatch(html, /运营概览/);
+  assert.match(topModuleRule, /border-top:\s*3px\s+solid\s+rgba\(16,\s*64,\s*32,\s*0\.72\)/);
+  assert.match(topModuleRule, /border-radius:\s*var\(--ov-radius,\s*6px\)/);
+  assert.match(heroRule, /grid-template-columns:\s*minmax\(260px,\s*0\.34fr\)\s+minmax\(0,\s*1fr\)\s+minmax\(320px,\s*0\.34fr\)/);
+  assert.match(opsRule, /padding:\s*16px\s+18px\s+18px/);
+  assert.match(tierBoardRule, /border:\s*0/);
+  assert.match(tierBoardRule, /background:\s*transparent/);
+  assert.match(tierBoardRule, /box-shadow:\s*none/);
+  assert.doesNotMatch(tierRowLabelRule, /justify-content:\s*center/);
+  assert.match(alertCellRule, /background:\s*transparent/);
+  assert.doesNotMatch(alertCellRule, /255,\s*250,\s*243|255,\s*247,\s*234|#fff7/i);
 });
 
 test('entry rhythm board renders monthly difficulty and department agent advice', async () => {
@@ -798,9 +895,9 @@ test('project details page uses a scan-first workbench with shared top filters a
   assert.match(js, /if \(!measureStageComplete && shouldPromptHardNode\(hardNodeProgress, 'measure'\)\)/);
   assert.match(js, /躺平内部审核结束时间/);
   assert.match(js, /施工图完成审核时间（施工图终稿完成时间\/商场审核完成时间）/);
-  assert.match(js, /待填平面开始时间/);
-  assert.match(js, /待填躺平内部审核结束时间/);
-  assert.match(js, /待填施工图完成审核时间/);
+  assert.match(js, /待平面开始/);
+  assert.match(js, /待平面结束/);
+  assert.match(js, /待施工图审核/);
   assert.match(js, /施工整改期/);
   assert.doesNotMatch(js, /label:\s*'启动'/);
   assert.doesNotMatch(js, /label:\s*'开业'/);
@@ -819,6 +916,7 @@ test('project details page uses a scan-first workbench with shared top filters a
   assert.match(css, /\.filter-toggle-button/);
   assert.match(css, /\.filter-bar\.has-details-action/);
   assert.match(css, /\.project-detail-modal/);
+  assert.match(css, /\.project-detail-modal\s*\{[\s\S]*?z-index:\s*64/);
   assert.match(css, /\.project-detail-assignment-reminder/);
   assert.doesNotMatch(css, /\.difficulty-info-button/);
   assert.doesNotMatch(css, /\.difficulty-info-modal/);
@@ -852,8 +950,8 @@ test('project key date prioritizes soft completion before downstream purchasing 
   const keyDateBlock = extractFunctionSource(js, 'resolvePrimaryProjectKeyDate');
 
   assert.match(keyDateBlock, /softSchemeStart[\s\S]*isSoftCompletionDone\(project\)[\s\S]*productListSent/);
-  assert.match(keyDateBlock, /待填软装完成情况/);
-  assert.match(keyDateBlock, /待填软装发项目群时间/);
+  assert.match(keyDateBlock, /待软装完成情况/);
+  assert.match(keyDateBlock, /待软装完成/);
 });
 
 test('project detail surfaces omit load values and risk judgment', async () => {
@@ -900,7 +998,8 @@ test('dashboard drill cards open an in-page project list modal instead of naviga
   assert.match(html, /id="drillProjectRows"/);
   assert.match(html, /data-drill-project-close/);
   assert.match(js, /function openDrillProjectModal/);
-  assert.match(js, /fetchJson\(`\/api\/projects\$\{toQuery\(filters\)\}`\)/);
+  assert.match(js, /resolveDrillProjects/);
+  assert.match(js, /fields=ids/);
   assert.match(js, /openDrillProjectModal\(filter,\s*\{/);
   assert.doesNotMatch(js, /navigateToDetailsDrill\(filter,\s*\{\s*targetCount:\s*readDrillTargetCount\(card\)/);
   assert.match(css, /\.drill-project-modal/);
@@ -908,7 +1007,7 @@ test('dashboard drill cards open an in-page project list modal instead of naviga
   assert.match(css, /\.drill-project-table/);
 });
 
-test('team monthly entry area uses an operational trend console instead of loose column panels', async () => {
+test('team entry area reuses the annual entry structure module instead of loose column panels', async () => {
   const [html, js, css] = await Promise.all([
     readFile(join(publicDir, 'index.html'), 'utf8'),
     readFrontendJsBundle(),
@@ -916,9 +1015,24 @@ test('team monthly entry area uses an operational trend console instead of loose
   ]);
 
   assert.match(html, /id="teamEntryTrendBoard"/);
-  assert.match(html, /进店压力看盘/);
-  assert.doesNotMatch(html, /店态压力分层/);
+  assert.match(html, /class="team-section team-ops-section team-entry-structure-section"/);
+  assert.match(
+    html,
+    /<section class="team-section team-ops-section team-entry-structure-section">\s*<section class="ops-entry-board" id="teamEntryTrendBoard"><\/section>\s*<\/section>/
+  );
+  assert.match(css, /\.team-entry-structure-section\s*\{[\s\S]*--ov-border/);
+  assert.match(css, /\.team-entry-structure-section\s*\{[\s\S]*--ov-radius/);
+  assert.match(css, /\.team-entry-structure-section\s*\{[\s\S]*--ov-shadow/);
+  assert.match(html, /\u5e74\u5ea6\u8fdb\u5e97\u7ed3\u6784/);
+  assert.doesNotMatch(html, /\u8fdb\u5e97\u538b\u529b\u770b\u76d8/);
   assert.match(js, /function renderTeamEntryTrendBoard/);
+  assert.match(js, /function loadTeamAnnualEntryStructure/);
+  assert.match(js, /mountAnnualEntryStructure/);
+  assert.match(
+    js,
+    /mountAnnualEntryStructure\(elements\.teamEntryTrendBoard,\s*\{[\s\S]*showStoreAgeTrendPointLabels:\s*false[\s\S]*showStoreAgeTrendSideLegend:\s*true/
+  );
+  assert.match(js, /teamAnnualEntryStructureController/);
   assert.match(js, /function renderTeamDifficultyBoard/);
   assert.match(js, /function renderTeamDifficultyMatrix/);
   assert.match(js, /function buildEntryStoreTierContext/);
@@ -961,6 +1075,19 @@ test('team monthly entry area uses an operational trend console instead of loose
   assert.match(css, /\.tier-difficulty-strip/);
   assert.match(css, /\.ops-trend-bars/);
   assert.doesNotMatch(html, /id="teamNewStoreChart"|id="teamOldStoreChart"/);
+});
+
+test('annual entry structure carries panel border fallbacks outside overview dashboard', async () => {
+  const css = await readStylesBundle();
+  const wrapperRule = css.match(/\.overview-entry-structure\s*\{[\s\S]*?\}/)?.[0] || '';
+  const panelRule = css.match(/\.overview-entry-structure-panel\s*\{[\s\S]*?\}/)?.[0] || '';
+  const chartRule = css.match(/\.entry-structure-chart-panel\s*\{[\s\S]*?\}/)?.[0] || '';
+
+  assert.match(wrapperRule, /margin-top:\s*var\(--ov-gap-md,\s*12px\)/);
+  assert.match(panelRule, /border:\s*1px\s+solid\s+var\(--ov-border,\s*rgba\(32,\s*48,\s*38,\s*0\.14\)\)/);
+  assert.match(panelRule, /border-radius:\s*var\(--ov-radius,\s*6px\)/);
+  assert.match(panelRule, /box-shadow:\s*var\(--ov-shadow,\s*0\s+10px\s+24px\s+rgba\(44,\s*52,\s*40,\s*0\.06\)\)/);
+  assert.match(chartRule, /border:\s*1px\s+solid\s+var\(--ov-border,\s*rgba\(32,\s*48,\s*38,\s*0\.14\)\)/);
 });
 
 test('entry pressure SVG line is constrained to the pressure plot layer', async () => {

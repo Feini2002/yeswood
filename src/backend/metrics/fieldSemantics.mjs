@@ -1,3 +1,4 @@
+import { isClassifiableStoreStatus } from '../../../public/lib/constants.mjs';
 import { isSleepHardDecorationClosed, isSleepStoreProject } from '../projectTypeRules.mjs';
 
 const HARD_WORKFLOW_FIELDS = ['硬装项目进度', '硬装进度'];
@@ -386,13 +387,24 @@ export function matchesStoreSegment(project, segmentKey) {
   }
 }
 
+export function readStoreStatusSourceLabel(project) {
+  return readRawDisplay(project, STORE_TIER_FIELDS) || normalizeCell(project.storeStatus);
+}
+
+export function hasClassifiableStoreStatus(project) {
+  return isClassifiableStoreStatus(readStoreStatusSourceLabel(project));
+}
+
 export function matchesOwnerMonthlyTier(project, tier) {
+  if (!hasClassifiableStoreStatus(project)) {
+    return false;
+  }
   const projectTier = readStoreTier(project);
   return tier === 'other' ? isOtherStoreTierKey(projectTier) : projectTier === tier;
 }
 
 export function readStoreTierLabel(project) {
-  return readRawDisplay(project, STORE_TIER_FIELDS) || normalizeCell(project.storeStatus) || '其他';
+  return readStoreStatusSourceLabel(project) || '其他';
 }
 
 export function readFranchiseScope(project) {
