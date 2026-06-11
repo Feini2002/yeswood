@@ -22,6 +22,7 @@
 ```powershell
 git clone https://github.com/Feini2002/yeswood.git
 cd yeswood
+npm install
 ```
 
 常用启动方式：
@@ -37,7 +38,7 @@ cd yeswood
 .\清理内网展示快照.bat
 
 # 或直接启动后端
-node .\src\backend\server.mjs
+npm run dev
 ```
 
 浏览器访问：
@@ -49,7 +50,7 @@ http://localhost:4200
 验证：
 
 ```powershell
-node --test
+npm test
 ```
 
 ## 当前能力
@@ -57,10 +58,17 @@ node --test
 - 钉钉 AI 表格只读同步，不向钉钉写回数据。
 - SQLite 本地主数据层，`data/app.sqlite` 是项目最终视图来源。
 - 本地人员与责任槽配置，用于负责人、硬装、软装和协作关系分析。
-- 总览、加盟看板、直营看板、小组情况、负责人复盘、项目情况等桌面端页面。
+- 总览、加盟看板、直营看板、小组情况、负责人复盘、项目情况等 **2K 桌面端**页面。
+- **首页年度进店结构 V3**：单行状态带、季度切换、ECharts 主图与下钻弹窗（`public/dashboard/annual-entry-structure.mjs`）。
+- **团队工作完成情况**：小组页主模块，按团队 / 小组 / 成员聚合月度完成量与进行中状态（`public/pages/team-work-completion.mjs`）。
 - 项目明细弹窗、项目 drill-down 列表、今日处理动作队列。
 - 风险健康分析、部门团队运转 Agent、进店节奏分析、月度运转指标、项目负荷与难度计算。
-- 自动化测试覆盖后端数据规则、指标计算、安全边界和关键前端结构。
+- 硬装 Deadline 规则计算、工作日日历、规则文档与前端规则一览页。
+- 前端 ES Module 分层架构（`lib/`、`domain/`、`components/`、`pages/`），入口 `app.js` 仅做编排；规格见 [`openspec/specs/frontend-architecture/spec.md`](./openspec/specs/frontend-architecture/spec.md)。
+- 看板加载性能优化：项目目录 `view=summary` 缓存、下钻 `fields=ids` 拼装、小组指标预计算与 snapshot 签名缓存。
+- 自动化测试覆盖后端数据规则、指标计算、安全边界、OpenSpec 合约与关键前端加载策略。
+
+当前状态与路线图见 [`docs/STATUS.md`](./docs/STATUS.md)。
 
 ## 数据权威顺序
 
@@ -79,15 +87,20 @@ node --test
 
 业务背景与阶段语境见 [`公司情况与业务环境.md`](./公司情况与业务环境.md)。完整文档索引见 [`docs/README.md`](./docs/README.md)。
 
+OpenSpec 基线规格见 [`openspec/specs/`](./openspec/specs/)（数据权威、字段映射、指标、人员责任、硬装 Deadline、前端架构等）。
+
 ## 关键目录
 
 | 路径 | 说明 |
 | --- | --- |
 | `public/` | 前端看板页面、样式和浏览器端模块 |
+| `public/domain/project-catalog.mjs` | 项目目录 summary 缓存与下钻拼装 |
 | `src/backend/` | 本地服务、同步、SQLite、指标计算和分析 Agent |
+| `src/backend/precomputeTeamDashboards.mjs` | 小组指标与完成度预计算 |
 | `data/rules/` | Deadline 工作日和规则数据 |
 | `data/personnel-database.json` | 人员种子与回退线索 |
 | `docs/` | handbook、contracts、rules 和 archive 文档 |
+| `openspec/` | OpenSpec 基线规格与进行中的 change |
 | `tests/` | `node --test` 自动化测试 |
 | `scripts/` | 数据诊断、校准、责任重建等维护脚本 |
 | `.codex/` | 本仓库 Codex 技能与工作流配置 |
@@ -100,10 +113,14 @@ node --test
 | `GET` | `/api/health` | 健康检查 |
 | `GET` | `/api/snapshot` | 数据快照元信息 |
 | `GET` | `/api/filters` | 项目筛选项 |
-| `GET` | `/api/projects` | 项目列表，支持 `search`、`province`、`owner`、`metric` 等查询 |
+| `GET` | `/api/projects` | 项目列表；默认 `view=summary`，支持 `fields=ids` 供下钻 |
 | `GET` | `/api/metrics` | 总览指标 |
 | `GET` | `/api/dashboard-metrics` | 分 profile 指标 |
+| `GET` | `/api/entry-structure` | 首页年度进店结构数据 |
 | `GET` | `/api/team-metrics` | 小组情况指标 |
+| `GET` | `/api/team-metrics-batch` | 批量小组指标 |
+| `GET` | `/api/team-work-completion` | 团队工作完成情况 |
+| `GET` | `/api/team-responsibility-review` | 小组负责人复盘 |
 | `POST` | `/api/sync` | 后台同步，使用 `x-sync-key` |
 | `POST` | `/api/dashboard-sync` | 前端同源同步，需要 `DASHBOARD_SYNC_ENABLED=true` |
 
@@ -149,10 +166,10 @@ HOST
 
 ```powershell
 # 启动
-node .\src\backend\server.mjs
+npm run dev
 
 # 全量测试
-node --test
+npm test
 
 # 查看 git 状态
 git status --short
@@ -163,7 +180,10 @@ git remote -v
 
 ## 重要文档
 
+- 当前状态与路线图：[`docs/STATUS.md`](./docs/STATUS.md)
 - 文档索引：[`docs/README.md`](./docs/README.md)
+- 首页年度进店结构设计：[`docs/17-home-entry-dashboard-design.md`](./docs/17-home-entry-dashboard-design.md)
+- 团队工作完成情况重构计划：[`docs/18-team-work-completion-module-redesign-plan.md`](./docs/18-team-work-completion-module-redesign-plan.md)
 - 规则一览与延期提醒：[`docs/rules/operational-rulebook.md`](./docs/rules/operational-rulebook.md)
 - 数据权威与钉钉导入契约：[`docs/contracts/data-authority.md`](./docs/contracts/data-authority.md)
 - 指标与 Profile 契约：[`docs/contracts/dashboard-metrics.md`](./docs/contracts/dashboard-metrics.md)
