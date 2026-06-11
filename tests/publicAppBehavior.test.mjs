@@ -726,7 +726,7 @@ test('team work completion scope note explains owner responsibility closed-loop 
   assert.match(note, /61 项口径不同/);
 });
 
-test('team work completion monthly chart uses entry-style month axis and two completed bars', async () => {
+test('team work completion monthly chart uses entry-style month axis and three completed bars', async () => {
   await loadPublicAppHarness();
   const { buildTeamCompletionMonthlyChartOption } = await import(
     `../public/pages/team-work-completion.mjs?chart-option=${Date.now()}`
@@ -758,7 +758,7 @@ test('team work completion monthly chart uses entry-style month axis and two com
 
   assert.deepEqual(
     barSeries.map((series) => series.name),
-    ['平面方案完成', '方案摆场完成']
+    ['平面方案完成', '方案摆场完成', '项目总闭环完成']
   );
   assert.equal(option.xAxis.axisLabel.interval, 0);
   assert.match(firstAxisLabel, /1月/);
@@ -766,13 +766,14 @@ test('team work completion monthly chart uses entry-style month axis and two com
   assert.match(emptyAxisLabel, /7月/);
   assert.doesNotMatch(emptyAxisLabel, /—|平|摆|闭/);
   assert.equal(totalLine.connectNulls, false);
-  assert.equal(totalLine.data[0].value, 5);
+  assert.equal(totalLine.data[0].value, 10);
   assert.equal(totalLine.data[6].value, null);
   assert.equal(barSeries[0].label.show, true);
   assert.equal(barSeries[0].label.position, 'top');
   assert.equal(barSeries[0].label.align, 'center');
   assert.equal(barSeries[0].label.color, '#104020');
   assert.equal(barSeries[1].label.color, '#B7791F');
+  assert.equal(barSeries[2].label.color, '#1D6680');
   assert.equal(barSeries[0].label.formatter({ value: 2 }), '2');
   assert.equal(barSeries[0].label.formatter({ value: 0 }), '');
 });

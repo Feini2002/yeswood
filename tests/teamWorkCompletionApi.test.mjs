@@ -42,7 +42,8 @@ function record(recordId, overrides = {}) {
     CD设计师: raw('陈菲菲'),
     硬装项目进度: raw('闭环'),
     软装项目进度: raw('闭环'),
-    项目闭环时间: raw('2026-06-15'),
+    上会日期: raw('2026-05-20'),
+    闭环周期: raw('26'),
     ...Object.fromEntries(Object.entries(overrides.fields || {}).map(([key, value]) => [key, raw(value)])),
   };
   return {
@@ -78,8 +79,8 @@ async function withTestServer(run, options = {}) {
     ignoredRecords: 0,
     projects: [
       record('direct-2026'),
-      record('franchise-2026', { fields: { 组别: '加盟新店', 项目闭环时间: '2026-06-16' } }),
-      record('direct-2025', { fields: { 项目闭环时间: '2025-06-15' } }),
+      record('franchise-2026', { fields: { 组别: '加盟新店', 闭环周期: '27' } }),
+      record('direct-2025', { fields: { 上会日期: '2025-05-20', 闭环周期: '26' } }),
     ],
   };
   await fs.writeFile(
@@ -212,7 +213,7 @@ test('/api/team-work-completion returns the clean work completion payload withou
     assert.equal(payload.body.year, 2026);
     assert.equal(payload.body.summary.lifecycle.completedCount, 2);
     assert.equal(payload.body.monthly.months.length, 12);
-    assert.deepEqual(payload.body.monthly.months[5].projectIds.lifecycle, []);
+    assert.deepEqual(payload.body.monthly.months[5].projectIds.lifecycle, ['direct-2026']);
     assert.equal(payload.body.groups[0].leadDisplay, '陈菲菲');
     assert.deepEqual(payload.body.groups[0].memberNames, ['陈菲菲', '乔玲玲']);
     assert.ok(payload.body.members.some((member) => member.name === '陈菲菲'));

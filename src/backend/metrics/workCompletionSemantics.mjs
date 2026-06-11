@@ -2,21 +2,18 @@ import { isSleepHardDecorationClosed, isSleepStoreProject } from '../projectType
 import { normalizeCell, readRawDisplay, readWorkflowStage } from './fieldSemantics.mjs';
 
 const HARD_SCHEME_STATUS_FIELDS = ['硬装方案情况（每周五刷新）', '硬装方案情况', '方案情况'];
-const HARD_SCHEME_COMPLETION_DATE_FIELDS = ['硬装方案完成时间', '躺平内部审核结束时间', '内部审核结束时间'];
-const POINT_STATUS_FIELDS = ['点位完成情况'];
-const POINT_COMPLETION_DATE_FIELDS = ['点位完成时间'];
-const SOFT_COMPLETION_STATUS_FIELDS = ['软装完成情况'];
-const SOFT_COMPLETION_DATE_FIELDS = ['软装完成时间'];
+const HARD_SCHEME_START_FIELDS = [
+  '平面开始时间（二次设计备注好，然后以第二次为准，第一次时间写备注）',
+  '平面开始时间',
+];
+const HARD_SCHEME_COMPLETION_DATE_FIELDS = ['躺平内部审核结束时间', '内部审核结束时间', '硬装方案完成时间'];
 const DISPLAY_COMPLETION_DATE_FIELDS = [
   '摆场文件发出时间(项目群）',
   '摆场文件发出时间（项目群）',
-  '摆场时间',
-  '现场摆场时间',
-  '摆场开始时间',
 ];
-const COMPLETE_STATUS_PATTERN = /准时完成|延期完成|已完成|完成|闭环/;
-const INCOMPLETE_STATUS_PATTERN = /未完成|未开始|未启动|未安排|待|延期中|暂停/;
-const DISPLAY_ACTIVE_STAGE_PATTERN = /点位|软装方案|产品清单|待采购|采购|摆场/;
+const MEETING_DATE_FIELDS = ['上会日期'];
+const CLOSURE_CYCLE_FIELDS = ['闭环周期', '闭环期', '项目闭环周期'];
+const DISPLAY_ACTIVE_STAGE_PATTERN = /摆场/;
 const NOT_STARTED_PATTERN = /未完成|未开始|未启动|未安排/;
 const STOPPED_PATTERN = /暂停|停止|取消|撤销|作废|废弃|终止/;
 
@@ -38,12 +35,43 @@ function readReliableDate(project, fields) {
   return isReliableCompletionDate(value) ? value : '';
 }
 
-function isCompleteStatus(value) {
+function parseClosureCycleDays(value) {
   const text = normalizeCell(value);
-  if (!text || INCOMPLETE_STATUS_PATTERN.test(text)) {
-    return false;
+  if (!text) {
+    return null;
   }
-  return COMPLETE_STATUS_PATTERN.test(text);
+  const match = text.match(/-?\d+(?:\.\d+)?/);
+  if (!match) {
+    return null;
+  }
+  const number = Number(match[0]);
+  if (!Number.isFinite(number) || number < 0) {
+    return null;
+  }
+  return Math.trunc(number);
+}
+
+function addCalendarDays(dateValue, days) {
+  const text = normalizeCell(dateValue);
+  const match = text.match(/^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
+  const date = match
+    ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])))
+    : new Date(text);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const utcDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  utcDate.setUTCDate(utcDate.getUTCDate() + days);
+  return utcDate.toISOString().slice(0, 10);
+}
+
+function readLifecycleCompletedAt(project) {
+  const meetingDate = readReliableDate(project, MEETING_DATE_FIELDS);
+  const cycleDays = parseClosureCycleDays(firstRawDisplay(project, CLOSURE_CYCLE_FIELDS));
+  if (!meetingDate || cycleDays === null) {
+    return '';
+  }
+  return addCalendarDays(meetingDate, cycleDays);
 }
 
 export function isProjectStoppedForCompletion(project) {
@@ -83,20 +111,17 @@ function stateResult(key, { completed, inProgress, status = '', completedAt = ''
 
 export function resolveFloorPlanCompletionState(project) {
   const status = firstRawDisplay(project, HARD_SCHEME_STATUS_FIELDS);
+  const startedAt = firstRawDisplay(project, HARD_SCHEME_START_FIELDS);
   const completedAt = readReliableDate(project, HARD_SCHEME_COMPLETION_DATE_FIELDS);
-  const completed = isCompleteStatus(status) || Boolean(completedAt);
-  const hardStage = readWorkflowStage(project, { discipline: 'hard' });
-  const started =
-    Boolean(completedAt) ||
-    hasStartedProgress(status) ||
-    hasStartedProgress(hardStage, /平面|方案|施工图|施工|审核|闭环/);
+  const completed = Boolean(completedAt);
+  const started = Boolean(startedAt);
   const inProgress = !completed && !isProjectStoppedForCompletion(project) && started;
   return stateResult('floorPlan', {
     completed,
     inProgress,
-    status: status || hardStage,
+    status: status || startedAt,
     completedAt,
-    evidence: [status ? '硬装方案情况' : '', completedAt ? '硬装方案完成时间' : ''].filter(Boolean),
+    evidence: [startedAt ? '平面开始时间' : '', completedAt ? '躺平内部审核结束时间' : ''].filter(Boolean),
   });
 }
 
@@ -104,28 +129,30 @@ export function resolveDisplayCompletionState(project) {
   if (isSleepStoreProject(project)) {
     return stateResult('display', { completed: false, inProgress: false });
   }
-  const pointStatus = firstRawDisplay(project, POINT_STATUS_FIELDS);
-  const softCompletionStatus = firstRawDisplay(project, SOFT_COMPLETION_STATUS_FIELDS);
-  const completedAt =
-    readReliableDate(project, POINT_COMPLETION_DATE_FIELDS) ||
-    readReliableDate(project, SOFT_COMPLETION_DATE_FIELDS) ||
-    readReliableDate(project, DISPLAY_COMPLETION_DATE_FIELDS);
-  const completed = isCompleteStatus(pointStatus) || isCompleteStatus(softCompletionStatus) || Boolean(completedAt);
+  const completedAt = readReliableDate(project, DISPLAY_COMPLETION_DATE_FIELDS);
+  const completed = Boolean(completedAt);
+  const hardStage = readWorkflowStage(project, { discipline: 'hard' });
   const softStage = readWorkflowStage(project, { discipline: 'soft' });
   const inProgress =
-    !completed && !isProjectStoppedForCompletion(project) && hasStartedProgress(softStage, DISPLAY_ACTIVE_STAGE_PATTERN);
+    !completed &&
+    !isProjectStoppedForCompletion(project) &&
+    (hasStartedProgress(hardStage, DISPLAY_ACTIVE_STAGE_PATTERN) ||
+      hasStartedProgress(softStage, DISPLAY_ACTIVE_STAGE_PATTERN));
   return stateResult('display', {
     completed,
     inProgress,
-    status: pointStatus || softCompletionStatus || softStage,
+    status: completed ? '摆场文件已发出' : [hardStage, softStage].filter(Boolean).join(' / '),
     completedAt,
     evidence: [
-      pointStatus ? '点位完成情况' : '',
-      softCompletionStatus ? '软装完成情况' : '',
-      completedAt ? '点位/软装/摆场完成时间' : '',
+      completedAt ? '摆场文件发出时间(项目群）' : '',
+      !completed && hardStage ? '硬装项目进度' : '',
       !completed && softStage ? '软装项目进度' : '',
     ].filter(Boolean),
   });
+}
+
+function isClosedWorkflowStage(stage) {
+  return normalizeCell(stage) === '闭环';
 }
 
 export function isCompanyLifecycleClosed(project) {
@@ -133,8 +160,8 @@ export function isCompanyLifecycleClosed(project) {
     return isSleepHardDecorationClosed(project);
   }
   return (
-    readWorkflowStage(project, { discipline: 'hard' }) === '闭环' &&
-    readWorkflowStage(project, { discipline: 'soft' }) === '闭环'
+    isClosedWorkflowStage(readWorkflowStage(project, { discipline: 'hard' })) ||
+    isClosedWorkflowStage(readWorkflowStage(project, { discipline: 'soft' }))
   );
 }
 
@@ -142,18 +169,19 @@ export function resolveCompanyLifecycleState(project) {
   const completed = isCompanyLifecycleClosed(project);
   const hardStage = readWorkflowStage(project, { discipline: 'hard' });
   const softStage = readWorkflowStage(project, { discipline: 'soft' });
-  return {
-    ...stateResult('lifecycle', {
-      completed,
-      inProgress:
-        !completed &&
-        !isProjectStoppedForCompletion(project) &&
-        (hasStartedProgress(hardStage) || hasStartedProgress(softStage)),
-      status: [hardStage, softStage].filter(Boolean).join(' / '),
-      completedAt: '',
-      evidence: ['硬装项目进度', isSleepStoreProject(project) ? '' : '软装项目进度'].filter(Boolean),
-    }),
-    completedAt: '',
-    missingDate: false,
-  };
+  const completedAt = completed ? readLifecycleCompletedAt(project) : '';
+  return stateResult('lifecycle', {
+    completed,
+    inProgress:
+      !completed &&
+      !isProjectStoppedForCompletion(project) &&
+      (hasStartedProgress(hardStage) || hasStartedProgress(softStage)),
+    status: [hardStage, softStage].filter(Boolean).join(' / '),
+    completedAt,
+    evidence: [
+      '硬装项目进度',
+      isSleepStoreProject(project) ? '' : '软装项目进度',
+      completedAt ? '上会日期 + 闭环周期' : '',
+    ].filter(Boolean),
+  });
 }

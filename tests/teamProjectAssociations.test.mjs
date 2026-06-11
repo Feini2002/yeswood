@@ -33,7 +33,7 @@ const architecture = {
   },
 };
 
-test('buildTeamRoster keeps groups and uses lead fallback without counting it as a member', () => {
+test('buildTeamRoster keeps groups and includes team owner as an ungrouped member', () => {
   const roster = buildTeamRoster(
     {
       owner: '苏佳蕾',
@@ -47,7 +47,7 @@ test('buildTeamRoster keeps groups and uses lead fallback without counting it as
 
   assert.equal(roster.owner, '苏佳蕾');
   assert.equal(roster.groupCount, 2);
-  assert.equal(roster.memberCount, 3);
+  assert.equal(roster.memberCount, 4);
   assert.deepEqual(roster.groups[0], {
     id: 'group-1',
     name: '直营1组',
@@ -56,6 +56,7 @@ test('buildTeamRoster keeps groups and uses lead fallback without counting it as
     members: ['陈菲菲', '乔玲玲'],
   });
   assert.equal(roster.groups[1].lead, '陶媛媛');
+  assert.equal(roster.membersByName.get('苏佳蕾').groupId, '');
   assert.equal(roster.membersByName.get('陈菲菲').groupId, 'group-1');
 });
 
@@ -75,7 +76,32 @@ test('buildTeamRoster applies group leaders and omits hidden people from visible
   assert.equal(roster.groups[0].leadDisplay, '陈菲菲');
   assert.deepEqual(roster.groups[0].members, ['陈菲菲', '乔玲玲']);
   assert.equal(roster.membersByName.has('李晓倩'), false);
-  assert.equal(roster.memberCount, 2);
+  assert.equal(roster.memberCount, 3);
+});
+
+test('buildProjectTeamAssociations maps owner-only projects to the team owner without a group hit', () => {
+  const roster = buildTeamRoster(
+    {
+      owner: '苏佳蕾',
+      groups: [{ name: '直营1组', members: ['陈菲菲'] }],
+    },
+    architecture
+  );
+  const association = buildProjectTeamAssociations(
+    project({
+      id: 'owner-only',
+      rawFields: {
+        负责人: raw('苏总'),
+      },
+    }),
+    roster,
+    architecture
+  );
+
+  assert.deepEqual(association.memberNames, ['苏佳蕾']);
+  assert.deepEqual(association.groupIds, []);
+  assert.deepEqual(association.groupNames, []);
+  assert.deepEqual(association.roleLabelsByMember.苏佳蕾, ['负责人']);
 });
 
 test('buildProjectTeamAssociations canonicalizes aliases and de-duplicates multiple role hits', () => {

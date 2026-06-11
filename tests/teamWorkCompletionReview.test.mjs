@@ -63,6 +63,7 @@ test('buildTeamWorkCompletionReview keeps floorPlan display and lifecycle indepe
         rawFields: {
           组别: raw('直营新店'),
           CD设计师: raw('陈菲菲'),
+          '平面开始时间（二次设计备注好，然后以第二次为准，第一次时间写备注）': raw('2026-04-10'),
           硬装方案情况: raw('准时完成'),
           躺平内部审核结束时间: raw('2026-04-22'),
           软装项目进度: raw('摆场'),
@@ -92,6 +93,7 @@ test('buildTeamWorkCompletionReview buckets in-progress metrics by project updat
         rawFields: {
           组别: raw('直营新店'),
           CD设计师: raw('陈菲菲'),
+          '平面开始时间（二次设计备注好，然后以第二次为准，第一次时间写备注）': raw('2026-05-08'),
           硬装项目进度: raw('平面方案'),
           软装项目进度: raw('摆场'),
         },
@@ -119,7 +121,8 @@ test('buildTeamWorkCompletionReview reuses static groups when owner has no expli
           CD设计师: raw('陈菲菲'),
           硬装项目进度: raw('闭环'),
           软装项目进度: raw('闭环'),
-          项目闭环时间: raw('2026-06-15'),
+          上会日期: raw('2026-05-20'),
+          闭环周期: raw('26'),
         },
       }),
     ],
@@ -128,7 +131,7 @@ test('buildTeamWorkCompletionReview reuses static groups when owner has no expli
   );
 
   assert.equal(review.team.groupCount, 4);
-  assert.equal(review.team.memberCount, 23);
+  assert.equal(review.team.memberCount, 24);
   assert.equal(review.groups.length, 4);
   assert.equal(review.projectCount, 1);
   assert.equal(group(review, '直营1组').leadDisplay, '陈菲菲');
@@ -140,7 +143,7 @@ test('buildTeamWorkCompletionReview reuses static groups when owner has no expli
   assert.equal(member(review, '李晓倩'), undefined);
   assert.equal(member(review, '席创意'), undefined);
   assert.equal(member(review, '侯喆'), undefined);
-  assert.deepEqual(month(review, 6).projectIds.lifecycle, []);
+  assert.deepEqual(month(review, 6).projectIds.lifecycle, ['static-roster-project']);
 });
 
 test('buildTeamWorkCompletionReview de-duplicates same project within one group and team', () => {
@@ -153,7 +156,8 @@ test('buildTeamWorkCompletionReview de-duplicates same project within one group 
           CD设计师: raw('陈菲菲、乔玲玲'),
           硬装项目进度: raw('闭环'),
           软装项目进度: raw('闭环'),
-          项目闭环时间: raw('2026-06-15'),
+          上会日期: raw('2026-05-20'),
+          闭环周期: raw('26'),
         },
       }),
     ],
@@ -165,8 +169,8 @@ test('buildTeamWorkCompletionReview de-duplicates same project within one group 
   assert.equal(group(review, '直营1组').summary.lifecycle.completedCount, 1);
   assert.equal(member(review, '陈菲菲').summary.lifecycle.completedCount, 1);
   assert.equal(member(review, '乔玲玲').summary.lifecycle.completedCount, 1);
-  assert.deepEqual(group(review, '直营1组').monthly.months[5].projectIds.lifecycle, []);
-  assert.deepEqual(month(review, 6).projectIds.lifecycle, []);
+  assert.deepEqual(group(review, '直营1组').monthly.months[5].projectIds.lifecycle, ['same-group']);
+  assert.deepEqual(month(review, 6).projectIds.lifecycle, ['same-group']);
 });
 
 test('buildTeamWorkCompletionReview counts cross-group projects once per group and once for team', () => {
@@ -180,7 +184,8 @@ test('buildTeamWorkCompletionReview counts cross-group projects once per group a
           摆场设计师: raw('陶媛媛'),
           硬装项目进度: raw('闭环'),
           软装项目进度: raw('闭环'),
-          项目闭环时间: raw('2026-06-15'),
+          上会日期: raw('2026-05-20'),
+          闭环周期: raw('26'),
         },
       }),
     ],
@@ -203,7 +208,8 @@ test('buildTeamWorkCompletionReview keeps completed stopped projects and suppres
           CD设计师: raw('陈菲菲'),
           硬装项目进度: raw('闭环'),
           软装项目进度: raw('闭环'),
-          项目闭环时间: raw('2026-06-15'),
+          上会日期: raw('2026-05-20'),
+          闭环周期: raw('26'),
           状态: raw('暂停'),
         },
       }),
@@ -232,11 +238,13 @@ test('buildTeamWorkCompletionReview excludes missing-date completions from month
   const review = buildTeamWorkCompletionReview(
     [
       project({
-        id: 'floor-missing-date',
+        id: 'lifecycle-missing-date',
         rawFields: {
           组别: raw('直营新店'),
           CD设计师: raw('陈菲菲'),
-          硬装方案情况: raw('延期完成'),
+          硬装项目进度: raw('闭环'),
+          软装项目进度: raw('待采购'),
+          上会日期: raw('2026-05-20'),
         },
       }),
     ],
@@ -244,9 +252,79 @@ test('buildTeamWorkCompletionReview excludes missing-date completions from month
     { personnelArchitecture, year: 2026, dashboardContext: 'all' }
   );
 
-  assert.equal(review.summary.floorPlan.completedCount, 1);
-  assert.equal(review.summary.floorPlan.missingDateCount, 1);
-  assert.equal(review.monthly.months.reduce((sum, item) => sum + item.floorPlanCompleted, 0), 0);
+  assert.equal(review.summary.lifecycle.completedCount, 1);
+  assert.equal(review.summary.lifecycle.missingDateCount, 1);
+  assert.equal(review.monthly.months.reduce((sum, item) => sum + item.lifecycleCompleted, 0), 0);
+});
+
+test('buildTeamWorkCompletionReview buckets completion months from business dates', () => {
+  const review = buildTeamWorkCompletionReview(
+    [
+      project({
+        id: 'floor-completed',
+        rawFields: {
+          组别: raw('直营新店'),
+          CD设计师: raw('陈菲菲'),
+          '平面开始时间（二次设计备注好，然后以第二次为准，第一次时间写备注）': raw('2026-04-10'),
+          躺平内部审核结束时间: raw('2026-04-22'),
+        },
+      }),
+      project({
+        id: 'display-completed',
+        rawFields: {
+          组别: raw('直营新店'),
+          摆场设计师: raw('陈菲菲'),
+          软装项目进度: raw('摆场'),
+          '摆场文件发出时间(项目群）': raw('2026-05-18'),
+        },
+      }),
+      project({
+        id: 'lifecycle-completed',
+        rawFields: {
+          组别: raw('直营新店'),
+          CD设计师: raw('陈菲菲'),
+          硬装项目进度: raw('闭环'),
+          软装项目进度: raw('待采购'),
+          上会日期: raw('2026-05-20'),
+          闭环周期: raw('12'),
+        },
+      }),
+    ],
+    team,
+    { personnelArchitecture, year: 2026, dashboardContext: 'all' }
+  );
+
+  assert.equal(month(review, 4).floorPlanCompleted, 1);
+  assert.deepEqual(month(review, 4).projectIds.floorPlan, ['floor-completed']);
+  assert.equal(month(review, 5).displayCompleted, 1);
+  assert.deepEqual(month(review, 5).projectIds.display, ['display-completed']);
+  assert.equal(month(review, 6).lifecycleCompleted, 1);
+  assert.deepEqual(month(review, 6).projectIds.lifecycle, ['lifecycle-completed']);
+});
+
+test('buildTeamWorkCompletionReview counts projects that only match the team owner', () => {
+  const review = buildTeamWorkCompletionReview(
+    [
+      project({
+        id: 'owner-only',
+        rawFields: {
+          组别: raw('直营新店'),
+          负责人: raw('苏佳蕾'),
+          硬装项目进度: raw('闭环'),
+          软装项目进度: raw('待采购'),
+          上会日期: raw('2026-05-20'),
+          闭环周期: raw('12'),
+        },
+      }),
+    ],
+    team,
+    { personnelArchitecture, year: 2026, dashboardContext: 'all' }
+  );
+
+  assert.equal(review.projectCount, 1);
+  assert.equal(review.summary.lifecycle.completedCount, 1);
+  assert.equal(member(review, '苏佳蕾').summary.lifecycle.completedCount, 1);
+  assert.equal(group(review, '直营1组').summary.lifecycle.completedCount, 0);
 });
 
 test('buildTeamWorkCompletionReview filters selected year and dashboard context', () => {
@@ -259,7 +337,8 @@ test('buildTeamWorkCompletionReview filters selected year and dashboard context'
           CD设计师: raw('陈菲菲'),
           硬装项目进度: raw('闭环'),
           软装项目进度: raw('闭环'),
-          项目闭环时间: raw('2026-06-15'),
+          上会日期: raw('2026-05-20'),
+          闭环周期: raw('26'),
         },
       }),
       project({
@@ -269,7 +348,8 @@ test('buildTeamWorkCompletionReview filters selected year and dashboard context'
           CD设计师: raw('陈菲菲'),
           硬装项目进度: raw('闭环'),
           软装项目进度: raw('闭环'),
-          项目闭环时间: raw('2026-06-16'),
+          上会日期: raw('2026-05-20'),
+          闭环周期: raw('27'),
         },
       }),
       project({
@@ -279,7 +359,8 @@ test('buildTeamWorkCompletionReview filters selected year and dashboard context'
           CD设计师: raw('陈菲菲'),
           硬装项目进度: raw('闭环'),
           软装项目进度: raw('闭环'),
-          项目闭环时间: raw('2025-06-15'),
+          上会日期: raw('2025-05-20'),
+          闭环周期: raw('26'),
         },
       }),
     ],
@@ -289,8 +370,8 @@ test('buildTeamWorkCompletionReview filters selected year and dashboard context'
 
   assert.equal(review.summary.lifecycle.completedCount, 2);
   assert.deepEqual(review.summary.lifecycle.completedProjectIds, ['direct-2026', 'direct-2025']);
-  assert.equal(review.monthly.months.reduce((sum, item) => sum + item.lifecycleCompleted, 0), 0);
-  assert.deepEqual(month(review, 6).projectIds.lifecycle, []);
+  assert.equal(review.monthly.months.reduce((sum, item) => sum + item.lifecycleCompleted, 0), 1);
+  assert.deepEqual(month(review, 6).projectIds.lifecycle, ['direct-2026']);
 });
 
 test('buildTeamWorkCompletionReview canonicalizes aliases and reports data quality notes', () => {
@@ -301,7 +382,7 @@ test('buildTeamWorkCompletionReview canonicalizes aliases and reports data quali
         rawFields: {
           组别: raw('直营新店'),
           CD设计师: raw('菲菲'),
-          硬装方案情况: raw('准时完成'),
+          '平面开始时间（二次设计备注好，然后以第二次为准，第一次时间写备注）': raw('2026-04-10'),
           躺平内部审核结束时间: raw('2026-04-22'),
         },
       }),
