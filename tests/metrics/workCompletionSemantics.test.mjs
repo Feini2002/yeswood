@@ -25,7 +25,7 @@ function project(overrides = {}) {
   };
 }
 
-test('isCompanyLifecycleClosed requires hard and soft workflow closure for normal projects', () => {
+test('isCompanyLifecycleClosed accepts either hard or soft workflow closure for normal projects', () => {
   const fullyClosed = project({
     rawFields: {
       硬装项目进度: raw('闭环'),
@@ -49,7 +49,7 @@ test('isCompanyLifecycleClosed requires hard and soft workflow closure for norma
   });
 
   assert.equal(isCompanyLifecycleClosed(fullyClosed), true);
-  assert.equal(isCompanyLifecycleClosed(softStillPurchasing), false);
+  assert.equal(isCompanyLifecycleClosed(softStillPurchasing), true);
   assert.equal(isCompanyLifecycleClosed(broadDoneTextIsNotLifecycleClosure), false);
 });
 
@@ -70,7 +70,7 @@ test('isCompanyLifecycleClosed closes sleep stores from hard closure only', () =
   });
 
   assert.equal(isCompanyLifecycleClosed(sleepClosed), true);
-  assert.equal(isCompanyLifecycleClosed(normalHardOnly), false);
+  assert.equal(isCompanyLifecycleClosed(normalHardOnly), true);
 });
 
 test('design responsibility completion alone does not close company lifecycle', () => {
@@ -124,96 +124,129 @@ test('display completion is not inferred from lifecycle closure', () => {
   assert.equal(state.state, 'none');
 });
 
-test('display active completed and missing-date states are separate', () => {
-  const activeDisplay = project({
+test('display completion uses display file sent date while active stage uses either workflow track', () => {
+  const activeHardDisplay = project({
+    rawFields: {
+      硬装项目进度: raw('摆场'),
+      软装项目进度: raw('未安排摆场'),
+    },
+  });
+  const activeSoftDisplay = project({
     rawFields: {
       软装项目进度: raw('摆场'),
     },
   });
-  const completedWithoutDate = project({
-    rawFields: {
-      点位完成情况: raw('准时完成'),
-    },
-  });
-  const completedWithDate = project({
+  const pointDoneOnly = project({
     rawFields: {
       点位完成情况: raw('准时完成'),
       点位完成时间: raw('2026-05-09'),
     },
   });
+  const completedWithDisplayFile = project({
+    rawFields: {
+      软装项目进度: raw('摆场'),
+      '摆场文件发出时间(项目群）': raw('2026-05-18'),
+    },
+  });
 
   assert.deepEqual(
     {
-      completed: resolveDisplayCompletionState(activeDisplay).completed,
-      inProgress: resolveDisplayCompletionState(activeDisplay).inProgress,
-      missingDate: resolveDisplayCompletionState(activeDisplay).missingDate,
+      completed: resolveDisplayCompletionState(activeHardDisplay).completed,
+      inProgress: resolveDisplayCompletionState(activeHardDisplay).inProgress,
+      missingDate: resolveDisplayCompletionState(activeHardDisplay).missingDate,
     },
     { completed: false, inProgress: true, missingDate: false }
   );
   assert.deepEqual(
     {
-      completed: resolveDisplayCompletionState(completedWithoutDate).completed,
-      inProgress: resolveDisplayCompletionState(completedWithoutDate).inProgress,
-      missingDate: resolveDisplayCompletionState(completedWithoutDate).missingDate,
+      completed: resolveDisplayCompletionState(activeSoftDisplay).completed,
+      inProgress: resolveDisplayCompletionState(activeSoftDisplay).inProgress,
+      missingDate: resolveDisplayCompletionState(activeSoftDisplay).missingDate,
     },
-    { completed: true, inProgress: false, missingDate: true }
+    { completed: false, inProgress: true, missingDate: false }
   );
   assert.deepEqual(
     {
-      completed: resolveDisplayCompletionState(completedWithDate).completed,
-      completedAt: resolveDisplayCompletionState(completedWithDate).completedAt,
-      missingDate: resolveDisplayCompletionState(completedWithDate).missingDate,
+      completed: resolveDisplayCompletionState(pointDoneOnly).completed,
+      inProgress: resolveDisplayCompletionState(pointDoneOnly).inProgress,
+      state: resolveDisplayCompletionState(pointDoneOnly).state,
     },
-    { completed: true, completedAt: '2026-05-09', missingDate: false }
+    { completed: false, inProgress: false, state: 'none' }
+  );
+  assert.deepEqual(
+    {
+      completed: resolveDisplayCompletionState(completedWithDisplayFile).completed,
+      completedAt: resolveDisplayCompletionState(completedWithDisplayFile).completedAt,
+      missingDate: resolveDisplayCompletionState(completedWithDisplayFile).missingDate,
+    },
+    { completed: true, completedAt: '2026-05-18', missingDate: false }
   );
 });
 
-test('floor plan completed without date increments missingDate', () => {
-  const completedWithoutDate = project({
+test('floor plan follows flat start and tap audit end dates only', () => {
+  const startedOnly = project({
+    rawFields: {
+      '平面开始时间（二次设计备注好，然后以第二次为准，第一次时间写备注）': raw('2026-05-08'),
+    },
+  });
+  const completedWithAuditEnd = project({
+    rawFields: {
+      '平面开始时间（二次设计备注好，然后以第二次为准，第一次时间写备注）': raw('2026-05-08'),
+      躺平内部审核结束时间: raw('2026-04-22'),
+    },
+  });
+  const statusOnly = project({
     rawFields: {
       硬装方案情况: raw('延期完成'),
     },
   });
-  const completedWithDate = project({
-    rawFields: {
-      硬装方案情况: raw('准时完成'),
-      躺平内部审核结束时间: raw('2026-04-22'),
-    },
-  });
 
   assert.deepEqual(
     {
-      completed: resolveFloorPlanCompletionState(completedWithoutDate).completed,
-      missingDate: resolveFloorPlanCompletionState(completedWithoutDate).missingDate,
-      completedAt: resolveFloorPlanCompletionState(completedWithoutDate).completedAt,
+      completed: resolveFloorPlanCompletionState(startedOnly).completed,
+      inProgress: resolveFloorPlanCompletionState(startedOnly).inProgress,
+      missingDate: resolveFloorPlanCompletionState(startedOnly).missingDate,
     },
-    { completed: true, missingDate: true, completedAt: '' }
+    { completed: false, inProgress: true, missingDate: false }
   );
   assert.deepEqual(
     {
-      completed: resolveFloorPlanCompletionState(completedWithDate).completed,
-      missingDate: resolveFloorPlanCompletionState(completedWithDate).missingDate,
-      completedAt: resolveFloorPlanCompletionState(completedWithDate).completedAt,
+      completed: resolveFloorPlanCompletionState(completedWithAuditEnd).completed,
+      missingDate: resolveFloorPlanCompletionState(completedWithAuditEnd).missingDate,
+      completedAt: resolveFloorPlanCompletionState(completedWithAuditEnd).completedAt,
     },
     { completed: true, missingDate: false, completedAt: '2026-04-22' }
   );
+  assert.equal(resolveFloorPlanCompletionState(statusOnly).state, 'none');
 });
 
-test('company lifecycle completion does not require or track closure dates', () => {
-  const closedWithoutClosureDate = project({
+test('company lifecycle completion date is meeting date plus closure cycle', () => {
+  const closedWithCycle = project({
     rawFields: {
       硬装项目进度: raw('闭环'),
+      软装项目进度: raw('待采购'),
+      上会日期: raw('2026-05-20'),
+      闭环周期: raw('12'),
+    },
+  });
+  const closedWithoutCycle = project({
+    rawFields: {
+      硬装项目进度: raw('摆场'),
       软装项目进度: raw('闭环'),
-      项目闭环时间: raw('2026-06-15'),
+      上会日期: raw('2026-05-20'),
     },
   });
 
-  const state = resolveCompanyLifecycleState(closedWithoutClosureDate);
+  const state = resolveCompanyLifecycleState(closedWithCycle);
+  const missingDateState = resolveCompanyLifecycleState(closedWithoutCycle);
 
   assert.equal(state.completed, true);
   assert.equal(state.inProgress, false);
+  assert.equal(state.completedAt, '2026-06-01');
   assert.equal(state.missingDate, false);
-  assert.equal(state.completedAt, '');
+  assert.equal(missingDateState.completed, true);
+  assert.equal(missingDateState.completedAt, '');
+  assert.equal(missingDateState.missingDate, true);
 });
 
 test('not-started stopped and discarded projects are not counted as in progress', () => {

@@ -71,6 +71,7 @@ export function buildTeamRoster(team = {}, personnelArchitecture = {}) {
   const groups = [];
   const hiddenPeople = hiddenPeopleSet(personnelArchitecture);
   const isHiddenPerson = (name) => hiddenPeople.has(canonicalPersonName(name, personnelArchitecture));
+  const owner = canonicalPersonName(team.owner, personnelArchitecture);
 
   const addMember = (name, group) => {
     const canonical = canonicalPersonName(name, personnelArchitecture);
@@ -92,6 +93,10 @@ export function buildTeamRoster(team = {}, personnelArchitecture = {}) {
       entry.groupName = group.name || '';
     }
   };
+
+  if (owner && !hiddenPeople.has(owner)) {
+    addMember(owner, null);
+  }
 
   for (const [index, rawGroup] of (team.groups || []).entries()) {
     const lead = canonicalPersonName(rawGroup.lead, personnelArchitecture);
@@ -123,7 +128,7 @@ export function buildTeamRoster(team = {}, personnelArchitecture = {}) {
   }
 
   return {
-    owner: canonicalPersonName(team.owner, personnelArchitecture),
+    owner,
     groupCount: groups.length,
     memberCount: membersByName.size,
     groups,

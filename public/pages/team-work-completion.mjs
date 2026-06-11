@@ -86,7 +86,7 @@ export const TEAM_COMPLETION_FILTERS = [
   },
 ];
 
-const TEAM_COMPLETION_MONTHLY_CHART_SERIES = ['floorPlan', 'display'].map((metricKey) => {
+const TEAM_COMPLETION_MONTHLY_CHART_SERIES = ['floorPlan', 'display', 'lifecycle'].map((metricKey) => {
   const metric = TEAM_COMPLETION_METRICS.find((item) => item.key === metricKey) || {};
   return {
     key: `${metricKey}:completed`,
@@ -525,7 +525,7 @@ export function buildTeamCompletionMonthlyChartOption(months = [], review = stat
           <div style="display:grid;gap:8px;">
             <div style="display:grid;gap:2px;padding-bottom:7px;border-bottom:1px solid rgba(32,48,38,0.1);">
               <strong style="color:#1F2A22;font-size:15px;">${escapeHtml(year)}年 ${escapeHtml(teamCompletionMonthLabel(month))}</strong>
-              <span style="color:rgba(51,51,51,0.58);font-size:12px;">平面/摆场完成合计 ${completedTotal}项</span>
+              <span style="color:rgba(51,51,51,0.58);font-size:12px;">平面/摆场/闭环完成合计 ${completedTotal}项</span>
             </div>
             <div style="display:grid;gap:5px;">${rows || '<span style="color:rgba(51,51,51,0.54);">暂无记录</span>'}</div>
           </div>
