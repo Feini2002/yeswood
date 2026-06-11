@@ -90,6 +90,7 @@ function readPathEnv(name, fallback) {
 
 export function getConfig() {
   loadEnvFile();
+  const dataDir = readPathEnv('DATA_DIR', paths.dataDir);
 
   return {
     port: readNumberEnv('PORT', 4200),
@@ -101,9 +102,12 @@ export function getConfig() {
     syncApiKey: process.env.SYNC_API_KEY || '',
     syncMinIntervalMs: readNumberEnv('SYNC_MIN_INTERVAL_MS', 60_000),
     maxJsonBodyBytes: readNumberEnv('MAX_JSON_BODY_BYTES', 256 * 1024),
+    dataDir,
     publicDir: readPathEnv('PUBLIC_DIR', paths.publicDir),
     cacheFile: process.env.LOCAL_CACHE_FILE || paths.cacheFile,
     databaseFile: process.env.LOCAL_DATABASE_FILE || paths.databaseFile,
+    precomputeDir: readPathEnv('PRECOMPUTE_DIR', path.join(dataDir, 'precomputed')),
+    readModelDir: readPathEnv('READ_MODEL_DIR', path.join(dataDir, 'read-model')),
     personnelDatabaseFile:
       process.env.PERSONNEL_DATABASE_FILE || process.env.PERSONNEL_ARCHITECTURE_FILE || paths.personnelDatabaseFile,
     dingtalk: {

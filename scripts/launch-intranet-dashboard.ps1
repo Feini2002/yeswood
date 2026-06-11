@@ -17,6 +17,7 @@ $SNAPSHOT_DATA = Join-Path $SNAPSHOT_DIR 'data'
 $env:PORT="$Port"
 $env:HOST='0.0.0.0'
 $env:PUBLIC_DIR=$SNAPSHOT_PUBLIC
+$env:DATA_DIR=$SNAPSHOT_DATA
 $env:LOCAL_CACHE_FILE=(Join-Path $SNAPSHOT_DATA 'dashboard-cache.json')
 $env:LOCAL_DATABASE_FILE=(Join-Path $SNAPSHOT_DATA 'app.sqlite')
 $env:PERSONNEL_DATABASE_FILE=(Join-Path $SNAPSHOT_DATA 'personnel-database.json')
@@ -163,6 +164,9 @@ function Wait-DashboardReady {
       $snapshot = $response.Content | ConvertFrom-Json
       $records = if ($null -ne $snapshot.totalRecords) { [int]$snapshot.totalRecords } else { 0 }
       $features = if ($null -ne $snapshot.features) { ($snapshot.features -join ', ') } else { '' }
+      if ($snapshot.warmed -ne $true) {
+        throw "Dashboard warmup did not publish a complete read model. $($snapshot.error)"
+      }
       Write-Host "[dashboard] Data ready: $records project(s), synced at $($snapshot.syncedAt), warmed: $features"
       return $snapshot
     }

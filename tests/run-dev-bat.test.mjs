@@ -22,24 +22,26 @@ test('Chinese development launcher keeps local hot reload enabled', async () => 
   assert.match(ps1, /Logs:/);
 });
 
-test('development launcher warms dashboard data after health and before opening the browser', async () => {
+test('development launcher starts after health and warms dashboard data in the background', async () => {
   const ps1 = await readFile(join(process.cwd(), 'scripts', 'launch-dev-dashboard.ps1'), 'utf8');
 
   assert.match(ps1, /function Wait-DashboardHealth/);
   assert.match(ps1, /function Warm-DashboardData/);
+  assert.match(ps1, /function Start-DashboardWarmup/);
   assert.match(ps1, /Wait-DashboardHealth -ListenPort \$Port -TimeoutSec \d+/);
-  assert.match(ps1, /Warm-DashboardData -ListenPort \$Port -TimeoutSec \d+/);
+  assert.match(ps1, /Start-DashboardWarmup -ListenPort \$Port -TimeoutSec \d+ -LogPath \$warmupLog/);
+  assert.match(ps1, /dashboard data is warming in the background/);
 
   const healthIndex = ps1.indexOf('Wait-DashboardHealth -ListenPort $Port');
   const browserIndex = ps1.indexOf('Start-Process "http://localhost:$Port/"');
-  const warmIndex = ps1.indexOf('Warm-DashboardData -ListenPort $Port');
+  const warmIndex = ps1.indexOf('Start-DashboardWarmup -ListenPort $Port');
 
   assert.notEqual(healthIndex, -1);
   assert.notEqual(browserIndex, -1);
   assert.notEqual(warmIndex, -1);
   assert.ok(healthIndex < browserIndex, 'browser must wait for server health');
-  assert.ok(healthIndex < warmIndex, 'data warmup must wait for server health');
-  assert.ok(warmIndex < browserIndex, 'browser must wait for dashboard data warmup');
+  assert.ok(healthIndex < warmIndex, 'background warmup must wait for server health');
+  assert.ok(warmIndex < browserIndex, 'browser should open after background warmup is scheduled');
   assert.doesNotMatch(
     ps1,
     /Wait-DashboardReady -ListenPort \$Port -TimeoutSec 120\s+Start-Process "http:\/\/localhost:\$Port\/"/,

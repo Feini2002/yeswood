@@ -55,6 +55,30 @@ function month(review, monthNumber) {
   return review.monthly.months.find((item) => item.month === monthNumber);
 }
 
+test('buildTeamWorkCompletionReview does not count construction review as display completion', () => {
+  const review = buildTeamWorkCompletionReview(
+    [
+      project({
+        id: 'construction-review-only',
+        rawFields: {
+          组别: raw('直营新店'),
+          CD设计师: raw('陈菲菲'),
+          硬装项目进度: raw('（施工中）施工图完成审核'),
+          软装项目进度: raw('未安排摆场'),
+          点位完成情况: raw('（施工中）施工图完成审核'),
+          '施工图完成审核时间（施工图终稿完成时间/商场审核完成时间）': raw('2026-05-13'),
+        },
+      }),
+    ],
+    team,
+    { personnelArchitecture, year: 2026, dashboardContext: 'all' }
+  );
+
+  assert.equal(review.summary.display.completedCount, 0);
+  assert.equal(review.summary.display.inProgressCount, 0);
+  assert.equal(review.projectsById['construction-review-only'].metrics.display.state, 'none');
+});
+
 test('buildTeamWorkCompletionReview keeps floorPlan display and lifecycle independent', () => {
   const review = buildTeamWorkCompletionReview(
     [

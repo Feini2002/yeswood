@@ -6,6 +6,7 @@ import { renderEmptyState } from '../dashboard/empty-state.mjs';
 import { renderInsightCards } from '../dashboard/insight-card.mjs';
 import { mountAnnualEntryStructure } from '../dashboard/annual-entry-structure.mjs';
 import {
+  DASHBOARD_SESSION_ENDPOINT,
   DASHBOARD_METRICS_ENDPOINT,
   TEAM_METRICS_ENDPOINT,
   TEAM_METRICS_BATCH_ENDPOINT,
@@ -42,10 +43,12 @@ import {
 import {
   closeTeamCompletionMemberModal,
   handleTeamCompletionFilterClick,
+  handleTeamCompletionGroupGridClick,
   handleTeamCompletionMemberClick,
   handleTeamCompletionMemberModalClick,
   handleTeamCompletionMemberModalKeydown,
   handleTeamCompletionMonthClick,
+  openTeamCompletionGroupModal,
   openTeamCompletionMemberModal,
   openTeamCompletionMonthModal,
   renderTeamWorkCompletionDashboard,
@@ -64,10 +67,12 @@ const OWNER_REVIEW_FETCH_TIMEOUT_MS = 90_000;
 export {
   closeTeamCompletionMemberModal,
   handleTeamCompletionFilterClick,
+  handleTeamCompletionGroupGridClick,
   handleTeamCompletionMemberClick,
   handleTeamCompletionMemberModalClick,
   handleTeamCompletionMemberModalKeydown,
   handleTeamCompletionMonthClick,
+  openTeamCompletionGroupModal,
   openTeamCompletionMemberModal,
   openTeamCompletionMonthModal,
   renderTeamWorkCompletionDashboard,
@@ -199,6 +204,73 @@ export function pruneTeamWorkCompletionCache(maxEntries = TEAM_WORK_COMPLETION_C
     return;
   }
   state.teamWorkCompletionByKey = Object.fromEntries(entries.slice(entries.length - maxEntries));
+}
+
+
+export async function loadTeamDashboardSessionBundle(
+  owner = resolveTeamOwner(),
+  dashboardContext = resolveTeamDashboardContext() || 'all',
+  year = resolveTeamWorkCompletionYear()
+) {
+  if (!owner) {
+    return null;
+  }
+  const normalizedYear = Number(year) || new Date().getFullYear();
+  const params = new URLSearchParams();
+  params.set('owner', owner);
+  params.set('context', dashboardContext || 'all');
+  params.set('year', String(normalizedYear));
+  const payload = await fetchJson(`${DASHBOARD_SESSION_ENDPOINT}?${params}`, { timeoutMs: 15_000 });
+  if (payload.snapshot) {
+    state.snapshot = payload.snapshot;
+    state.personnelArchitecture = payload.snapshot.personnelArchitecture || state.personnelArchitecture;
+  }
+  if (payload.metrics) {
+    state.metrics = payload.metrics;
+    state.fullMetrics = payload.metrics;
+    ensureTeamOwnerOptions();
+  }
+  const team = payload.team || {};
+  const canonicalOwner =
+    team.owner || team.metrics?.owner || team.workCompletion?.owner || team.responsibilityReview?.owner || owner;
+  const contextKey = team.dashboardContext || dashboardContext || 'all';
+  const teamYear = Number(team.year || team.workCompletion?.year || normalizedYear);
+  if (team.metrics) {
+    ensureTeamMetricsCacheContext(contextKey);
+    state.teamMetricsByOwner = {
+      ...state.teamMetricsByOwner,
+      [owner]: team.metrics,
+      [canonicalOwner]: team.metrics,
+    };
+    state.teamMetrics = team.metrics;
+    state.teamMetricsLoading = false;
+    state.teamMetricsError = '';
+  }
+  if (team.workCompletion) {
+    rememberTeamWorkCompletion(team.workCompletion, owner, contextKey, teamYear);
+    state.teamWorkCompletion = team.workCompletion;
+    state.teamWorkCompletionYear = teamYear;
+    state.teamWorkCompletionLoading = false;
+    state.teamWorkCompletionError = '';
+    state.teamWorkCompletionRefreshStatus = '';
+    state.teamWorkCompletionRefreshError = '';
+    state.teamWorkCompletionSwitchTarget = '';
+  }
+  if (team.responsibilityReview) {
+    rememberOwnerReview(team.responsibilityReview, owner, contextKey);
+    state.ownerReview = team.responsibilityReview;
+    state.ownerReviewLoading = false;
+    state.ownerReviewError = '';
+    state.ownerReviewRefreshStatus = '';
+    state.ownerReviewRefreshError = '';
+  }
+  state.selectedTeamOwner = canonicalOwner;
+  localStorage.setItem(TEAM_OWNER_STORAGE_KEY, canonicalOwner);
+  return {
+    metrics: team.metrics || null,
+    workCompletion: team.workCompletion || null,
+    responsibilityReview: team.responsibilityReview || null,
+  };
 }
 
 
@@ -695,6 +767,23 @@ export async function loadTeamDashboardScope(
 ) {
   if (!owner) {
     return null;
+  }
+
+  const sessionBundle = await loadTeamDashboardSessionBundle(owner, dashboardContext || 'all', year).catch((error) => {
+    console.warn('Team dashboard session bundle load failed', error);
+    return null;
+  });
+  if (sessionBundle?.metrics && sessionBundle.workCompletion && sessionBundle.responsibilityReview) {
+    if (currentPageId() === 'teams') {
+      renderTeamDashboard();
+      renderTeamWorkCompletionDashboard();
+      renderOwnerReviewDashboard();
+    }
+    return [
+      { status: 'fulfilled', value: sessionBundle.metrics },
+      { status: 'fulfilled', value: sessionBundle.workCompletion },
+      { status: 'fulfilled', value: sessionBundle.responsibilityReview },
+    ];
   }
 
   const routeContext = normalizeTeamDashboardScopeContext(dashboardContext);

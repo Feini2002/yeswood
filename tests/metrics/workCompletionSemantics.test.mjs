@@ -91,6 +91,24 @@ test('design responsibility completion alone does not close company lifecycle', 
   assert.equal(state.inProgress, true);
 });
 
+test('display completion does not treat construction review stage labels as complete', () => {
+  const constructionReviewOnly = project({
+    rawFields: {
+      硬装项目进度: raw('（施工中）施工图完成审核'),
+      软装项目进度: raw('未安排摆场'),
+      点位完成情况: raw('（施工中）施工图完成审核'),
+      软装完成情况: raw('（施工中）施工图完成审核'),
+      '施工图完成审核时间（施工图终稿完成时间/商场审核完成时间）': raw('2026-05-13'),
+    },
+  });
+
+  const state = resolveDisplayCompletionState(constructionReviewOnly);
+
+  assert.equal(state.completed, false);
+  assert.equal(state.inProgress, false);
+  assert.equal(state.state, 'none');
+});
+
 test('display completion is not inferred from lifecycle closure', () => {
   const lifecycleClosedWithoutDisplayEvidence = project({
     rawFields: {
