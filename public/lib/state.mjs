@@ -26,6 +26,7 @@ export function createAppState() {
     teamWorkCompletionRefreshError: '',
     teamWorkCompletionYear: new Date().getFullYear(),
     selectedTeamCompletionMember: '',
+    selectedTeamCompletionGroup: '',
     selectedTeamCompletionMonth: 0,
     teamCompletionModalScopeType: 'member',
     teamCompletionModalFilter: '',

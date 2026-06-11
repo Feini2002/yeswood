@@ -38,6 +38,7 @@ import {
   readPrecomputedTeamResponsibilityReview,
   readPrecomputedTeamWorkCompletion,
 } from './precomputeTeamDashboards.mjs';
+import { REQUIRED_READ_MODEL_FEATURES, readDashboardSessionReadModel } from './readModelRepository.mjs';
 import { attachDepartmentOperations, buildTeamMetricsPayload, resolveTeamForOwner } from './teamMetricsPayload.mjs';
 
 let activeApiRequest = null;
@@ -802,11 +803,25 @@ async function handleApiRequest(request, response, url, config) {
       url.searchParams.get('context') || url.searchParams.get('dashboardContext')
     );
     const year = parseCompletionYear(url.searchParams.get('year'));
-    const snapshot = await getSnapshot(config);
-    const architecture = snapshot.personnelArchitecture || (await readConfiguredPersonnelArchitecture(config));
-    const owners = requestedTeamOwners(url, snapshot, architecture);
-    const owner = owners[0] || '';
-    await sendJson(response, 200, resolveDashboardSession(config, snapshot, architecture, owner, dashboardContext, year));
+    const rawOwner =
+      url.searchParams.getAll('owner')[0] ||
+      url.searchParams.getAll('owners').flatMap((value) => splitPersonnelNames(value))[0] ||
+      '';
+    const readModel = readDashboardSessionReadModel(config, {
+      owner: rawOwner,
+      dashboardContext,
+      year,
+    });
+    if (readModel.status === 'ready' || readModel.status === 'stale') {
+      await sendJson(response, 200, readModel.payload);
+      return true;
+    }
+    await sendJson(response, 202, {
+      ok: false,
+      status: 'preparing',
+      readModel: true,
+      reason: readModel.reason || readModel.status,
+    });
     return true;
   }
 
@@ -820,6 +835,11 @@ async function handleApiRequest(request, response, url, config) {
     const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
     try {
       const result = await ensureDashboardPrecompute(snapshot, config);
+      const features = result?.features || [];
+      const complete = REQUIRED_READ_MODEL_FEATURES.every((feature) => features.includes(feature));
+      if (!result || !complete) {
+        throw new Error('Dashboard read model warmup did not publish a complete manifest');
+      }
       await sendJson(response, 200, {
         ok: true,
         warmed: true,
@@ -828,12 +848,12 @@ async function handleApiRequest(request, response, url, config) {
         syncedAt: snapshot.syncedAt,
         totalRecords: snapshot.totalRecords,
         snapshotHash: result?.snapshotHash || snapshotHash,
-        features: result?.features || [],
+        features,
       });
     } catch (error) {
       logger.warn('Dashboard warmup precompute failed', { message: error?.message || String(error) });
-      await sendJson(response, 200, {
-        ok: true,
+      await sendJson(response, 503, {
+        ok: false,
         warmed: false,
         readOnly: true,
         source: snapshot.source,
@@ -841,7 +861,7 @@ async function handleApiRequest(request, response, url, config) {
         totalRecords: snapshot.totalRecords,
         snapshotHash,
         features: [],
-        warning: error?.message || String(error),
+        error: error?.message || String(error),
       });
     }
     return true;

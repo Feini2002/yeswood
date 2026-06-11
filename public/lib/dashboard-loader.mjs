@@ -39,6 +39,9 @@ import {
   ensureTeamMetricsCacheContext,
   rememberTeamWorkCompletion,
   rememberOwnerReview,
+  cachedTeamWorkCompletion,
+  cachedOwnerReview,
+  resolveTeamWorkCompletionYear,
   renderTeamWorkCompletionDashboard,
 } from '../pages/teams.mjs';
 import { DASHBOARD_UPDATE_CHECK_INTERVAL_MS, shouldReloadDashboard } from '../realtime.js';
@@ -197,6 +200,31 @@ export function applyDashboardSessionPayload(payload = {}) {
   state.pendingDetailsDrill = null;
   state.profileMetrics.department = payload.departmentMetrics || null;
   state.annualEntryStructure = payload.departmentMetrics?.annualEntryStructure || null;
+  const profileDashboards = payload.profileDashboards || {};
+  const loadedProfiles = { ...(state.profileDashboardLoaded || {}) };
+  for (const profile of ['department', 'direct', 'franchise']) {
+    const dashboard = profileDashboards[profile];
+    if (!dashboard) {
+      continue;
+    }
+    const metrics = dashboard.metrics || dashboard;
+    state.profileMetrics[profile] = metrics || null;
+    if (profile === 'department') {
+      state.annualEntryStructure = metrics?.annualEntryStructure || state.annualEntryStructure || null;
+    } else {
+      state.profileProjects[profile] = Array.isArray(dashboard.projects) ? dashboard.projects : [];
+    }
+    loadedProfiles[profile] = true;
+  }
+  state.profileDashboardLoaded = loadedProfiles;
+  const projectCatalog = payload.projectCatalog || {};
+  if (Array.isArray(projectCatalog.items)) {
+    state.allProjects = projectCatalog.items;
+    state.fieldCatalog = Array.isArray(projectCatalog.fieldCatalog) ? projectCatalog.fieldCatalog : state.fieldCatalog;
+    state.projectsCatalogLoaded = true;
+    state.projectsCatalogSignature = nextCatalogSignature;
+    invalidateProjectCaches({ catalog: false, drill: true, details: false });
+  }
   applyFilterOptions(payload.filters || {});
   applyDevelopmentDocumentationVisibility();
   ensureTeamOwnerOptions();
@@ -234,6 +262,17 @@ export function applyDashboardSessionPayload(payload = {}) {
     rememberOwnerReview(team.responsibilityReview, owner, dashboardContext);
   }
   return payload;
+}
+
+function hasLoadedTeamSessionBundle(owner, dashboardContext, year) {
+  if (!owner) {
+    return false;
+  }
+  return Boolean(
+    state.teamMetricsByOwner?.[owner] &&
+      cachedTeamWorkCompletion(owner, dashboardContext, year) &&
+      cachedOwnerReview(owner, dashboardContext)
+  );
 }
 
 
@@ -275,10 +314,30 @@ export async function loadCoreDashboard(options = {}) {
 export async function loadTeamPageModules({ forceRefresh = false } = {}) {
   const owner = resolveTeamOwner();
   const dashboardContext = resolveTeamDashboardContext();
+  const year = resolveTeamWorkCompletionYear();
   if (!owner && !teamOwnerDirectoryReady()) {
     renderTeamDashboardLoading();
     renderTeamWorkCompletionLoading();
     return null;
+  }
+  if (!forceRefresh && hasLoadedTeamSessionBundle(owner, dashboardContext, year)) {
+    state.teamMetrics = state.teamMetricsByOwner[owner];
+    state.teamWorkCompletion = cachedTeamWorkCompletion(owner, dashboardContext, year);
+    state.ownerReview = cachedOwnerReview(owner, dashboardContext);
+    console.info?.('Team page modules served from dashboard-session read model cache', {
+      owner,
+      dashboardContext,
+      year,
+    });
+    renderTeamDashboard();
+    renderTeamWorkCompletionDashboard();
+    renderOwnerReviewDashboard();
+    return {
+      source: 'cache',
+      owner,
+      dashboardContext,
+      year,
+    };
   }
   const catalogPromise = loadProjectCatalog({ force: forceRefresh }).catch((error) => {
     console.warn('Team page project catalog preload failed', error);
@@ -338,9 +397,13 @@ export async function loadDashboard(options = {}) {
     );
   }
   if (pageId === 'franchise' || pageId === 'direct') {
-    pageLoads.push(
-      loadProfileDashboard(pageId, { forceRefresh }).then(() => renderProfilePage(pageId))
-    );
+    if (!forceRefresh && state.profileDashboardLoaded?.[pageId]) {
+      renderProfilePage(pageId);
+    } else {
+      pageLoads.push(
+        loadProfileDashboard(pageId, { forceRefresh }).then(() => renderProfilePage(pageId))
+      );
+    }
   }
 
   if (pageLoads.length) {

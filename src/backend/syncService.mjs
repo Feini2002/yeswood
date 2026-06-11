@@ -174,6 +174,7 @@ function precomputeWorkerConfig(config = {}) {
     dataDir: config.dataDir,
     databaseFile: config.databaseFile,
     precomputeDir: config.precomputeDir,
+    readModelDir: config.readModelDir,
     precomputeRetainedVersions: config.precomputeRetainedVersions,
   };
 }

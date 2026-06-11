@@ -14,8 +14,9 @@ const DISPLAY_COMPLETION_DATE_FIELDS = [
   '现场摆场时间',
   '摆场开始时间',
 ];
-const COMPLETE_STATUS_PATTERN = /准时完成|延期完成|已完成|完成|闭环/;
 const INCOMPLETE_STATUS_PATTERN = /未完成|未开始|未启动|未安排|待|延期中|暂停/;
+const EXPLICIT_COMPLETION_STATUSES = new Set(['准时完成', '延期完成', '已完成', '完成', '闭环']);
+const COMPOUND_COMPLETION_STATUS_PATTERN = /^(点位|摆场|软装)(已完成|完成)$/;
 const DISPLAY_ACTIVE_STAGE_PATTERN = /点位|软装方案|产品清单|待采购|采购|摆场/;
 const NOT_STARTED_PATTERN = /未完成|未开始|未启动|未安排/;
 const STOPPED_PATTERN = /暂停|停止|取消|撤销|作废|废弃|终止/;
@@ -43,7 +44,14 @@ function isCompleteStatus(value) {
   if (!text || INCOMPLETE_STATUS_PATTERN.test(text)) {
     return false;
   }
-  return COMPLETE_STATUS_PATTERN.test(text);
+  if (EXPLICIT_COMPLETION_STATUSES.has(text)) {
+    return true;
+  }
+  if (COMPOUND_COMPLETION_STATUS_PATTERN.test(text)) {
+    return true;
+  }
+  // Avoid substring false positives such as「施工图完成审核」「完成上会」.
+  return false;
 }
 
 export function isProjectStoppedForCompletion(project) {

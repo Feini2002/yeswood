@@ -29,6 +29,7 @@ async function withTestServer(run, options = {}) {
     mode: 'mock',
     cacheFile: path.join(tempDir, 'dashboard-cache.json'),
     precomputeDir: path.join(tempDir, 'precomputed'),
+    readModelDir: path.join(tempDir, 'read-model'),
     syncApiKey: 'server-only-secret',
     syncMinIntervalMs: 0,
     dashboardSyncEnabled: false,
@@ -1597,7 +1598,7 @@ test('/api/dashboard-session returns a precomputed local browsing bundle', async
       const payload = await getJson(port, '/api/dashboard-session?context=all&year=2026');
 
       assert.equal(payload.status, 200);
-      assert.equal(payload.body.schemaVersion, 1);
+      assert.equal(payload.body.schemaVersion, 2);
       assert.equal(payload.body.readOnly, true);
       assert.equal(payload.body.snapshotHash, precomputeSnapshotHash(sourceSnapshot, sourceSnapshot.personnelArchitecture));
       assert.equal(payload.body.snapshot.source, sourceSnapshot.source);
@@ -1630,11 +1631,40 @@ test('/api/dashboard-session returns a precomputed local browsing bundle', async
           years: [2026],
           now: new Date('2026-06-11T00:00:00.000Z'),
         });
-        const responsibilityDir = path.join(config.precomputeDir, manifest.snapshotHash, 'team-responsibility-review');
+        const responsibilityDir = path.join(config.readModelDir, 'current', 'team-responsibility-review');
         const [fileName] = await fs.readdir(responsibilityDir);
         const filePath = path.join(responsibilityDir, fileName);
         const precomputed = JSON.parse(await fs.readFile(filePath, 'utf8'));
         await fs.writeFile(filePath, `${JSON.stringify({ ...precomputed, precomputedHit: true })}\n`, 'utf8');
+      },
+    }
+  );
+});
+
+test('/api/dashboard-session reports preparing when no hard read model is published', async () => {
+  await withTestServer(async (port) => {
+    const payload = await getJson(port, '/api/dashboard-session?owner=Owner%20A&context=direct&year=2026');
+
+    assert.equal(payload.status, 202);
+    assert.equal(payload.body.ok, false);
+    assert.equal(payload.body.status, 'preparing');
+  });
+});
+
+test('/api/dashboard-warmup fails hard when precompute cannot publish read model', async () => {
+  await withTestServer(
+    async (port) => {
+      const warmup = await getJson(port, '/api/dashboard-warmup');
+
+      assert.equal(warmup.status, 503);
+      assert.equal(warmup.body.ok, false);
+      assert.equal(warmup.body.warmed, false);
+      assert.match(warmup.body.error, /precompute|directory|file|EEXIST|ENOTDIR/i);
+    },
+    {
+      beforeListen: async ({ config, tempDir }) => {
+        config.precomputeDir = path.join(tempDir, 'precomputed-file');
+        await fs.writeFile(config.precomputeDir, 'not a directory', 'utf8');
       },
     }
   );

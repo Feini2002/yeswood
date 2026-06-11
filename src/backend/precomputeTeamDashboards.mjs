@@ -7,7 +7,8 @@ import { paths } from './config.mjs';
 import { composeDashboardMetrics } from './metrics/composeDashboard.mjs';
 import { DASHBOARD_CONTEXTS, resolveCanonicalOwner } from './metrics/projectScopes.mjs';
 import { readProjectOwnerNames, splitPersonnelNames } from './personnelNames.mjs';
-import { createFilterOptions } from './projectData.mjs';
+import { createFilterOptions, filterProjects } from './projectData.mjs';
+import { publishReadModelDirectory } from './readModelRepository.mjs';
 import { buildTeamMetricsPayload, resolveTeamForOwner } from './teamMetricsPayload.mjs';
 import { buildTeamOwnerRates } from './teamInsights.mjs';
 import { buildTeamResponsibilityReview } from './teamResponsibilityReview.mjs';
@@ -17,10 +18,14 @@ export const DASHBOARD_SESSION_PRECOMPUTE_FEATURE = 'dashboard-session';
 export const TEAM_RESPONSIBILITY_REVIEW_PRECOMPUTE_FEATURE = 'team-responsibility-review';
 export const TEAM_WORK_COMPLETION_PRECOMPUTE_FEATURE = 'team-work-completion';
 export const TEAM_METRICS_PRECOMPUTE_FEATURE = 'team-metrics';
-const PRECOMPUTE_SCHEMA_VERSION = 1;
+export const PROJECT_CATALOG_SUMMARY_PRECOMPUTE_FEATURE = 'project-catalog-summary';
+export const PROFILE_DASHBOARD_PRECOMPUTE_FEATURE = 'profile-dashboard';
+const PRECOMPUTE_SCHEMA_VERSION = 2;
 const DEFAULT_RETAINED_PRECOMPUTE_VERSIONS = 3;
 const COMPLETE_PRECOMPUTE_FEATURES = [
   DASHBOARD_SESSION_PRECOMPUTE_FEATURE,
+  PROJECT_CATALOG_SUMMARY_PRECOMPUTE_FEATURE,
+  PROFILE_DASHBOARD_PRECOMPUTE_FEATURE,
   TEAM_RESPONSIBILITY_REVIEW_PRECOMPUTE_FEATURE,
   TEAM_WORK_COMPLETION_PRECOMPUTE_FEATURE,
   TEAM_METRICS_PRECOMPUTE_FEATURE,
@@ -108,6 +113,14 @@ function dashboardSessionFilePath(config = {}, snapshotHash) {
   return path.join(precomputeDirForHash(config, snapshotHash), DASHBOARD_SESSION_PRECOMPUTE_FEATURE, 'core.json');
 }
 
+function projectCatalogSummaryFilePath(baseDir) {
+  return path.join(baseDir, 'project-catalog', 'summary.json');
+}
+
+function profileDashboardFilePath(baseDir, profile) {
+  return path.join(baseDir, PROFILE_DASHBOARD_PRECOMPUTE_FEATURE, `${safeSegment(profile)}.json`);
+}
+
 function isPathInside(parent, child) {
   const relative = path.relative(path.resolve(parent), path.resolve(child));
   return Boolean(relative && !relative.startsWith('..') && !path.isAbsolute(relative));
@@ -186,6 +199,8 @@ function buildDashboardSessionPayload({
   owner = '',
   dashboardContext = 'all',
   year = new Date().getFullYear(),
+  generatedAt = '',
+  features = COMPLETE_PRECOMPUTE_FEATURES,
   metrics = null,
   workCompletion = null,
   responsibilityReview = null,
@@ -193,7 +208,10 @@ function buildDashboardSessionPayload({
   return {
     schemaVersion: PRECOMPUTE_SCHEMA_VERSION,
     readOnly: true,
+    readModel: true,
     snapshotHash,
+    generatedAt,
+    features,
     snapshot: publicSnapshotMeta(snapshot, config),
     filters: snapshot.filters || createFilterOptions(snapshot.projects || []),
     metrics: snapshot.metrics || {},
@@ -225,6 +243,117 @@ function normalizeYears(years, now = new Date()) {
     .map((year) => Number(year))
     .filter((year) => Number.isInteger(year) && year >= 2000 && year <= 2100);
   return normalized.length ? Array.from(new Set(normalized)) : [fallback];
+}
+
+const READ_MODEL_PROJECT_FIELDS = [
+  'id',
+  'name',
+  'province',
+  'businessType',
+  'storeStatus',
+  'status',
+  'owner',
+  'ownerDisplay',
+  'cdOwner',
+  'vmOwner',
+  'progress',
+  'hardProgressStage',
+  'softProgressStage',
+  'startDate',
+  'dueDate',
+  'updatedAt',
+  'isDelayed',
+  'scheduleStatus',
+  'riskLevel',
+  'riskNotes',
+  'localNotes',
+  'source',
+  'difficultyScore',
+  'difficultyLevel',
+  'difficultyWeight',
+  'difficultyWorkdays',
+  'primaryReminder',
+];
+
+function compactProjectForReadModel(project = {}) {
+  if (!project || typeof project !== 'object') {
+    return project;
+  }
+  const summary = {};
+  for (const key of READ_MODEL_PROJECT_FIELDS) {
+    if (project[key] !== undefined) {
+      summary[key] = project[key];
+    }
+  }
+  if (project.recordMeta) {
+    summary.recordMeta = {
+      id: project.recordMeta.id,
+      lastModifiedTime: project.recordMeta.lastModifiedTime,
+    };
+  }
+  return summary;
+}
+
+function compactProjectsForReadModel(projects = []) {
+  return Array.isArray(projects) ? projects.map(compactProjectForReadModel) : [];
+}
+
+function collectYearFromValue(value, years) {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    return;
+  }
+  const match = text.match(/\b(20\d{2}|2100)\b/);
+  if (!match) {
+    return;
+  }
+  const year = Number(match[1]);
+  if (Number.isInteger(year) && year >= 2000 && year <= 2100) {
+    years.add(year);
+  }
+}
+
+function yearsFromProjects(projects = []) {
+  const years = new Set();
+  const dateLikeRawField = /(日期|时间|date|time|开业|启动|闭环|完成|复尺|上会)/i;
+  const topLevelDateFields = [
+    'startDate',
+    'dueDate',
+    'updatedAt',
+    'syncedAt',
+    'createdAt',
+    'completedAt',
+    'actualStart',
+    'actualFinish',
+  ];
+  for (const project of projects || []) {
+    for (const fieldName of topLevelDateFields) {
+      collectYearFromValue(project?.[fieldName], years);
+    }
+    for (const [fieldName, cell] of Object.entries(project?.rawFields || {})) {
+      if (cell?.kind === 'date' || dateLikeRawField.test(fieldName)) {
+        collectYearFromValue(cell?.display ?? cell, years);
+      }
+    }
+    for (const value of Object.values(project?.hardDeadline || {})) {
+      if (typeof value === 'string') {
+        collectYearFromValue(value, years);
+      } else if (value && typeof value === 'object') {
+        for (const nestedValue of Object.values(value)) {
+          collectYearFromValue(nestedValue, years);
+        }
+      }
+    }
+  }
+  return Array.from(years).sort((a, b) => a - b);
+}
+
+function normalizePrecomputeYears(snapshot = {}, options = {}) {
+  if (Array.isArray(options.years) && options.years.length) {
+    return normalizeYears(options.years, options.now);
+  }
+  const currentYear = (options.now || new Date()).getFullYear();
+  return Array.from(new Set([...yearsFromProjects(snapshot.projects || []), currentYear])).sort((a, b) => a - b);
 }
 
 export function ownersFromSnapshot(snapshot = {}, architecture = snapshot.personnelArchitecture || {}) {
@@ -321,6 +450,34 @@ async function cleanupStalePrecomputeTempDirs(config = {}) {
   }
 }
 
+function buildProjectCatalogSummary(snapshot = {}) {
+  const projects = Array.isArray(snapshot.projects) ? snapshot.projects : [];
+  return {
+    items: compactProjectsForReadModel(projects),
+    total: projects.length,
+    view: 'summary',
+    fieldCatalog: Array.isArray(snapshot.fieldCatalog) ? snapshot.fieldCatalog : [],
+    readOnly: true,
+  };
+}
+
+function buildProfileDashboard(snapshot = {}, architecture = {}, profile = 'department') {
+  const projects = Array.isArray(snapshot.projects) ? snapshot.projects : [];
+  const scopedProjects =
+    profile === 'department'
+      ? []
+      : filterProjects(projects, { profile }, { personnelArchitecture: architecture });
+  return {
+    profile,
+    metrics: composeDashboardMetrics(projects, profile, {
+      dashboardContext: profile === 'department' ? 'all' : profile,
+      personnelArchitecture: architecture,
+    }),
+    projects: compactProjectsForReadModel(scopedProjects),
+    readOnly: true,
+  };
+}
+
 async function publishPrecomputeDirectory(config, snapshotHash, tmpDir) {
   const baseDir = precomputeBaseDir(config);
   const finalDir = precomputeDirForHash(config, snapshotHash);
@@ -379,13 +536,16 @@ export async function precomputeTeamDashboards(snapshot = {}, options = {}) {
   await cleanupStalePrecomputeTempDirs(config);
   const tmpDir = path.join(baseDir, `${snapshotHash}.tmp-${process.pid}-${Date.now()}`);
   const contexts = normalizeContexts(options.contexts);
-  const years = normalizeYears(options.years, options.now);
+  const years = normalizePrecomputeYears(snapshot, options);
   const owners = ownersFromSnapshot(snapshot, architecture);
+  const generatedAt = (options.now || new Date()).toISOString();
   const manifest = {
     schemaVersion: PRECOMPUTE_SCHEMA_VERSION,
+    readModel: true,
     snapshotHash,
     syncedAt: snapshot.syncedAt || '',
-    createdAt: (options.now || new Date()).toISOString(),
+    createdAt: generatedAt,
+    generatedAt,
     source: snapshot.source || '',
     storage: snapshot.storage || '',
     totalRecords: Number(snapshot.totalRecords || 0),
@@ -396,6 +556,8 @@ export async function precomputeTeamDashboards(snapshot = {}, options = {}) {
   };
 
   await fsp.mkdir(path.join(tmpDir, DASHBOARD_SESSION_PRECOMPUTE_FEATURE), { recursive: true });
+  await fsp.mkdir(path.join(tmpDir, 'project-catalog'), { recursive: true });
+  await fsp.mkdir(path.join(tmpDir, PROFILE_DASHBOARD_PRECOMPUTE_FEATURE), { recursive: true });
   await fsp.mkdir(path.join(tmpDir, TEAM_RESPONSIBILITY_REVIEW_PRECOMPUTE_FEATURE), { recursive: true });
   await fsp.mkdir(path.join(tmpDir, TEAM_WORK_COMPLETION_PRECOMPUTE_FEATURE), { recursive: true });
   await fsp.mkdir(path.join(tmpDir, TEAM_METRICS_PRECOMPUTE_FEATURE), { recursive: true });
@@ -403,6 +565,16 @@ export async function precomputeTeamDashboards(snapshot = {}, options = {}) {
     const metricsByContext = new Map();
     const workCompletionByKey = new Map();
     const responsibilityByKey = new Map();
+    const projectCatalog = buildProjectCatalogSummary(snapshot);
+    const profileDashboards = {
+      department: buildProfileDashboard(snapshot, architecture, 'department'),
+      direct: buildProfileDashboard(snapshot, architecture, 'direct'),
+      franchise: buildProfileDashboard(snapshot, architecture, 'franchise'),
+    };
+    await writeJson(projectCatalogSummaryFilePath(tmpDir), projectCatalog);
+    for (const [profile, payload] of Object.entries(profileDashboards)) {
+      await writeJson(profileDashboardFilePath(tmpDir, profile), payload);
+    }
 
     for (const dashboardContext of contexts) {
       const ownerRates = buildTeamOwnerRates(snapshot.projects || [], architecture, dashboardContext);
@@ -468,6 +640,8 @@ export async function precomputeTeamDashboards(snapshot = {}, options = {}) {
         snapshot,
         snapshotHash,
         architecture,
+        generatedAt,
+        features: manifest.features,
         owner: defaultOwner,
         dashboardContext: defaultContext,
         year: defaultYear,
@@ -478,7 +652,8 @@ export async function precomputeTeamDashboards(snapshot = {}, options = {}) {
     );
 
     await writeJson(path.join(tmpDir, 'manifest.json'), manifest);
-    await publishPrecomputeDirectory(config, snapshotHash, tmpDir);
+    const publishedDir = await publishPrecomputeDirectory(config, snapshotHash, tmpDir);
+    await publishReadModelDirectory(config, publishedDir);
     config.precomputeIndex = null;
     await cleanupOldPrecomputeDirectories(config, snapshotHash);
     return manifest;

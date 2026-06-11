@@ -98,7 +98,7 @@ test('backend projects API supports summary, ids-only drill, and cache invalidat
   assert.doesNotMatch(server, /projects: snapshot\.projects/);
 });
 
-test('dashboard launch warmup prepares team dashboards before opening the browser', async () => {
+test('dashboard launch schedules warmup without blocking development browser open', async () => {
   const [server, syncService, devLauncher, intranetLauncher] = await Promise.all([
     readSource('src', 'backend', 'server.mjs'),
     readSource('src', 'backend', 'syncService.mjs'),
@@ -111,12 +111,19 @@ test('dashboard launch warmup prepares team dashboards before opening the browse
   assert.match(server, /readPrecomputedTeamResponsibilityReview/);
   assert.match(server, /\/api\/dashboard-warmup/);
   assert.match(server, /ensureDashboardPrecompute/);
+  assert.match(server, /sendJson\(response, 503/);
   assert.match(syncService, /ensureDashboardPrecompute/);
   assert.match(syncService, /readCurrentSnapshot[\s\S]*scheduleDashboardPrecompute\(snapshot, config\)/);
   assert.match(syncService, /normalizeSnapshot[\s\S]*scheduleDashboardPrecompute\(normalizedSnapshot, config\)/);
   assert.match(devLauncher, /api\/dashboard-warmup/);
+  assert.match(devLauncher, /Start-DashboardWarmup/);
+  assert.match(devLauncher, /dashboard data is warming in the background/);
+  assert.match(devLauncher, /\$snapshot\.warmed -ne \$true/);
+  assert.doesNotMatch(devLauncher, /opening browser anyway/);
   assert.match(intranetLauncher, /api\/dashboard-warmup/);
-  assert.ok(devLauncher.indexOf('Warm-DashboardData') < devLauncher.indexOf('Start-Process "http://localhost:$Port/"'));
+  assert.match(intranetLauncher, /\$env:DATA_DIR=\$SNAPSHOT_DATA/);
+  assert.match(intranetLauncher, /\$snapshot\.warmed -ne \$true/);
+  assert.ok(devLauncher.indexOf('Start-DashboardWarmup') < devLauncher.indexOf('Start-Process "http://localhost:$Port/"'));
 });
 
 test('renderAll only repaints active page shell', async () => {

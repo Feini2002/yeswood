@@ -797,7 +797,8 @@
   gap: 6px;
 }
 
-.team-completion-scope-metrics span {
+.team-completion-scope-metrics span,
+.team-completion-scope-metrics button.team-completion-scope-metric {
   display: grid;
   gap: 2px;
   min-width: 0;
@@ -805,6 +806,32 @@
   border: 1px solid rgba(32, 48, 38, 0.08);
   border-radius: 7px;
   background: #fbfcfa;
+}
+
+.team-completion-scope-metrics button.team-completion-scope-metric {
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.team-completion-scope-metrics button.team-completion-scope-metric:hover,
+.team-completion-scope-metrics button.team-completion-scope-metric:focus-visible {
+  border-color: rgba(31, 122, 69, 0.28);
+  background: #ffffff;
+  box-shadow: 0 8px 18px rgba(20, 28, 23, 0.08);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.team-completion-scope-metrics button.team-completion-scope-metric:active {
+  transform: translateY(0);
+  box-shadow: 0 4px 10px rgba(20, 28, 23, 0.06);
 }
 
 .team-completion-scope-metrics small,

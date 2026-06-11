@@ -167,6 +167,26 @@ function firstAvailableTeamCompletionFilter(source = {}) {
   return TEAM_COMPLETION_FILTERS.find((filter) => teamCompletionFilterValue(source, filter) > 0) || TEAM_COMPLETION_FILTERS[0];
 }
 
+function firstAvailableGroupCompletionFilter(group = {}, preferredMetricKey = '') {
+  const metricKey = String(preferredMetricKey || '').trim();
+  if (metricKey) {
+    const completedFilter = TEAM_COMPLETION_FILTERS.find(
+      (filter) => filter.metricKey === metricKey && filter.countKey === 'completedCount'
+    );
+    const inProgressFilter = TEAM_COMPLETION_FILTERS.find(
+      (filter) => filter.metricKey === metricKey && filter.countKey === 'inProgressCount'
+    );
+    if (completedFilter && teamCompletionFilterValue(group, completedFilter) > 0) {
+      return completedFilter;
+    }
+    if (inProgressFilter && teamCompletionFilterValue(group, inProgressFilter) > 0) {
+      return inProgressFilter;
+    }
+    return completedFilter || inProgressFilter || firstAvailableTeamCompletionFilter(group);
+  }
+  return firstAvailableTeamCompletionFilter(group);
+}
+
 function teamCompletionProjectsById(review = state.teamWorkCompletion) {
   return review?.projectsById || {};
 }
@@ -196,6 +216,14 @@ function memberByName(name, review = state.teamWorkCompletion) {
     return null;
   }
   return (review?.members || []).find((member) => member.name === target || member.displayName === target) || null;
+}
+
+function groupByName(name, review = state.teamWorkCompletion) {
+  const target = String(name || '').trim();
+  if (!target) {
+    return null;
+  }
+  return (review?.groups || []).find((group) => group.name === target) || null;
 }
 
 function membersByName(review = state.teamWorkCompletion) {
@@ -854,18 +882,30 @@ function renderMiniMonthlyChart(months = []) {
   `;
 }
 
-function renderScopeMetricStrip(scope = {}) {
+function renderScopeMetricStrip(scope = {}, { groupName = '' } = {}) {
   return `
     <div class="team-completion-scope-metrics">
-      ${TEAM_COMPLETION_METRICS.map(
-        (metric) => `
-          <span class="is-${metric.tone}">
-            <small>${escapeHtml(metric.label)}</small>
-            <b>${metricCompleted(scope, metric.key)}</b>
-            <em>${metricInProgress(scope, metric.key)} 进行中</em>
-          </span>
-        `
-      ).join('')}
+      ${TEAM_COMPLETION_METRICS.map((metric) => {
+        const completed = metricCompleted(scope, metric.key);
+        const inProgress = metricInProgress(scope, metric.key);
+        const content = `
+          <small>${escapeHtml(metric.label)}</small>
+          <b>${completed}</b>
+          <em>${inProgress} 进行中</em>
+        `;
+        if (groupName) {
+          return `
+            <button
+              class="team-completion-scope-metric is-${metric.tone}"
+              type="button"
+              data-team-completion-group="${escapeHtml(groupName)}"
+              data-team-completion-group-metric="${escapeHtml(metric.key)}"
+              aria-label="查看${escapeHtml(groupName)} ${escapeHtml(metric.label)}完成详情，完成${completed}项，进行中${inProgress}项"
+            >${content}</button>
+          `;
+        }
+        return `<span class="is-${metric.tone}">${content}</span>`;
+      }).join('')}
     </div>
   `;
 }
@@ -998,7 +1038,7 @@ export function renderTeamCompletionGroups(review = state.teamWorkCompletion) {
             </div>
             <span>${safeNumber(group.projectCount)} 项</span>
           </header>
-          ${renderScopeMetricStrip(group)}
+          ${renderScopeMetricStrip(group, { groupName: group.name || '' })}
           ${renderMiniMonthlyChart(group.monthly?.months || [])}
           ${renderTeamCompletionGroupMembers(group, review)}
         </article>
@@ -1108,6 +1148,13 @@ function teamCompletionProjectRole(project = {}, scope = {}) {
       detail: groupDetail,
     };
   }
+  if (state.teamCompletionModalScopeType === 'group') {
+    const entries = projectRoleEntries(project);
+    return {
+      title: entries.map(formatProjectRoleEntry).join('；') || '成员待核对',
+      detail: scope.name || scope.groupName || '未分组',
+    };
+  }
   const entries = projectRoleEntries(project);
   return {
     title: entries.map(formatProjectRoleEntry).join('；') || '成员待核对',
@@ -1169,6 +1216,15 @@ function teamCompletionModalScope(review = state.teamWorkCompletion) {
       emptyTitle: '暂无月度完成详情',
     };
   }
+  if (state.teamCompletionModalScopeType === 'group') {
+    const group = groupByName(state.selectedTeamCompletionGroup, review);
+    return {
+      scope: group,
+      title: group?.name || '未命名小组',
+      subtitle: `${contextLabel(review?.dashboardContext || 'all')} · ${review?.year || state.teamWorkCompletionYear} · 小组完成明细`,
+      emptyTitle: '暂无小组完成详情',
+    };
+  }
   const member = memberByName(state.selectedTeamCompletionMember, review);
   return {
     scope: member,
@@ -1208,7 +1264,9 @@ export function renderTeamCompletionMemberModal(review = state.teamWorkCompletio
         : '按成员项目关系汇总，点击分类切换项目列表。'
       : state.teamCompletionModalScopeType === 'month'
         ? '按单月可靠完成日期汇总，点击分类切换三项完成项目。'
-      : '按团队项目关系汇总，点击分类切换项目列表。';
+        : state.teamCompletionModalScopeType === 'group'
+          ? '按小组项目关系汇总，点击分类切换项目列表。'
+          : '按团队项目关系汇总，点击分类切换项目列表。';
   elements.teamCompletionMemberModalBody.innerHTML = `
     <section class="team-completion-member-modal-shell" role="document">
       <header class="team-completion-member-modal-header">
@@ -1238,12 +1296,31 @@ export function renderTeamCompletionMemberModal(review = state.teamWorkCompletio
   `;
 }
 
+export function openTeamCompletionGroupModal(groupName, metricKey = '') {
+  const nextGroupName = String(groupName || '').trim();
+  if (!nextGroupName || !elements.teamCompletionMemberModal) {
+    return;
+  }
+  const group = groupByName(nextGroupName);
+  if (!group) {
+    return;
+  }
+  state.selectedTeamCompletionMember = '';
+  state.selectedTeamCompletionGroup = nextGroupName;
+  state.selectedTeamCompletionMonth = 0;
+  state.teamCompletionModalScopeType = 'group';
+  state.teamCompletionModalFilter = firstAvailableGroupCompletionFilter(group, metricKey).key;
+  renderTeamCompletionMemberModal();
+  elements.teamCompletionMemberModal.hidden = false;
+}
+
 export function openTeamCompletionMemberModal(name) {
   const nextName = String(name || '').trim();
   if (!nextName || !elements.teamCompletionMemberModal) {
     return;
   }
   state.selectedTeamCompletionMember = nextName;
+  state.selectedTeamCompletionGroup = '';
   state.selectedTeamCompletionMonth = 0;
   state.teamCompletionModalScopeType = 'member';
   const member = memberByName(nextName);
@@ -1257,6 +1334,7 @@ export function openTeamCompletionScopeModal(filterKey = '') {
     return;
   }
   state.selectedTeamCompletionMember = '';
+  state.selectedTeamCompletionGroup = '';
   state.selectedTeamCompletionMonth = 0;
   state.teamCompletionModalScopeType = 'team';
   state.teamCompletionModalFilter = teamCompletionFilterByKey(filterKey).key;
@@ -1274,6 +1352,7 @@ export function openTeamCompletionMonthModal(monthNumber, metricKey = '') {
   }
   const monthScope = monthCompletionScope(month);
   state.selectedTeamCompletionMember = '';
+  state.selectedTeamCompletionGroup = '';
   state.selectedTeamCompletionMonth = safeNumber(month.month);
   state.teamCompletionModalScopeType = 'month';
   state.teamCompletionModalFilter = firstAvailableMonthCompletionFilter(monthScope, metricKey).key;
@@ -1286,6 +1365,7 @@ export function closeTeamCompletionMemberModal() {
     elements.teamCompletionMemberModal.hidden = true;
   }
   state.selectedTeamCompletionMember = '';
+  state.selectedTeamCompletionGroup = '';
   state.selectedTeamCompletionMonth = 0;
   state.teamCompletionModalScopeType = 'member';
   state.teamCompletionModalFilter = '';
@@ -1307,6 +1387,18 @@ export function handleTeamCompletionFilterClick(event) {
   }
   openTeamCompletionScopeModal(filterButton.dataset.teamCompletionFilter || '');
   return true;
+}
+
+export function handleTeamCompletionGroupGridClick(event) {
+  const metricButton = event.target.closest('[data-team-completion-group-metric]');
+  if (metricButton) {
+    openTeamCompletionGroupModal(
+      metricButton.dataset.teamCompletionGroup || '',
+      metricButton.dataset.teamCompletionGroupMetric || ''
+    );
+    return;
+  }
+  handleTeamCompletionMemberClick(event);
 }
 
 export function handleTeamCompletionMemberClick(event) {
@@ -1346,7 +1438,9 @@ export function handleTeamCompletionMemberModalClick(event) {
         meta:
           state.teamCompletionModalScopeType === 'team'
             ? `团队整体 · ${activeFilter.label}`
-            : `${state.selectedTeamCompletionMember || ''} · ${activeFilter.label}`,
+            : state.teamCompletionModalScopeType === 'group'
+              ? `${state.selectedTeamCompletionGroup || ''} · ${activeFilter.label}`
+              : `${state.selectedTeamCompletionMember || ''} · ${activeFilter.label}`,
       }
     );
   }

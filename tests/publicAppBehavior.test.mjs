@@ -101,6 +101,30 @@ function sampleDashboardSession({ owner = 'Owner A', dashboardContext = 'direct'
       profile: 'department',
       annualEntryStructure: sampleAnnualEntryStructure(year),
     },
+    profileDashboards: {
+      direct: {
+        metrics: {
+          profile: 'direct',
+          summary: { scopeCount: 1, totalProjects: 1 },
+          totals: {},
+        },
+        projects: [{ id: 'direct-1', name: 'Direct project', province: 'Zhejiang', rawFields: {} }],
+      },
+      franchise: {
+        metrics: {
+          profile: 'franchise',
+          summary: { scopeCount: 0, totalProjects: 0 },
+          totals: {},
+        },
+        projects: [],
+      },
+    },
+    projectCatalog: {
+      items: [{ id: 'direct-1', name: 'Direct project', province: 'Zhejiang', rawFields: {} }],
+      fieldCatalog: [],
+      view: 'summary',
+      readOnly: true,
+    },
     team: {
       owner,
       dashboardContext,
@@ -1047,6 +1071,114 @@ test('team work completion shows member name buttons in group cards and opens me
   assert.equal(app.elements.teamCompletionMemberModal.hidden, true);
 });
 
+test('team work completion group metric cards open the shared completion modal scoped to that group', async () => {
+  const app = await loadPublicAppHarness();
+  assert.equal(typeof app.openTeamCompletionGroupModal, 'function');
+
+  app.state.teamWorkCompletion = {
+    owner: '苏佳蕾',
+    requestedOwner: '苏佳蕾',
+    dashboardContext: 'direct',
+    year: 2026,
+    summary: {
+      floorPlan: { completedCount: 1, inProgressCount: 1, missingDateCount: 0, completedProjectIds: ['project-a'], inProgressProjectIds: ['project-b'] },
+      display: { completedCount: 0, inProgressCount: 1, missingDateCount: 0, completedProjectIds: [], inProgressProjectIds: ['project-a'] },
+      lifecycle: { completedCount: 0, inProgressCount: 2, missingDateCount: 0, completedProjectIds: [], inProgressProjectIds: ['project-a', 'project-b'] },
+    },
+    monthly: { months: [] },
+    groups: [
+      {
+        id: 'group-1',
+        name: '直营1组',
+        leadDisplay: '组长 陈菲菲',
+        memberNames: ['陈晶晶'],
+        projectCount: 2,
+        summary: {
+          floorPlan: { completedCount: 1, inProgressCount: 1, missingDateCount: 0, completedProjectIds: ['project-a'], inProgressProjectIds: ['project-b'] },
+          display: { completedCount: 0, inProgressCount: 1, missingDateCount: 0, completedProjectIds: [], inProgressProjectIds: ['project-a'] },
+          lifecycle: { completedCount: 0, inProgressCount: 2, missingDateCount: 0, completedProjectIds: [], inProgressProjectIds: ['project-a', 'project-b'] },
+        },
+        monthly: { months: [] },
+      },
+    ],
+    members: [
+      {
+        name: '陈晶晶',
+        displayName: '陈晶晶',
+        groupName: '直营1组',
+        projectCount: 2,
+        projectIds: ['project-a', 'project-b'],
+        summary: {
+          floorPlan: { completedCount: 1, inProgressCount: 1, missingDateCount: 0, completedProjectIds: ['project-a'], inProgressProjectIds: ['project-b'] },
+          display: { completedCount: 0, inProgressCount: 1, missingDateCount: 0, completedProjectIds: [], inProgressProjectIds: ['project-a'] },
+          lifecycle: { completedCount: 0, inProgressCount: 2, missingDateCount: 0, completedProjectIds: [], inProgressProjectIds: ['project-a', 'project-b'] },
+        },
+      },
+    ],
+    projectsById: {
+      'project-a': {
+        id: 'project-a',
+        name: '宁波完成店',
+        status: '推进中',
+        storeStatus: '常规店',
+        groupNames: ['直营1组'],
+        roleLabelsByMember: { 陈晶晶: ['硬装设计师'] },
+        metrics: {
+          floorPlan: { completed: true, inProgress: false, completedAt: '2026-05-01', status: '已完成' },
+          display: { completed: false, inProgress: true, status: '软装方案' },
+          lifecycle: { completed: false, inProgress: true, status: '硬装推进 / 软装方案' },
+        },
+      },
+      'project-b': {
+        id: 'project-b',
+        name: '杭州进行店',
+        status: '施工中',
+        storeStatus: '高标店',
+        groupNames: ['直营1组'],
+        roleLabelsByMember: { 陈晶晶: ['点位设计师'] },
+        metrics: {
+          floorPlan: { completed: false, inProgress: true, status: '审核中' },
+          display: { completed: false, inProgress: false, status: '' },
+          lifecycle: { completed: false, inProgress: true, status: '施工中' },
+        },
+      },
+    },
+    dataQuality: { notes: [], unmappedMemberCount: 0, missingDateCompletionCount: 0, weakProjectKeyCount: 0 },
+  };
+
+  app.renderTeamWorkCompletionDashboard(app.state.teamWorkCompletion);
+  assert.match(app.elements.teamCompletionGroupGrid.innerHTML, /data-team-completion-group="直营1组"/);
+  assert.match(app.elements.teamCompletionGroupGrid.innerHTML, /data-team-completion-group-metric="floorPlan"/);
+  assert.match(app.elements.teamCompletionGroupGrid.innerHTML, /data-team-completion-group-metric="display"/);
+  assert.match(app.elements.teamCompletionGroupGrid.innerHTML, /data-team-completion-group-metric="lifecycle"/);
+
+  app.handleTeamCompletionGroupGridClick({
+    target: {
+      closest: (selector) => {
+        if (selector === '[data-team-completion-group-metric]') {
+          return { dataset: { teamCompletionGroup: '直营1组', teamCompletionGroupMetric: 'floorPlan' } };
+        }
+        return null;
+      },
+    },
+  });
+  assert.equal(app.elements.teamCompletionMemberModal.hidden, false);
+  assert.equal(app.state.teamCompletionModalScopeType, 'group');
+  assert.equal(app.state.selectedTeamCompletionGroup, '直营1组');
+  assert.equal(app.state.teamCompletionModalFilter, 'floorPlan:completed');
+  assert.match(app.elements.teamCompletionMemberModalBody.innerHTML, /直营1组 · 2项/);
+  assert.match(app.elements.teamCompletionMemberModalBody.innerHTML, /小组完成明细/);
+  assert.match(app.elements.teamCompletionMemberModalBody.innerHTML, /is-active[^"]*"[\s\S]*平面方案躺平完成量/);
+  assert.match(app.elements.teamCompletionMemberModalBody.innerHTML, /宁波完成店/);
+  assert.doesNotMatch(app.elements.teamCompletionMemberModalBody.innerHTML, /杭州进行店/);
+
+  app.openTeamCompletionGroupModal('直营1组', 'display');
+  assert.equal(app.state.teamCompletionModalFilter, 'display:inProgress');
+  assert.match(app.elements.teamCompletionMemberModalBody.innerHTML, /is-active[^"]*"[\s\S]*方案摆场进行中/);
+  assert.match(app.elements.teamCompletionMemberModalBody.innerHTML, /宁波完成店/);
+  assert.doesNotMatch(app.elements.teamCompletionMemberModalBody.innerHTML, /杭州进行店/);
+});
+
 test('team work completion controls switch context year and render transient states', async () => {
   const requested = [];
   const app = await loadPublicAppHarness({
@@ -1716,6 +1848,39 @@ test('initial teams route loads dashboard session without page fanout', async ()
   assert.equal(app.state.teamMetrics.owner, 'Owner A');
   assert.equal(app.state.teamWorkCompletion.owner, 'Owner A');
   assert.equal(app.state.ownerReview.owner, 'Owner A');
+});
+
+test('initial profile route uses dashboard session without profile fanout', async () => {
+  const requested = [];
+  const app = await loadPublicAppHarness({
+    fetchImpl: async (url) => {
+      const path = String(url);
+      requested.push(path);
+      if (path.startsWith('/api/dashboard-session')) {
+        return {
+          ok: true,
+          json: async () => sampleDashboardSession({ owner: 'Owner A', dashboardContext: 'direct', year: 2026 }),
+        };
+      }
+      throw new Error(`initial profile session load should not fetch ${path}`);
+    },
+  });
+  app.elements.pageSections = [
+    { dataset: { page: 'overview' }, classList: fakeElement().classList },
+    { dataset: { page: 'direct' }, classList: fakeElement().classList },
+  ];
+  app.elements.navItems = [
+    { dataset: { page: 'overview' }, classList: fakeElement().classList, setAttribute() {} },
+    { dataset: { page: 'direct' }, classList: fakeElement().classList, setAttribute() {} },
+  ];
+  app.window.location.hash = '#direct';
+
+  await app.init();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(requested, ['/api/dashboard-session?context=all&year=2026']);
+  assert.equal(app.state.profileMetrics.direct.profile, 'direct');
+  assert.equal(app.state.profileProjects.direct.length, 1);
 });
 
 test('dashboard session clears stale department profile when the bundle omits it', async () => {

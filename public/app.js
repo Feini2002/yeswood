@@ -96,10 +96,12 @@ const {
   handleTeamWorkCompletionContextClick,
   handleTeamWorkCompletionYearChange,
   handleTeamCompletionFilterClick,
+  handleTeamCompletionGroupGridClick,
   handleTeamCompletionMemberClick,
   handleTeamCompletionMemberModalClick,
   handleTeamCompletionMemberModalKeydown,
   handleTeamCompletionMonthClick,
+  openTeamCompletionGroupModal,
   openTeamCompletionMemberModal,
   openTeamCompletionMonthModal,
   closeTeamCompletionMemberModal,
@@ -220,7 +222,7 @@ export function bindEvents() {
     elements.teamCompletionMonthlyChart.addEventListener('click', handleTeamCompletionMonthClick);
   }
   if (elements.teamCompletionGroupGrid) {
-    elements.teamCompletionGroupGrid.addEventListener('click', handleTeamCompletionMemberClick);
+    elements.teamCompletionGroupGrid.addEventListener('click', handleTeamCompletionGroupGridClick);
   }
   if (elements.teamCompletionMemberGrid) {
     elements.teamCompletionMemberGrid.addEventListener('click', handleTeamCompletionMemberClick);
@@ -289,16 +291,7 @@ async function loadSelectedTeamOwner(owner = elements.teamOwnerSelect.value) {
   resetOwnerReviewForTeamOwnerChange();
   navigateToTeam(owner);
   const dashboardContext = resolveTeamDashboardContext();
-  await loadTeamWorkCompletion(owner, dashboardContext);
-  const results = await Promise.allSettled([
-    loadTeamMetrics(owner, dashboardContext),
-    loadOwnerResponsibilityReview(owner, dashboardContext),
-  ]);
-  const failed = results.find((result) => result.status === 'rejected');
-  if (failed && results.every((result) => result.status === 'rejected')) {
-    throw failed.reason;
-  }
-  return results;
+  return loadTeamDashboardScope(owner, dashboardContext || 'all', state.teamWorkCompletionYear);
 }
 
 export async function init() {
@@ -399,9 +392,11 @@ export {
   handleTeamWorkCompletionContextClick,
   handleTeamWorkCompletionYearChange,
   handleTeamCompletionFilterClick,
+  handleTeamCompletionGroupGridClick,
   handleTeamCompletionMemberClick,
   handleTeamCompletionMemberModalClick,
   handleTeamCompletionMonthClick,
+  openTeamCompletionGroupModal,
   openTeamCompletionMemberModal,
   openTeamCompletionMonthModal,
   closeTeamCompletionMemberModal,

@@ -122,18 +122,56 @@ function Warm-DashboardData {
       $snapshot = $response.Content | ConvertFrom-Json
       $records = if ($null -ne $snapshot.totalRecords) { [int]$snapshot.totalRecords } else { 0 }
       $features = if ($null -ne $snapshot.features) { ($snapshot.features -join ', ') } else { '' }
-      if ($snapshot.warmed -eq $false) {
-        Write-Host "[dashboard] Warmup skipped/failed; opening browser anyway: $($snapshot.warning)" -ForegroundColor Yellow
-        return $snapshot
+      if ($snapshot.warmed -ne $true) {
+        throw "Dashboard warmup did not publish a complete read model. $($snapshot.error)"
       }
       Write-Host "[dashboard] Data ready: $records project(s), synced at $($snapshot.syncedAt), warmed: $features"
       return $snapshot
     }
+    throw "Dashboard warmup returned HTTP $($response.StatusCode)."
   } catch {
-    Write-Host "[dashboard] Data warmup timed out or failed; opening browser anyway: $($_.Exception.Message)" -ForegroundColor Yellow
+    $message = $_.Exception.Message
+    if ($message -match 'timed out|operation has timed out|操作超时|请求超时') {
+      Write-Host "[dashboard] Warmup is still running after ${TimeoutSec}s; opening browser with read-model preparing state." -ForegroundColor Yellow
+      return [pscustomobject]@{
+        warmed = $false
+        timedOut = $true
+        warning = $message
+      }
+    }
+    throw "Dashboard data warmup failed before browser open: $message"
   }
+}
 
-  return $null
+function Start-DashboardWarmup {
+  param(
+    [int]$ListenPort,
+    [int]$TimeoutSec = 300,
+    [string]$LogPath
+  )
+
+  $warmupUrl = "http://127.0.0.1:$ListenPort/api/dashboard-warmup"
+  Write-Host "[dashboard] Starting dashboard data warmup in background (timeout ${TimeoutSec}s)..."
+  $job = Start-Job -ScriptBlock {
+    param($Url, $TimeoutSec, $LogPath)
+    $startedAt = Get-Date
+    try {
+      Add-Content -LiteralPath $LogPath -Value "[dashboard] Warmup started at $($startedAt.ToString('s')): $Url"
+      $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec $TimeoutSec
+      $snapshot = $response.Content | ConvertFrom-Json
+      if ($response.StatusCode -eq 200 -and $snapshot.warmed -eq $true) {
+        $features = if ($null -ne $snapshot.features) { ($snapshot.features -join ', ') } else { '' }
+        Add-Content -LiteralPath $LogPath -Value "[dashboard] Warmup finished: $($snapshot.totalRecords) project(s), features: $features"
+        return
+      }
+      Add-Content -LiteralPath $LogPath -Value "[dashboard] Warmup failed: HTTP $($response.StatusCode), warmed=$($snapshot.warmed), error=$($snapshot.error)"
+    } catch {
+      Add-Content -LiteralPath $LogPath -Value "[dashboard] Warmup failed: $($_.Exception.Message)"
+    }
+  } -ArgumentList $warmupUrl, $TimeoutSec, $LogPath
+  Write-Host "[dashboard] Warmup Job ID: $($job.Id)"
+  Write-Host "[dashboard] Warmup log: $LogPath"
+  return $job
 }
 
 $nodeExe = Find-NodeExecutable
@@ -150,6 +188,7 @@ $logDir = Join-Path $root '.tmp'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $stdoutLog = Join-Path $logDir 'dashboard-server.out.log'
 $stderrLog = Join-Path $logDir 'dashboard-server.err.log'
+$warmupLog = Join-Path $logDir 'dashboard-warmup.log'
 
 Write-Host '[dashboard] Development mode'
 Write-Host "[dashboard] Workspace: $root"
@@ -175,15 +214,12 @@ try {
   }
 
   Wait-DashboardHealth -ListenPort $Port -TimeoutSec 60
-  $warmup = Warm-DashboardData -ListenPort $Port -TimeoutSec 45
+  $warmupJob = Start-DashboardWarmup -ListenPort $Port -TimeoutSec 300 -LogPath $warmupLog
   Start-Process "http://localhost:$Port/"
-  if ($null -ne $warmup) {
-    Write-Host '[dashboard] Browser opened; dashboard data was warmed before page load.'
-  } else {
-    Write-Host '[dashboard] Browser opened; dashboard data may keep warming in the page.'
-  }
+  Write-Host '[dashboard] Browser opened; dashboard data is warming in the background.'
   Write-Host "[dashboard] Server PID: $($server.Id)"
   Write-Host "[dashboard] Logs: $stdoutLog"
+  Write-Host "[dashboard] Warmup Job ID: $($warmupJob.Id)"
   Write-Host '[dashboard] Press Ctrl+C to stop.'
 
   while (-not $server.HasExited) {
