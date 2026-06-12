@@ -31,6 +31,7 @@
 | 店态 tier | `店态` | `常规店`、`下沉店`、`高标店` 等；KPI 分行以 `常规店` / `下沉店` 为主 |
 | 板块 scope | `组别` | `直营`、`加盟`；用于 direct / franchise profile |
 | 设计责任闭环 closed | `平面开始时间`、`躺平内部审核结束时间`、`点位完成情况`、`点位完成时间`、`软装完成情况`、`软装完成时间` | 硬装按平面方案责任闭环；软装公司阶段按点位与方案两段都完成闭环 |
+| 公司流程闭环 lifecycle | `硬装项目进度`、`软装项目进度` | 团队工作完成情况的「项目总闭环」按硬装或软装任一轨道精确闭环认定；睡眠店 / 仅硬装项目按硬装单轨闭环；单轨闭环只提示数据维护，不影响统计 |
 | 开业边界 due | `计划开业时间` / `计划完成日期` | 仅作为 `openDelayed` 的管理边界 OR 条件，且须 `!isDesignResponsibilityClosed(project)`；不作为设计阶段下一提醒 |
 
 ## 两维正交：店态 × 责任线
@@ -46,7 +47,7 @@
 
 - `regular` = `店态 === '常规店'`；`sinking` = `店态 === '下沉店'`。
 - 未开始 = 硬装或软装任一侧未开始。
-- 进行中 = 硬装进行中或软装进行中，软装「暂停」计进行中。
+- 进行中 = 硬装进行中或软装进行中；当前暂停 / 取消项目不计进行中，曾暂停但当前恢复的项目重新参与统计。
 - 已废弃：按 tier 绑定单轨，例如“常规店只看硬装”“下沉店只看软装”。
 
 ## 当前核心指标
@@ -57,7 +58,7 @@
 
 ### 推进项目
 
-未被识别为完成、取消或关闭的项目数量。
+未被识别为完成、暂停、取消或关闭的项目数量。
 
 ### 开业边界逾期项目
 
@@ -110,7 +111,7 @@
 | fieldBindings | `workflow.hard` ← `硬装项目进度`；`workflow.soft` ← `软装项目进度` |
 | predicate | `isHardNotStarted(project)` 或 `isSoftNotStarted(project)` |
 | dateField | 无 |
-| excludeRules | 不使用 `项目状态` / `status`；单侧已闭环或完成不抵消另一侧未开始 |
+| excludeRules | 当前暂停 / 取消单独列示，不按未开始统计；取消 / 关闭使用 `项目状态` / 进度轨道兜底排除；曾暂停但当前恢复按恢复后的流程阶段统计 |
 
 ### inProgress — 进行中
 
@@ -119,9 +120,9 @@
 | scope | 同 notStarted |
 | tier | 同 notStarted |
 | fieldBindings | `workflow.hard` ← `硬装项目进度`；`workflow.soft` ← `软装项目进度` |
-| predicate | `isHardInProgress(project)` 或 `isSoftInProgress(project)`，软装「暂停」计进行中 |
+| predicate | `isHardInProgress(project)` 或 `isSoftInProgress(project)` |
 | dateField | 无 |
-| excludeRules | 不使用 `项目状态` / `status`；禁止按 tier 切换单轨 |
+| excludeRules | 当前暂停 / 取消不计进行中；取消 / 关闭使用 `项目状态` / 进度轨道兜底排除；曾暂停但当前恢复按恢复后的流程阶段统计；禁止按 tier 切换单轨 |
 
 ### openDelayed — 未闭环延期
 
@@ -230,4 +231,3 @@
 - 如果钉钉录入不完整，看板会如实暴露“未填写”。
 - 如果字段映射错误，看板指标会失真，应优先修复字段契约。
 - 如果同一负责人字段中有多人，普通自然人仍会合并为一个显示值；已配置责任身份的自然人按身份 id 拆分负载，无法判定责任线的总列命中进入待核对通道。
-

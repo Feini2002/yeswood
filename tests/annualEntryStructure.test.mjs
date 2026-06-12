@@ -85,6 +85,23 @@ test('paused and canceled projects are excluded while closed projects still coun
   assert.equal(payload.dataQuality.excludedCanceled, 1);
 });
 
+test('recovered paused projects count back into their original start month', () => {
+  const projects = [
+    directNew('current-paused', '2026-03-01', { hardStage: '暂停' }),
+    directNew('recovered-paused', '2026-03-02', { hardStage: '暂停后恢复' }),
+    directNew('historical-paused', '2026-04-03', { hardStage: '曾暂停，现施工图推进' }),
+  ];
+
+  const payload = buildAnnualEntryStructure(projects, { year: 2026 });
+  const march = payload.months.find((month) => month.month === 3);
+  const april = payload.months.find((month) => month.month === 4);
+
+  assert.equal(payload.totals.entry, 2);
+  assert.equal(payload.dataQuality.excludedPaused, 1);
+  assert.deepEqual(march.projects.map((project) => project.id), ['recovered-paused']);
+  assert.deepEqual(april.projects.map((project) => project.id), ['historical-paused']);
+});
+
 test('month totals reconcile with annual totals and quadrant breakdown', () => {
   const projects = [
     directNew('d-new-3', '2026-03-05'),

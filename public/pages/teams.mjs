@@ -48,6 +48,7 @@ import {
   handleTeamCompletionMemberModalClick,
   handleTeamCompletionMemberModalKeydown,
   handleTeamCompletionMonthClick,
+  handleTeamCompletionProcessingQueueClick,
   openTeamCompletionGroupModal,
   openTeamCompletionMemberModal,
   openTeamCompletionMonthModal,
@@ -62,6 +63,7 @@ import {
   rememberTeamWorkCompletion as rememberStoredTeamWorkCompletion,
   pruneTeamWorkCompletionCache as pruneStoredTeamWorkCompletionCache,
   teamWorkCompletionCacheKey as storedTeamWorkCompletionCacheKey,
+  teamWorkCompletionReviewMatchesOwner,
 } from '../domain/team-work-completion-store.mjs';
 import { runtimeStore } from '../lib/runtime-flags.mjs';
 import { teamOwnerDisplayName } from '../domain/personnel.mjs';
@@ -79,6 +81,7 @@ export {
   handleTeamCompletionMemberModalClick,
   handleTeamCompletionMemberModalKeydown,
   handleTeamCompletionMonthClick,
+  handleTeamCompletionProcessingQueueClick,
   openTeamCompletionGroupModal,
   openTeamCompletionMemberModal,
   openTeamCompletionMonthModal,
@@ -215,9 +218,16 @@ export async function loadTeamDashboardSessionBundle(
   params.set('year', String(normalizedYear));
   const payload = await fetchJson(`${DASHBOARD_SESSION_ENDPOINT}?${params}`, { timeoutMs: 15_000 });
   if (payload?.status === 'preparing' && !payload.team) {
+    const previousReview = state.teamWorkCompletion?.owner ? state.teamWorkCompletion : null;
+    const preserveReview = teamWorkCompletionReviewMatchesOwner(previousReview, owner);
+    state.teamWorkCompletion = preserveReview ? previousReview : null;
+    state.teamWorkCompletionYear = normalizedYear;
+    state.teamWorkCompletionLoading = !preserveReview;
+    state.teamWorkCompletionError = '';
     state.selectedTeamOwner = owner;
     state.teamWorkCompletionRefreshStatus = 'preparing';
     state.teamWorkCompletionRefreshError = payload.reason || '';
+    state.teamWorkCompletionSwitchTarget = preserveReview ? '' : owner;
     return {
       status: 'preparing',
       reason: payload.reason || payload.status,
@@ -655,13 +665,12 @@ export async function loadTeamWorkCompletion(
     abortPendingTeamWorkCompletionRequests();
   }
   const previousReview = state.teamWorkCompletion?.owner ? state.teamWorkCompletion : null;
-  const staleReview = !cachedReview && !background ? previousReview : null;
+  const previousReviewMatchesOwner = teamWorkCompletionReviewMatchesOwner(previousReview, owner);
+  const staleReview = !cachedReview && !background && previousReviewMatchesOwner ? previousReview : null;
   const visibleReview = cachedReview || staleReview;
-  const switchingOwner = Boolean(staleReview && staleReview.owner && staleReview.owner !== owner);
+  const switchingOwner = Boolean(previousReview && String(owner || '').trim() && !previousReviewMatchesOwner);
   if (!background) {
-    if (visibleReview) {
-      state.teamWorkCompletion = visibleReview;
-    }
+    state.teamWorkCompletion = visibleReview || null;
     state.teamWorkCompletionYear = normalizedYear;
     state.teamWorkCompletionLoading = !cachedReview;
     state.teamWorkCompletionError = '';

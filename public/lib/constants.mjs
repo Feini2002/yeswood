@@ -1,5 +1,5 @@
 export const DASHBOARD_CONTEXTS = new Set(['all', 'franchise', 'direct']);
-export const DEVELOPMENT_ONLY_PAGES = new Set(['rules', 'developer-docs']);
+export const DEVELOPMENT_ONLY_PAGES = new Set(['developer-docs']);
 export const FILTERABLE_PAGES = new Set(['details']);
 export const TEAM_OWNER_STORAGE_KEY = 'teamDashboardOwner';
 export const TEAM_WORK_COMPLETION_CACHE_LIMIT = 12;
@@ -76,7 +76,7 @@ export const OVERVIEW_KPI_METRICS = [
   { key: 'activeProjects', label: '推进项目', tone: 'green' },
   { key: 'delayedProjects', label: '延期项目', tone: 'coral', alert: true },
   { key: 'notStarted', label: '未开始', tone: 'amber' },
-  { key: 'pausedProjects', label: '暂停店铺', tone: 'amber' },
+  { key: 'pausedProjects', label: '暂停/取消', tone: 'amber' },
 ];
 
 export const PROFILE_SCOPE_SUMMARY_METRICS = [

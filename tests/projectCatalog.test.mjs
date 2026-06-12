@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   filterProjectsLocally,
+  fetchProjectDetail,
   hasComplexProjectFilters,
   invalidateProjectCaches,
   peekDrillProjectsCache,
@@ -79,6 +80,67 @@ test('resolveDrillProjects caches results and reuses drill ids path', async () =
   invalidateProjectCaches({ catalog: false, drill: true, details: false });
   runtimeStore.drillResolvePromises = new Map();
   assert.equal(peekDrillProjectsCache(filters), null);
+});
+
+test('fetchProjectDetail uses read model fallback and caches returned detail', async () => {
+  const { state } = await import('../public/lib/state.mjs');
+  const { runtimeStore } = await import('../public/lib/runtime-flags.mjs');
+  const { snapshotSignature } = await import('../public/realtime.js');
+  state.snapshot = { syncedAt: '2026-06-11T00:00:00.000Z', totalRecords: 1 };
+  state.projectsCatalogSignature = snapshotSignature(state.snapshot);
+  runtimeStore.projectDetailCache = new Map();
+  runtimeStore.projectDetailPromises = new Map();
+
+  const requested = [];
+  globalThis.fetch = async (url) => {
+    const path = String(url);
+    requested.push(path);
+    return {
+      ok: true,
+      json: async () => ({
+        item: {
+          id: 'p1',
+          name: 'Project One',
+          province: 'Zhejiang',
+          rawFields: { usefulNote: { display: 'Ready for detail', kind: 'text' } },
+        },
+      }),
+    };
+  };
+
+  const project = await fetchProjectDetail('p1');
+
+  assert.equal(project.name, 'Project One');
+  assert.match(requested[0], /\/api\/projects\?id=p1&view=full&fallback=readModel/);
+  assert.equal(runtimeStore.projectDetailCache.get('p1')?.project.name, 'Project One');
+});
+
+test('fetchProjectDetail remembers canonical and record id aliases', async () => {
+  const { state } = await import('../public/lib/state.mjs');
+  const { runtimeStore } = await import('../public/lib/runtime-flags.mjs');
+  const { snapshotSignature } = await import('../public/realtime.js');
+  state.snapshot = { syncedAt: '2026-06-11T00:00:00.000Z', totalRecords: 1 };
+  state.projectsCatalogSignature = snapshotSignature(state.snapshot);
+  runtimeStore.projectDetailCache = new Map();
+  runtimeStore.projectDetailPromises = new Map();
+
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({
+      item: {
+        id: 'canonical-1',
+        recordMeta: { id: 'record-1', lastModifiedTime: '2026-06-11T00:00:00.000Z' },
+        name: 'Project One',
+        province: 'Zhejiang',
+      },
+    }),
+  });
+
+  const project = await fetchProjectDetail('record-1');
+
+  assert.equal(project.id, 'canonical-1');
+  assert.equal(runtimeStore.projectDetailCache.get('record-1')?.project.id, 'canonical-1');
+  assert.equal(runtimeStore.projectDetailCache.get('canonical-1')?.project.id, 'canonical-1');
 });
 
 test('invalidateProjectCaches clears catalog signature', async () => {

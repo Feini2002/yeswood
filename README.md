@@ -63,7 +63,7 @@ npm test
 - **团队工作完成情况**：小组页主模块，按团队 / 小组 / 成员聚合月度完成量与进行中状态（`public/pages/team-work-completion.mjs`）。
 - 项目明细弹窗、项目 drill-down 列表、今日处理动作队列。
 - 风险健康分析、部门团队运转 Agent、进店节奏分析、月度运转指标、项目负荷与难度计算。
-- 硬装 Deadline 规则计算、工作日日历、规则文档与前端规则一览页。
+- 硬装 Deadline 规则计算、工作日日历、规则文档与前端开发文档规则章节。
 - 前端 ES Module 分层架构（`lib/`、`domain/`、`components/`、`pages/`），入口 `app.js` 仅做编排；规格见 [`openspec/specs/frontend-architecture/spec.md`](./openspec/specs/frontend-architecture/spec.md)。
 - 看板加载性能优化：项目目录 `view=summary` 缓存、下钻 `fields=ids` 拼装、小组指标预计算与 snapshot 签名缓存。
 - 自动化测试覆盖后端数据规则、指标计算、安全边界、OpenSpec 合约与关键前端加载策略。
@@ -83,7 +83,7 @@ npm test
 
 ## 规则与文档入口
 
-运营规则、Deadline 和延期提醒的人类可读正文见 [`docs/rules/operational-rulebook.md`](./docs/rules/operational-rulebook.md)。可执行矩阵与工作日计算以 `src/backend/hardDecorationDeadlineRules.mjs` 为准；前端规则一览页（`#rules`）只提供运营摘要。
+运营规则、Deadline 和延期提醒的人类可读正文见 [`docs/rules/operational-rulebook.md`](./docs/rules/operational-rulebook.md)。可执行矩阵与工作日计算以 `src/backend/hardDecorationDeadlineRules.mjs` 为准；前端开发文档页（`#developer-docs`）规则章节只提供运营摘要。
 
 业务背景与阶段语境见 [`公司情况与业务环境.md`](./公司情况与业务环境.md)。完整文档索引见 [`docs/README.md`](./docs/README.md)。
 

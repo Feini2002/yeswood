@@ -74,7 +74,10 @@ const WORKFLOW_STAGE_DATE_RULES = {
 };
 
 export const PAUSED_STAGE_PATTERN = /暂停/;
+export const CANCELED_STAGE_PATTERN = /取消|已取消|关闭|已关闭/;
 export const FOLLOW_UP_STAGE_PATTERN = /摆场|待采购|施工整改/;
+const PAUSE_RECOVERY_PATTERN = /曾暂停|历史暂停|暂停后(?:恢复|复工|重启|继续|推进)|暂停.*(?:恢复|复工|重启|继续|推进)/;
+const REPAUSED_STAGE_PATTERN = /(?:再次|重新|又).*暂停|(?:恢复|复工|重启|继续|推进)后.*暂停/;
 const PROJECT_WORKBENCH_STAGE_ORDER = new Map(
   [
     '上会',
@@ -119,8 +122,58 @@ export function hasFloorPlanHandoff(project) {
 }
 
 
+function normalizeWorkflowText(value) {
+  return String(value || '').trim();
+}
+
+
+export function isCurrentPausedWorkflowStage(stage) {
+  const text = normalizeWorkflowText(stage);
+  if (!PAUSED_STAGE_PATTERN.test(text)) {
+    return false;
+  }
+  if (REPAUSED_STAGE_PATTERN.test(text)) {
+    return true;
+  }
+  return !PAUSE_RECOVERY_PATTERN.test(text);
+}
+
+
 export function isPausedWorkflowStage(stage) {
-  return PAUSED_STAGE_PATTERN.test(String(stage || ''));
+  return isCurrentPausedWorkflowStage(stage);
+}
+
+export function isCanceledWorkflowStage(stage) {
+  return CANCELED_STAGE_PATTERN.test(normalizeWorkflowText(stage));
+}
+
+function readProjectStatus(project = {}) {
+  return readRawFieldDisplay(project, ['项目状态', '状态']) || String(project?.status || '').trim();
+}
+
+export function isCanceledProject(project) {
+  return (
+    isCanceledWorkflowStage(readWorkflowStage(project, 'hard')) ||
+    isCanceledWorkflowStage(readWorkflowStage(project, 'soft')) ||
+    isCanceledWorkflowStage(readProjectStatus(project))
+  );
+}
+
+export function projectStopState(project) {
+  if (isCanceledProject(project)) {
+    return { key: 'canceled', label: '取消', message: '项目已取消' };
+  }
+  if (
+    isCurrentPausedWorkflowStage(readWorkflowStage(project, 'hard')) ||
+    isCurrentPausedWorkflowStage(readWorkflowStage(project, 'soft'))
+  ) {
+    return { key: 'paused', label: '暂停', message: '项目暂停中' };
+  }
+  return { key: 'active', label: '', message: '' };
+}
+
+export function isPausedOrCanceledProject(project) {
+  return projectStopState(project).key !== 'active';
 }
 
 
@@ -150,8 +203,7 @@ export function hasPointDesignStartSignal(project) {
 export function hasActivePointDesignStartSignal(project) {
   return (
     hasPointDesignStartSignal(project) &&
-    !isPausedWorkflowStage(readWorkflowStage(project, 'hard')) &&
-    !isPausedWorkflowStage(readWorkflowStage(project, 'soft'))
+    !isPausedOrCanceledProject(project)
   );
 }
 
@@ -340,6 +392,10 @@ export function readEffectiveWorkflowStage(project, discipline = 'hard') {
 
 
 export function projectStageDisplayItems(project) {
+  const stopState = projectStopState(project);
+  if (stopState.key === 'canceled') {
+    return [{ track: stopState.label, value: stopState.message, className: 'is-canceled' }];
+  }
   const hard = readEffectiveWorkflowStage(project, 'hard');
   const soft = readEffectiveWorkflowStage(project, 'soft');
   const items = [];
@@ -354,7 +410,7 @@ export function projectStageDisplayItems(project) {
 
 
 export function isPausedProject(project) {
-  return readWorkflowStage(project, 'hard').includes('暂停') || readWorkflowStage(project, 'soft').includes('暂停');
+  return projectStopState(project).key === 'paused';
 }
 
 
@@ -466,7 +522,17 @@ export function isCompanyLifecycleClosed(project) {
   if (isSleepStoreProject(project)) {
     return isHardWorkflowClosed(project);
   }
-  return readWorkflowStage(project, 'hard') === '闭环' && readWorkflowStage(project, 'soft') === '闭环';
+  return readWorkflowStage(project, 'hard') === '闭环' || readWorkflowStage(project, 'soft') === '闭环';
+}
+
+
+export function isSingleTrackLifecycleClosure(project) {
+  if (isSleepStoreProject(project)) {
+    return false;
+  }
+  const hardClosed = readWorkflowStage(project, 'hard') === '闭环';
+  const softClosed = readWorkflowStage(project, 'soft') === '闭环';
+  return hardClosed !== softClosed;
 }
 
 

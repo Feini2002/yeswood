@@ -46,12 +46,8 @@
             </div>
           </section>
           <section class="nav-group" data-development-only>
-            <h2 class="nav-group-label">规则与文档</h2>
+            <h2 class="nav-group-label">开发文档</h2>
             <div class="nav-list">
-              <a class="nav-item" href="#rules" data-page="rules">
-                <svg class="nav-item-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 3.5h7.2L16 6.3V16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12.8 3.7V6.5H16M8 10h5M8 13h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                <span class="nav-item-text">规则一览</span>
-              </a>
               <a class="nav-item" href="#developer-docs" data-page="developer-docs">
                 <svg class="nav-item-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 3.5h8.2L15 5.3V16a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M12.8 3.7V5.5H15M7 8h5.2M7 11h5.2M7 14h3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 <span class="nav-item-text">开发文档</span>
@@ -106,7 +102,7 @@
           <div class="filter-action-field" id="pausedProjectFilterField" hidden>
             <span>项目范围</span>
             <button class="filter-toggle-button" id="pausedProjectToggle" type="button" aria-pressed="false">
-              查看暂停项目
+              查看暂停/取消项目
             </button>
           </div>
         </section>
@@ -243,6 +239,7 @@
               </div>
             </header>
 
+            <section class="team-completion-processing-queues" id="teamCompletionProcessingQueues" aria-label="团队进行中项目待处理队列"></section>
             <section class="team-completion-overview-module team-completion-submodule" aria-label="团队整体完成情况">
               <div class="team-completion-hero-stats" id="teamCompletionHeroStats" aria-label="团队三项完成指标"></div>
               <p class="team-completion-scope-note" id="teamCompletionScopeNote" hidden></p>
@@ -250,7 +247,6 @@
                 <section class="team-completion-chart-panel" aria-label="月度完成趋势">
                   <header>
                     <h4>1-12 月完成趋势</h4>
-                    <p id="teamCompletionChartInsight"></p>
                   </header>
                   <div class="team-completion-monthly-chart" id="teamCompletionMonthlyChart"></div>
                 </section>
@@ -402,352 +398,140 @@
 
         </section>
 
-        <section class="dashboard-page rules-dashboard" id="rules" data-page="rules" data-development-only>
-          <section class="rules-shell" aria-label="规则一览">
-            <header class="rules-hero">
-              <div>
-                <p class="eyebrow">规则文档</p>
-                <h2>规则一览</h2>
-                <p>把项目阶段口径、Deadline、提醒卡点和延期判定沉淀成统一规则，后续由后台硬规则驱动提醒与记录。</p>
-              </div>
-              <dl class="rules-hero-facts" aria-label="规则范围">
-                <div>
-                  <dt>首批规则</dt>
-                  <dd>延期提醒规则</dd>
-                </div>
-                <div>
-                  <dt>阶段范围</dt>
-                  <dd>硬装 / 软装 / 摆场</dd>
-                </div>
-                <div>
-                  <dt>当前细化</dt>
-                  <dd>硬装链路</dd>
-                </div>
-              </dl>
-            </header>
+        <section class="dashboard-page developer-docs-dashboard" id="developer-docs" data-page="developer-docs" data-development-only>
+          <div class="dev-prd-shell" aria-label="开发文档">
+            <div class="dev-prd-workbench">
+              <nav class="dev-prd-toc" aria-label="开发文档子页面导航">
+                <p class="dev-prd-toc-title">文档目录</p>
+                <ul class="dev-prd-toc-list">
+                  <li>
+                    <a class="is-active" href="#developer-docs/home" data-dev-doc-target="home" aria-current="page">
+                      <span class="dev-prd-toc-main">文档首页</span>
+                      <span class="dev-prd-toc-subline">阅读指南 / 业务价值 / 维护入口</span>
+                    </a>
+                  </li>
+                  <li>
+                    <a href="#developer-docs/overview" data-dev-doc-target="overview">
+                      <span class="dev-prd-toc-main">系统总览</span>
+                      <span class="dev-prd-toc-subline">产品定位 / 页面地图 / 维护点</span>
+                    </a>
+                  </li>
+                  <li>
+                    <a href="#developer-docs/pages" data-dev-doc-target="pages">
+                      <span class="dev-prd-toc-main">页面怎么用</span>
+                      <span class="dev-prd-toc-subline">总盘 / 小组 / 项目 / 开发模式</span>
+                    </a>
+                  </li>
+                  <li>
+                    <a href="#developer-docs/rules" data-dev-doc-target="rules">
+                      <span class="dev-prd-toc-main">业务口径与规则</span>
+                      <span class="dev-prd-toc-subline">范围 / 责任 / 阶段 / Deadline</span>
+                    </a>
+                  </li>
+                  <li>
+                    <a href="#developer-docs/metrics" data-dev-doc-target="metrics">
+                      <span class="dev-prd-toc-main">指标怎么看</span>
+                      <span class="dev-prd-toc-subline">总盘 KPI / 小组完成度 / 下钻</span>
+                    </a>
+                  </li>
+                  <li>
+                    <a href="#developer-docs/data" data-dev-doc-target="data">
+                      <span class="dev-prd-toc-main">数据来源与更新</span>
+                      <span class="dev-prd-toc-subline">源表单 / 同步 / 汇总 / 前端取数</span>
+                    </a>
+                  </li>
+                  <li>
+                    <a href="#developer-docs/technical" data-dev-doc-target="technical">
+                      <span class="dev-prd-toc-main">接口与技术维护</span>
+                      <span class="dev-prd-toc-subline">前端层 / 后端层 / 接口缓存</span>
+                    </a>
+                  </li>
+                  <li>
+                    <a href="#developer-docs/release" data-dev-doc-target="release">
+                      <span class="dev-prd-toc-main">变更与验收</span>
+                      <span class="dev-prd-toc-subline">测试地图 / 检查清单 / 维护记录</span>
+                    </a>
+                  </li>
+                </ul>
+              </nav>
 
-            <section class="rules-stage-grid" aria-label="延期提醒规则目录">
-              <article class="rules-stage-card is-active">
-                <span>01</span>
-                <h3>硬装提醒规则</h3>
-                <p>从复尺时间 Y 开始，拆出平面方案、施工图启动、初稿、商场审核与施工图终审。</p>
-              </article>
-              <article class="rules-stage-card">
-                <span>02</span>
-                <h3>软装提醒规则</h3>
-                <p>后续按点位设计、方案设计、产品清单和采购推进补齐规则。</p>
-              </article>
-              <article class="rules-stage-card">
-                <span>03</span>
-                <h3>摆场提醒规则</h3>
-                <p>后续按到货、摆场准备、现场交付和闭环完成拆分节点。</p>
-              </article>
-            </section>
-
-            <section class="rules-deadline-panel" aria-label="负责人责任身份与数据通道">
-              <header class="rules-section-head">
-                <span>责任身份规则</span>
-                <h3>负责人责任身份与数据通道</h3>
-                <p>负责人自然人、责任专业和业务范围分开处理；外部来源姓名保留原样，指标和选择器使用本地责任身份 id。</p>
-              </header>
-              <div class="rules-info-grid">
-                <article>
-                  <strong>杨锦帆（硬装）</strong>
-                  <p>identityId <code>resp-017</code>，sourceName 仍为杨锦帆，只进入 CD负责人 / 硬装负责人等硬装槽位。</p>
-                </article>
-                <article>
-                  <strong>杨锦帆（软装）</strong>
-                  <p>identityId <code>resp-018</code>，sourceName 仍为杨锦帆，只进入 VM负责人 / 软装负责人等软装槽位。</p>
-                </article>
-                <article>
-                  <strong>创意团队成员</strong>
-                  <p>马琳琳、熊亮、周俊彤按创意组长维护；CD 槽位进硬装身份，VM / 点位 / 方案设计槽位进软装身份。</p>
-                </article>
-                <article>
-                  <strong>马琳琳（硬装） / 周俊彤（软装）</strong>
-                  <p>同一自然人可按责任槽位拆为两条统计身份，显示用责任名称，统计 key 用稳定 identityId。</p>
-                </article>
-                <article>
-                  <strong>来源字段自动补人</strong>
-                  <p>明确责任字段出现新姓名时，按字段槽位自动补入正式人员，并进入对应硬装或软装人员通道。</p>
-                </article>
-                <article>
-                  <strong>待核对通道</strong>
-                  <p>多身份负责人仅命中 `负责人` 总列时，不进入明确主指标，进入待核对通道。</p>
-                </article>
-                <article>
-                  <strong>安全边界</strong>
-                  <p>本地切分只发生在责任身份解析、指标过滤和前端展示层，不回写来源表单。</p>
-                </article>
-              </div>
-            </section>
-
-            <section class="rules-deadline-panel" aria-label="硬装面积与店态 Deadline 矩阵">
-              <header class="rules-section-head rules-deadline-head">
-                <span>硬装 X 规则</span>
-                <div class="rules-title-row">
-                  <h3>面积与店态 Deadline 矩阵</h3>
-                  <button
-                    class="rules-info-button"
-                    type="button"
-                    data-rules-info-open
-                    aria-label="查看硬装 Deadline 规则说明"
-                    title="查看硬装 Deadline 规则说明"
-                  >!</button>
-                </div>
-                <p>所有节点都以复尺时间 Y 为基准，Y+N 表示第 N 个中国工作日。该表单不再使用紧急程度判定；2000㎡以上暂按1500～2000㎡超体店时间定。</p>
-              </header>
-              <dialog class="rules-info-dialog" id="rulesDeadlineInfoDialog" aria-labelledby="rulesDeadlineInfoTitle">
-                <section class="rules-info-shell">
-                  <header class="rules-info-head">
-                    <div>
-                      <p class="eyebrow">硬装 Deadline 说明</p>
-                      <h3 id="rulesDeadlineInfoTitle">链路规则与判定原则</h3>
-                    </div>
-                    <form method="dialog">
-                      <button class="modal-close-button rules-info-close" type="submit" aria-label="关闭硬装 Deadline 规则说明">×</button>
-                    </form>
-                  </header>
-                  <div class="rules-info-content">
-                    <section class="rules-info-section">
-                      <span>硬装链路</span>
-                      <h4>延期提醒规则</h4>
-                      <ol class="rules-info-timeline">
-                        <li>
-                          <span>复尺时间 Y</span>
-                          <p>只要有复尺时间，项目进入平面方案启动约束，并触发一次尽快启动的提醒。</p>
-                        </li>
-                        <li>
-                          <span>Y + 1</span>
-                          <p>今天 / 明天内必须启动平面方案；超出窗口仍未启动，记录超时启动。</p>
-                        </li>
-                        <li>
-                          <span>Y + X</span>
-                          <p>X 由面积对应店态决定，作为平面方案截止；截止前设置一次结束提醒。</p>
-                        </li>
-                        <li>
-                          <span>施工图启动</span>
-                          <p>平面方案结束后进入施工图启动规则；启动超时只记录过程责任，不直接等同阶段延期完成。</p>
-                        </li>
-                        <li>
-                          <span>初次施工图反馈</span>
-                          <p>外包初稿返回只做延期判定，不进入提醒队列，便于保留过程超时记录。</p>
-                        </li>
-                        <li>
-                          <span>商场审核到施工图终审</span>
-                          <p>审核窗口包含修改和二次提交；施工图终审前设置卡点，终审超出截止才判定施工图阶段延期完成。</p>
-                        </li>
-                      </ol>
-                    </section>
-                    <section class="rules-info-section">
-                      <span>判定原则</span>
-                      <h4>规则与责任边界</h4>
-                      <div class="rules-info-grid">
-                        <article>
-                          <strong>表单填写优先</strong>
-                          <p>硬装方案情况已填写时，最终延期状态采用表单；表单为空时再用规则兜底。</p>
-                        </article>
-                        <article>
-                          <strong>过程超时与阶段延期分开</strong>
-                          <p>延期启动施工图、初稿返回超时可以单独记录；只要终审在截止内完成，施工图阶段不记延期完成。</p>
-                        </article>
-                        <article>
-                          <strong>不再使用紧急判定</strong>
-                          <p>该表单所有紧急判定已删除；硬装 Deadline 只按店态面积档计算。</p>
-                        </article>
-                        <article>
-                          <strong>Y+N 按中国工作日</strong>
-                          <p>系统计算时自动剔除法定双休和国务院节假日，调休上班日重新计入工作日。</p>
-                        </article>
+              <article class="dev-prd-content">
+                <section class="dev-prd-page is-active" data-dev-doc-page="home">
+                  <div class="dev-prd-page-canvas" aria-label="开发文档首页">
+                    <header class="dev-prd-doc-header dev-prd-hero">
+                      <div class="dev-prd-hero-copy">
+                        <p class="dev-prd-kicker">内部 PRD / 运营规则 / 交接索引</p>
+                        <h1>开发文档</h1>
+                        <p>源氏木语门店项目运营中台 - 系统框架与交接说明，帮助管理者看懂数据口径，也帮助开发者快速定位维护入口。</p>
                       </div>
+                      <dl class="dev-prd-hero-stats" aria-label="文档覆盖范围">
+                        <div><dt>阅读对象</dt><dd>管理者 / 运营 / 开发</dd></div>
+                        <div><dt>路由格式</dt><dd>#developer-docs/home</dd></div>
+                        <div><dt>维护状态</dt><dd>框架已定，持续补全</dd></div>
+                      </dl>
+                    </header>
+                    <div class="dev-prd-page-meta"><span>阅读指南</span><span>业务价值</span><span>维护入口</span></div>
+                    <section class="dev-prd-summary-band" aria-label="角色阅读路径">
+                      <div><strong>总监先看</strong><span>系统总览、业务口径与规则、指标怎么看。</span></div>
+                      <div><strong>运营先看</strong><span>页面怎么用、数据来源与更新、异常与责任口径。</span></div>
+                      <div><strong>开发先看</strong><span>接口与技术维护、变更与验收、规则同步边界。</span></div>
                     </section>
-                    <section class="rules-info-section">
-                      <span>时间计算</span>
-                      <h4>矩阵派生口径</h4>
-                      <div class="rules-info-grid">
-                        <article>
-                          <strong>剔除节假日</strong>
-                          <p>法定双休和节假日不计入 Y+N；调休上班日计入工作日。</p>
-                        </article>
-                        <article>
-                          <strong>表单为空再兜底</strong>
-                          <p>表单未写延期情况时，系统 Deadline 才生成兜底判定；提醒仍按规则。</p>
-                        </article>
-                        <article>
-                          <strong>延期完成但效率OK</strong>
-                          <p>效率 KPI 继续按实际启动日顺延预算计算，KPI 单独记录效率 OK 或效率超时。</p>
-                        </article>
-                      </div>
+                    <section class="dev-prd-copy-section" id="dev-doc-intro">
+                      <h2>文档说明</h2>
+                      <p class="dev-prd-lead">这份文档不再按长文滚动阅读，而是按左侧目录切换独立子页面。每页先讲业务含义，再给运营口径，最后给开发维护入口。</p>
+                      <div class="dev-prd-placeholder">本页将补充：维护人、更新节奏、写法约定、哪些章节已确认、哪些章节仍待补充。</div>
                     </section>
                   </div>
                 </section>
-              </dialog>
-              <!-- 矩阵数值须与 src/backend/hardDecorationDeadlineRules.mjs HARD_DECORATION_DEADLINE_MATRIX 保持一致 -->
-              <div class="rules-deadline-table" role="table" aria-label="硬装延期提醒 Deadline 矩阵">
-                <div class="rules-deadline-row is-head" role="row">
-                  <span role="columnheader">面积</span>
-                  <span role="columnheader">平面/躺平启动</span>
-                  <span role="columnheader">方案快截止了</span>
-                  <span role="columnheader">平面/躺平截止</span>
-                  <span role="columnheader">施工图启动</span>
-                  <span role="columnheader">施工图预计截止</span>
-                  <span role="columnheader">商场审核开始</span>
-                  <span role="columnheader">终审提醒</span>
-                  <span role="columnheader">商场终审结束</span>
-                </div>
-                <div class="rules-deadline-row" role="row"><span>mini店：≤300㎡</span><b>Y+1</b><b>Y+4</b><b>Y+6</b><b>Y+7</b><b>Y+10</b><b>Y+10</b><b>Y+13</b><b>Y+15</b></div>
-                <div class="rules-deadline-row" role="row"><span>中小店：300～450㎡</span><b>Y+1</b><b>Y+4</b><b>Y+6</b><b>Y+7</b><b>Y+11</b><b>Y+11</b><b>Y+14</b><b>Y+17</b></div>
-                <div class="rules-deadline-row" role="row"><span>中店：450～650㎡</span><b>Y+1</b><b>Y+7</b><b>Y+9</b><b>Y+10</b><b>Y+15</b><b>Y+15</b><b>Y+18</b><b>Y+22</b></div>
-                <div class="rules-deadline-row" role="row"><span>中大店：650～800㎡</span><b>Y+1</b><b>Y+9</b><b>Y+11</b><b>Y+12</b><b>Y+18</b><b>Y+18</b><b>Y+21</b><b>Y+25</b></div>
-                <div class="rules-deadline-row" role="row"><span>大店：800～1000㎡</span><b>Y+1</b><b>Y+13</b><b>Y+15</b><b>Y+16</b><b>Y+23</b><b>Y+23</b><b>Y+26</b><b>Y+30</b></div>
-                <div class="rules-deadline-row" role="row"><span>旗舰店：1000～1500㎡</span><b>Y+1</b><b>Y+13</b><b>Y+15</b><b>Y+16</b><b>Y+22</b><b>Y+22</b><b>Y+25</b><b>Y+30</b></div>
-                <div class="rules-deadline-row" role="row"><span>超体店：1500～2000㎡</span><b>Y+1</b><b>Y+13</b><b>Y+15</b><b>Y+16</b><b>Y+23</b><b>Y+23</b><b>Y+26</b><b>Y+31</b></div>
-                <div class="rules-deadline-row" role="row"><span>超体店：2000㎡以上（暂按1500～2000㎡）</span><b>Y+1</b><b>Y+13</b><b>Y+15</b><b>Y+16</b><b>Y+23</b><b>Y+23</b><b>Y+26</b><b>Y+31</b></div>
-              </div>
-            </section>
-          </section>
-        </section>
 
-        <section class="dashboard-page developer-docs-dashboard" id="developer-docs" data-page="developer-docs" data-development-only>
-          <section class="dev-doc-shell" aria-label="开发文档">
-            <header class="dev-doc-hero">
-              <div>
-                <p class="eyebrow">交接说明</p>
-                <h2>开发文档</h2>
-                <p>给我、IT部门和AI部门一起维护。这里先把目录搭稳，后续把数据怎么进来、规则怎么筛、页面怎么统计，慢慢补成能交接的白话记录。</p>
-              </div>
-              <dl class="dev-doc-properties" aria-label="开发文档属性">
-                <div>
-                  <dt>使用人</dt>
-                  <dd>我 / IT部门 / AI部门</dd>
-                </div>
-                <div>
-                  <dt>维护节奏</dt>
-                  <dd>先搭目录，改动时补记录</dd>
-                </div>
-                <div>
-                  <dt>写法要求</dt>
-                  <dd>尽量用白话记录</dd>
-                </div>
-              </dl>
-            </header>
+                <section class="dev-prd-page" data-dev-doc-page="overview" hidden>
+                  <div class="dev-prd-page-canvas" aria-label="系统总览">
+                    <header class="dev-prd-page-header"><p class="dev-prd-kicker">系统总览</p><h2>系统总览</h2><p class="dev-prd-lead">说明这个运营中台解决什么问题、服务哪些角色、页面如何组织，以及系统框架与交接说明的维护入口。</p></header>
+                    <div class="dev-prd-page-meta"><span>产品定位</span><span>页面地图</span><span>关键维护点</span></div>
+                    <section class="dev-prd-copy-section" id="dev-doc-product"><h2>产品定位</h2><p class="dev-prd-lead">空间视觉门店项目运营看板用于统一查看项目进度、小组负载、延期风险、负责人责任和规则口径，辅助日常调度与复核。</p><div class="dev-prd-placeholder">本页将补充：用户角色、使用场景、与源表单的分工边界。</div></section>
+                    <section class="dev-prd-copy-section" id="dev-doc-page-map"><h2>页面地图</h2><ul class="dev-prd-outline"><li><strong>运营看盘</strong> - 总览、加盟看板、直营看板。</li><li><strong>项目与小组</strong> - 小组情况、项目情况。</li><li><strong>开发文档</strong> - 系统框架、规则口径、指标说明、接口与验收。</li></ul></section>
+                    <section class="dev-prd-copy-section"><h2>关键风险与维护点</h2><p class="dev-prd-lead">路由加载边界、项目目录缓存、规则三层同步、团队预计算和负责人身份，是当前最需要谨慎维护的区域。</p></section>
+                  </div>
+                </section>
 
-            <section class="dev-doc-index" aria-label="开发文档目录">
-              <article>
-                <span>01</span>
-                <strong>系统交接台账</strong>
-                <p>一页记清楚页面归属、最近改动和后续要补的说明。</p>
-              </article>
-              <article>
-                <span>02</span>
-                <strong>数据从来源表单到本地</strong>
-                <p>按来源表单、本地保存、后台整理、前端展示顺序记录。</p>
-              </article>
-              <article>
-                <span>03</span>
-                <strong>筛选和口径</strong>
-                <p>说明项目范围、暂停项目、店态和负责人身份怎么判断。</p>
-              </article>
-              <article>
-                <span>04</span>
-                <strong>统计函数地图</strong>
-                <p>列出关键统计在哪里算、影响哪些页面、改动看哪里。</p>
-              </article>
-            </section>
+                <section class="dev-prd-page" data-dev-doc-page="pages" hidden>
+                  <div class="dev-prd-page-canvas" aria-label="页面怎么用">
+                    <header class="dev-prd-page-header"><p class="dev-prd-kicker">页面怎么用</p><h2>页面怎么用</h2><p class="dev-prd-lead">说明各页面分别回答什么业务问题、适合谁看，以及主要交互如何影响筛选和下钻。</p></header>
+                    <div class="dev-prd-page-meta"><span>运营看盘</span><span>小组情况</span><span>项目情况</span></div>
+                    <section class="dev-prd-copy-section" id="dev-doc-page-overview"><h2>运营看盘</h2><p class="dev-prd-lead">总览展示全盘 KPI 与区域结构；加盟/直营看板按店态 profile 下钻，共享 profile-shared 模块。</p><div class="dev-prd-placeholder">本页将补充：各 KPI 含义、下钻弹窗、图表数据来源。</div></section>
+                    <section class="dev-prd-copy-section" id="dev-doc-page-teams"><h2>小组情况</h2><p class="dev-prd-lead">负责人切换驱动 metrics、工作完成度、责任复核三组模块；含借调、负载与调度建议展示。</p><div class="dev-prd-placeholder">本页将补充：人员架构解析、完成度口径、负责人切换缓存策略。</div></section>
+                    <section class="dev-prd-copy-section" id="dev-doc-page-details"><h2>项目情况</h2><p class="dev-prd-lead">项目清单工作台支持搜索、筛选、下钻和详情懒加载；暂停/取消项目单独纳入查看，不影响默认总盘。</p><div class="dev-prd-placeholder">本页将补充：列定义、阶段展示、Deadline 复核入口。</div></section>
+                    <section class="dev-prd-copy-section" id="dev-doc-page-devmode"><h2>开发模式页面</h2><p class="dev-prd-lead">snapshot 标记 developerDocumentationVisible 时显示本文档；内网展示模式隐藏。</p></section>
+                  </div>
+                </section>
 
-            <section class="dev-doc-form" aria-label="系统交接台账">
-              <header class="dev-doc-section-head">
-                <span>台账</span>
-                <h3>系统交接台账</h3>
-                <p>每次改页面、改规则或改数据入口时，在这里留下“谁会受影响、看哪份文件、还有什么没补”的记录。</p>
-              </header>
-              <div class="dev-doc-table" role="table" aria-label="开发交接台账">
-                <div class="dev-doc-row is-head" role="row">
-                  <span role="columnheader">记录块</span>
-                  <span role="columnheader">现在先放什么</span>
-                  <span role="columnheader">后续补什么</span>
-                  <span role="columnheader">状态</span>
-                </div>
-                <div class="dev-doc-row" role="row">
-                  <strong>总览 / 加盟 / 直营</strong>
-                  <span>页面用途、核心指标、哪些数据参与计算。</span>
-                  <span>每个指标背后的统计函数和异常处理。</span>
-                  <span class="dev-doc-status"><em>待补细节</em></span>
-                </div>
-                <div class="dev-doc-row" role="row">
-                  <strong>小组情况</strong>
-                  <span>负责人、小组、成员负载和调度建议的记录入口。</span>
-                  <span>人员身份拆分、借调、空闲成员的判定说明。</span>
-                  <span class="dev-doc-status is-ready"><em>搭好框架</em></span>
-                </div>
-                <div class="dev-doc-row" role="row">
-                  <strong>项目情况</strong>
-                  <span>项目清单、阶段进度、Deadline 复核的页面说明。</span>
-                  <span>每个筛选项、每个进度列的取数来源。</span>
-                  <span class="dev-doc-status"><em>待补细节</em></span>
-                </div>
-              </div>
-            </section>
+                <section class="dev-prd-page" data-dev-doc-page="rules" hidden>
+                  <div class="dev-prd-page-canvas" aria-label="业务口径与规则">
+                    <header class="dev-prd-page-header"><p class="dev-prd-kicker">业务口径与规则</p><h2>业务口径与规则</h2><p class="dev-prd-lead">集中说明项目范围、负责人怎么算、阶段与进度、延期提醒规则、Deadline 和规则变更同步。</p></header>
+                    <div class="dev-prd-page-meta"><span>硬装 / 软装 / 摆场</span><span>Deadline</span><span>规则同步</span></div>
+                    <section class="dev-prd-copy-section" id="dev-doc-scope"><h2>项目范围</h2><p class="dev-prd-lead">默认统计推进项目；暂停/取消项目在项目情况页单独纳入，不影响默认总盘。</p><div class="dev-prd-placeholder">本页将补充：暂停/取消判定、店态面积分段、项目类型规则。</div></section>
+                    <section class="dev-prd-copy-section" id="dev-doc-owner"><h2>负责人身份</h2><p class="dev-prd-lead">同名不同责任身份分开统计；显示名尽量贴近日常叫法，统计按 responsibility slot 归集。</p></section>
+                    <section class="dev-prd-copy-section" id="dev-doc-stage"><h2>阶段与进度</h2><p class="dev-prd-lead">阶段既看进度状态字段，也结合关键日期是否已出现；提醒与延期分开记录。</p></section>
+                    <section class="dev-prd-copy-section" id="dev-doc-filters"><h2>筛选参数</h2><p class="dev-prd-lead">省区、店态、业务类型、阶段等筛选作用于项目情况与部分下钻；同页 hash 变化不触发全量重载。</p></section>
+                    <section class="dev-prd-copy-section is-wide" id="dev-doc-rules-layers"><h2>规则来源与同步</h2><p class="dev-prd-lead">把项目阶段口径、Deadline、提醒卡点和延期判定沉淀成统一规则，由后台硬规则驱动提醒与记录。可执行规则在代码与 JSON；人类可读在 <code>docs/rules/operational-rulebook.md</code>；运营摘要在本开发文档规则章节。不手写完整矩阵副本。</p><ul class="dev-prd-outline"><li><strong>可执行规则</strong> - <code>src/backend/hardDecorationDeadlineRules.mjs</code> 与 <code>data/rules/</code>。</li><li><strong>人类可读规则</strong> - <code>docs/rules/operational-rulebook.md</code>。</li><li><strong>运营展示</strong> - 本页摘要、状态、关键口径。</li></ul></section>
+                    <section class="dev-prd-copy-section" id="dev-doc-rules-stages"><h2>延期提醒规则</h2><p class="dev-prd-lead">按硬装、软装、摆场三阶段组织延期提醒规则；当前以硬装链路为首批落地范围。所有节点都以复尺时间 Y 为基准，Y+N 表示第 N 个中国工作日，提醒仍按规则生成。</p><ul class="dev-prd-outline"><li><strong>复尺时间 Y</strong> - 进入平面方案启动约束。</li><li><strong>超时启动</strong> - 记录过程责任，不直接等同阶段延期完成。</li><li><strong>Y + X</strong> - X 由面积与店态决定。</li></ul></section>
+                    <section class="dev-prd-copy-section is-wide" id="dev-doc-rules-responsibility"><h2>负责人责任身份与数据通道</h2><p class="dev-prd-lead">负责人自然人、责任专业和业务范围分开处理；外部来源姓名保留原样，指标和选择器使用本地责任身份 id。</p><div class="dev-prd-rule-list"><div class="dev-prd-rule-item"><strong>杨锦帆（硬装）</strong><p>identityId <code>resp-017</code>，sourceName 仍为杨锦帆，只进入 CD负责人 / 硬装负责人等硬装槽位。</p></div><div class="dev-prd-rule-item"><strong>杨锦帆（软装）</strong><p>identityId <code>resp-018</code>，sourceName 仍为杨锦帆，只进入 VM负责人 / 软装负责人等软装槽位。</p></div><div class="dev-prd-rule-item"><strong>待核对通道</strong><p>多身份负责人仅命中负责人总列时，不进入明确主指标，进入待核对通道。</p></div><div class="dev-prd-rule-item"><strong>安全边界</strong><p>本地切分只发生在责任身份解析、指标过滤和前端展示层，不回写来源表单。</p></div></div></section>
+                    <section class="dev-prd-copy-section is-wide" id="dev-doc-rules-team-queue"><h2>紧急 / 非紧急待处理 Top5</h2><p class="dev-prd-lead">团队工作完成情况模块的两列待处理队列。入选、分组、窗口天数与排序口径与后台 <code>teamWorkCompletionReview.mjs</code> 保持一致。</p><div class="dev-prd-rule-list"><div class="dev-prd-rule-item"><strong>人工标记紧急</strong><p>项目状态等字段文本含紧急，且不含不紧急、非紧急、一般。</p></div><div class="dev-prd-rule-item"><strong>非紧急队列</strong><p>含一般、不紧急、非紧急，或未填写优先级字段的项目。</p></div><div class="dev-prd-rule-item"><strong>Top5 排序</strong><p>窗口天数升序；日期待核对靠后；同天数按目标日、项目名排序。每列只展示前 5 条。</p></div><div class="dev-prd-rule-item"><strong>口径边界</strong><p>紧急标记只作运营优先级参考，不用于公司阶段推进、真实完成或延期 Deadline 判定。</p></div></div></section>
+                    <section class="dev-prd-copy-section is-wide" id="dev-doc-deadline"><h2>面积与店态 Deadline 矩阵</h2><p class="dev-prd-lead">所有节点都以复尺时间 Y 为基准，Y+N 表示第 N 个中国工作日。法定双休和节假日不计入 Y+N；2000㎡以上暂按1500～2000㎡超体店时间定。</p><p class="dev-prd-lead"><button class="rules-info-button" type="button" data-rules-info-open aria-label="查看硬装 Deadline 规则说明" title="查看硬装 Deadline 规则说明">查看链路规则与判定原则</button></p><dialog class="rules-info-dialog" id="rulesDeadlineInfoDialog" aria-labelledby="rulesDeadlineInfoTitle"><section class="rules-info-shell"><header class="rules-info-head"><div><p class="eyebrow">硬装 Deadline 说明</p><h3 id="rulesDeadlineInfoTitle">链路规则与判定原则</h3></div><form method="dialog"><button class="modal-close-button rules-info-close" type="submit" aria-label="关闭硬装 Deadline 规则说明">×</button></form></header><div class="rules-info-content"><section class="rules-info-section"><span>硬装链路</span><h4>延期提醒规则</h4><ol class="rules-info-timeline"><li><span>复尺时间 Y</span><p>只要有复尺时间，项目进入平面方案启动约束，并触发一次尽快启动的提醒。</p></li><li><span>Y + 1</span><p>今天 / 明天内必须启动平面方案；超出窗口仍未启动，记录超时启动。</p></li><li><span>Y + X</span><p>X 由面积对应店态决定，作为平面方案截止；截止前设置一次结束提醒。</p></li><li><span>施工图终审</span><p>终审超出截止前判定施工图阶段延期完成。</p></li></ol></section><section class="rules-info-section"><span>判定原则</span><h4>规则与责任边界</h4><div class="rules-info-grid"><article><strong>表单填写优先</strong><p>硬装方案情况已填写时，最终延期状态采用表单；表单为空时再用规则兜底。</p></article><article><strong>表单为空再兜底</strong><p>表单未写延期情况时，系统 Deadline 才生成兜底判定；提醒仍按规则。</p></article><article><strong>延期完成但效率OK</strong><p>效率 KPI 继续按实际启动日顺延预算计算，KPI 单独记录效率 OK 或效率超时。</p></article></div></section></div></section></dialog><div class="rules-deadline-table-wrap"><div class="rules-deadline-table" role="table" aria-label="硬装延期提醒 Deadline 矩阵"><div class="rules-deadline-row is-head" role="row"><span role="columnheader">面积</span><span role="columnheader">平面/躺平启动</span><span role="columnheader">方案快截止了</span><span role="columnheader">平面/躺平截止</span><span role="columnheader">施工图启动</span><span role="columnheader">施工图预计截止</span><span role="columnheader">商场审核开始</span><span role="columnheader">终审提醒</span><span role="columnheader">商场终审结束</span></div><div class="rules-deadline-row" role="row"><span>mini店：≤300㎡</span><b>Y+1</b><b>Y+4</b><b>Y+6</b><b>Y+7</b><b>Y+10</b><b>Y+10</b><b>Y+13</b><b>Y+15</b></div><div class="rules-deadline-row" role="row"><span>中小店：300～450㎡</span><b>Y+1</b><b>Y+4</b><b>Y+6</b><b>Y+7</b><b>Y+11</b><b>Y+11</b><b>Y+14</b><b>Y+17</b></div><div class="rules-deadline-row" role="row"><span>中店：450～650㎡</span><b>Y+1</b><b>Y+7</b><b>Y+9</b><b>Y+10</b><b>Y+15</b><b>Y+15</b><b>Y+18</b><b>Y+22</b></div><div class="rules-deadline-row" role="row"><span>中大店：650～800㎡</span><b>Y+1</b><b>Y+9</b><b>Y+11</b><b>Y+12</b><b>Y+18</b><b>Y+18</b><b>Y+21</b><b>Y+25</b></div><div class="rules-deadline-row" role="row"><span>大店：800～1000㎡</span><b>Y+1</b><b>Y+13</b><b>Y+15</b><b>Y+16</b><b>Y+23</b><b>Y+23</b><b>Y+26</b><b>Y+30</b></div><div class="rules-deadline-row" role="row"><span>旗舰店：1000～1500㎡</span><b>Y+1</b><b>Y+13</b><b>Y+15</b><b>Y+16</b><b>Y+22</b><b>Y+22</b><b>Y+25</b><b>Y+30</b></div><div class="rules-deadline-row" role="row"><span>超体店：1500～2000㎡</span><b>Y+1</b><b>Y+13</b><b>Y+15</b><b>Y+16</b><b>Y+23</b><b>Y+23</b><b>Y+26</b><b>Y+31</b></div><div class="rules-deadline-row" role="row"><span>超体店：2000㎡以上（暂按1500～2000㎡）</span><b>Y+1</b><b>Y+13</b><b>Y+15</b><b>Y+16</b><b>Y+23</b><b>Y+23</b><b>Y+26</b><b>Y+31</b></div></div></div></section>
+                    <section class="dev-prd-copy-section" id="dev-doc-rules-sync"><h2>变更同步</h2><p class="dev-prd-lead">规则口径变更须同步：后端常量、日历数据、规则文档、本页规则章节、相关测试。</p><div class="dev-prd-placeholder">本页将补充：变更流程、冲突确认、一次性例外记录方式。</div></section>
+                  </div>
+                </section>
 
-            <section class="dev-doc-two-column" aria-label="开发记录框架">
-              <article class="dev-doc-form">
-                <header class="dev-doc-section-head">
-                  <span>链路</span>
-                  <h3>数据从来源表单到本地</h3>
-                  <p>先按“来源表单 → 本地保存 → 后台整理 → 前端展示”的顺序记录，避免交接时只知道页面结果，不知道数据从哪来。</p>
-                </header>
-                <div class="dev-doc-property-list">
-                  <div><b>来源</b><span>外部项目表单，来源字段先保留。</span></div>
-                  <div><b>本地</b><span>同步后写入本地缓存和数据库，前端只读。</span></div>
-                  <div><b>整理</b><span>后台把项目、人员、阶段、提醒整理成页面能直接使用的数据。</span></div>
-                  <div><b>展示</b><span>前端按页面范围读取，不回写来源表单。</span></div>
-                </div>
-              </article>
+                <section class="dev-prd-page" data-dev-doc-page="metrics" hidden><div class="dev-prd-page-canvas" aria-label="指标怎么看"><header class="dev-prd-page-header"><p class="dev-prd-kicker">指标怎么看</p><h2>指标怎么看</h2><p class="dev-prd-lead">说明总盘指标、小组完成度、提醒复核和下钻项目目录的读取方式。</p></header><div class="dev-prd-page-meta"><span>总盘指标</span><span>小组完成度</span><span>提醒复核</span><span>下钻目录</span></div><section class="dev-prd-copy-section" id="dev-doc-metrics-overview"><h2>总盘指标</h2><p class="dev-prd-lead">由 <code>metrics/composeDashboard</code> 等模块汇总；总览/加盟/直营共用 metrics 接口，按 context 切片。</p></section><section class="dev-prd-copy-section" id="dev-doc-metrics-team"><h2>小组完成度</h2><p class="dev-prd-lead"><code>/api/team-work-completion</code> 与 <code>/api/team-responsibility-review</code> 承载小组域统计，走 snapshot 缓存。</p></section><section class="dev-prd-copy-section" id="dev-doc-metrics-reminder"><h2>提醒与复核</h2><p class="dev-prd-lead">关键日期、字段缺口、Deadline 提醒在前端 domain 层组装；异常进入复核队列，不直接改源数据。</p></section><section class="dev-prd-copy-section" id="dev-doc-metrics-drill"><h2>下钻与项目目录</h2><p class="dev-prd-lead">KPI 下钻走 <code>resolveDrillProjects</code>（fields=ids + 本地目录）；项目目录统一 <code>project-catalog.mjs</code> summary 视图。</p></section></div></section>
 
-              <article class="dev-doc-form">
-                <header class="dev-doc-section-head">
-                  <span>口径</span>
-                  <h3>筛选和口径</h3>
-                  <p>这里记录“为什么这个项目会出现或不出现”，包括暂停项目、店态面积、负责人身份和阶段归类。</p>
-                </header>
-                <div class="dev-doc-property-list">
-                  <div><b>项目范围</b><span>默认看在推进项目；暂停项目在项目情况页单独打开。</span></div>
-                  <div><b>负责人</b><span>同名不同责任身份分开统计，显示尽量贴近日常叫法。</span></div>
-                  <div><b>阶段</b><span>阶段既看进度状态，也看关键日期是否已经出现。</span></div>
-                  <div><b>异常</b><span>字段缺失或规则冲突时进入复核，不直接改源数据。</span></div>
-                </div>
-              </article>
-            </section>
+                <section class="dev-prd-page" data-dev-doc-page="data" hidden><div class="dev-prd-page-canvas" aria-label="数据来源与更新"><header class="dev-prd-page-header"><p class="dev-prd-kicker">数据来源与更新</p><h2>数据来源与更新</h2><p class="dev-prd-lead">说明外部源表单、同步入库、汇总数据生成和前端取数路径。</p></header><div class="dev-prd-page-meta"><span>源表单</span><span>同步与存储</span><span>汇总数据</span><span>前端取数</span></div><section class="dev-prd-copy-section" id="dev-doc-source"><h2>源表单来源</h2><p class="dev-prd-lead">项目与人员数据来自外部源表单；表单字段含义与录入校验由业务侧维护，看板侧只读消费。</p></section><section class="dev-prd-copy-section" id="dev-doc-sync"><h2>同步与存储</h2><p class="dev-prd-lead">手动/自动同步将外部源数据写入本地数据库与 snapshot；前端通过 API 读取，不回写源表单。</p></section><section class="dev-prd-copy-section" id="dev-doc-readmodel"><h2>汇总数据生成</h2><p class="dev-prd-lead">小组页等重接口走 snapshot 签名缓存与预计算 worker，避免每次请求全量重算。</p></section><section class="dev-prd-copy-section" id="dev-doc-frontend-consume"><h2>前端如何取数</h2><p class="dev-prd-lead">首屏由 <code>loadDashboard</code> 编排；各页按需拉取 metrics、profile、team 域接口与项目目录。</p></section></div></section>
 
-            <section class="dev-doc-two-column" aria-label="统计与维护">
-              <article class="dev-doc-form">
-                <header class="dev-doc-section-head">
-                  <span>统计</span>
-                  <h3>统计函数地图</h3>
-                  <p>后续把关键统计函数按“算什么、在哪里、影响哪个页面”补上，方便IT和AI部门接手。</p>
-                </header>
-                <div class="dev-doc-note-grid">
-                  <div><strong>总盘指标</strong><p>记录项目数量、阶段分布、区域矩阵的计算入口。</p></div>
-                  <div><strong>小组负载</strong><p>记录负责人、成员、借调和可调配人手的计算入口。</p></div>
-                  <div><strong>Deadline</strong><p>记录硬装规则、工作日、表单优先和兜底判定。</p></div>
-                </div>
-              </article>
+                <section class="dev-prd-page" data-dev-doc-page="technical" hidden><div class="dev-prd-page-canvas" aria-label="接口与技术维护"><header class="dev-prd-page-header"><p class="dev-prd-kicker">接口与技术维护</p><h2>接口与技术维护</h2><p class="dev-prd-lead">给接手开发者定位前端结构、后端任务分工、接口、缓存和加载边界。</p></header><div class="dev-prd-page-meta"><span>页面代码分工</span><span>后端任务分工</span><span>接口与缓存</span></div><section class="dev-prd-copy-section" id="dev-doc-frontend-layers"><h2>页面代码分工</h2><p class="dev-prd-lead"><code>public/</code> 按职责拆分，页面模块不互相引用（共享助手除外）。</p></section><section class="dev-prd-copy-section" id="dev-doc-backend"><h2>后端任务分工</h2><p class="dev-prd-lead"><code>src/backend/</code> 负责同步、持久化、指标计算、规则引擎与 API 暴露。</p></section><section class="dev-prd-copy-section" id="dev-doc-repo"><h2>仓库目录</h2><p class="dev-prd-lead"><code>public/</code>、<code>src/backend/</code>、<code>data/rules/</code>、<code>docs/rules/operational-rulebook.md</code>、<code>tests/</code> 是主要维护入口。</p></section><section class="dev-prd-copy-section" id="dev-doc-api"><h2>核心接口</h2><p class="dev-prd-lead">snapshot、metrics、projects（summary/full/ids）、team 域接口、profile 等；大响应 gzip。</p></section><section class="dev-prd-copy-section" id="dev-doc-loading"><h2>页面加载边界</h2><p class="dev-prd-lead"><code>showPage</code> 只管外壳切换；<code>loadDashboard</code> 编排首屏；cache-first，仅显式刷新传 forceRefresh。</p></section><section class="dev-prd-copy-section" id="dev-doc-cache"><h2>缓存与数据版本</h2><p class="dev-prd-lead">projectsCatalogSignature 绑定 snapshot；源表单同步或签名变化须 invalidateProjectCaches。</p></section></div></section>
 
-              <article class="dev-doc-form">
-                <header class="dev-doc-section-head">
-                  <span>维护</span>
-                  <h3>日常维护记录</h3>
-                  <p>记录上线前后要检查的动作，比如同步是否正常、内网展示是否隐藏开发资料、规则文档是否同步。</p>
-                </header>
-                <div class="dev-doc-checklist">
-                  <label><input type="checkbox" disabled /> 开发模式能看到规则一览和开发文档。</label>
-                  <label><input type="checkbox" disabled /> 内网展示模式不显示规则与文档入口。</label>
-                  <label><input type="checkbox" disabled /> 规则变更同时检查后端、文档、前端和测试。</label>
-                  <label><input type="checkbox" disabled /> 新增统计时补一条白话说明。</label>
-                </div>
+                <section class="dev-prd-page" data-dev-doc-page="release" hidden><div class="dev-prd-page-canvas" aria-label="变更与验收"><header class="dev-prd-page-header"><p class="dev-prd-kicker">变更与验收</p><h2>变更与验收</h2><p class="dev-prd-lead">说明不同改动域需要运行的测试、变更检查清单和维护交接记录。</p></header><div class="dev-prd-page-meta"><span>测试地图</span><span>发布前检查</span><span>维护记录</span></div><section class="dev-prd-copy-section" id="dev-doc-tests"><h2>测试地图</h2><p class="dev-prd-lead">按改动域运行对应测试，防止加载边界与口径回退。</p></section><section class="dev-prd-copy-section" id="dev-doc-checklist"><h2>变更检查清单</h2><p class="dev-prd-lead">改动前对照：是否触及路由/加载边界、规则三层、projects 路由、小组预加载顺序。</p></section><section class="dev-prd-copy-section" id="dev-doc-handover"><h2>维护记录</h2><p class="dev-prd-lead">每次改页面、规则或数据入口时，在此记录改动摘要、影响面与未补项。</p></section></div></section>
               </article>
-            </section>
-          </section>
+            </div>
+          </div>
         </section>
 
         <div class="drill-project-modal" id="drillProjectModal" hidden role="dialog" aria-modal="true" aria-labelledby="drillProjectModalTitle">

@@ -136,6 +136,74 @@ test('buildTeamWorkCompletionReview buckets in-progress metrics by project updat
   assert.deepEqual(month(review, 5).projectIds.lifecycleInProgress, ['active-floor-display']);
 });
 
+test('buildTeamWorkCompletionReview exposes next-action reminders for processing queues', () => {
+  const review = buildTeamWorkCompletionReview(
+    [
+      project({
+        id: 'display-ready',
+        status: '紧急',
+        storeStatus: '旗舰店',
+        startDate: '2026-03-30',
+        dueDate: '2026-04-15',
+        rawFields: {
+          组别: raw('直营新店'),
+          CD设计师: raw('陈菲菲'),
+          面积: raw('980'),
+          项目状态: raw('紧急'),
+          硬装项目进度: raw('（施工中）施工图完成审核'),
+          软装项目进度: raw('未安排摆场'),
+          上会时间: raw('2026-04-01'),
+          复尺时间: raw('2026-04-08'),
+          平面开始时间: raw('2026-04-09'),
+          躺平内部审核结束时间: raw('2026-04-17'),
+          '施工图完成审核时间（施工图终稿完成时间/商场审核完成时间）': raw('2026-05-12'),
+          点位完成情况: raw('已完成'),
+          点位完成时间: raw('2026-05-07'),
+          软装方案开始时间: raw('2026-05-14'),
+          '软装发群/完成时间': raw('2026-06-03'),
+          '流程记录：产品清单接收时间': raw('2026-05-08'),
+          采购时间: raw('2026-06-03'),
+          采购完成情况: raw('已完成'),
+        },
+      }),
+      project({
+        id: 'soft-not-started',
+        status: '紧急',
+        startDate: '2026-04-22',
+        dueDate: '2026-05-10',
+        rawFields: {
+          组别: raw('直营新店'),
+          CD设计师: raw('陈菲菲'),
+          面积: raw('680㎡'),
+          项目状态: raw('紧急'),
+          硬装项目进度: raw('施工图完成审核'),
+          软装项目进度: raw('未开始'),
+          上会时间: raw('2026-04-24'),
+          复尺时间: raw('2026-04-28'),
+          平面开始时间: raw('2026-04-30'),
+          躺平内部审核结束时间: raw('2026-05-13'),
+          '施工图完成审核时间（施工图终稿完成时间/商场审核完成时间）': raw('2026-06-04'),
+          点位完成情况: raw('已完成'),
+          点位完成时间: raw('2026-05-19'),
+        },
+      }),
+    ],
+    team,
+    { personnelArchitecture, year: 2026, dashboardContext: 'all' }
+  );
+
+  const [displayReady, softNotStarted] = review.processingQueues.urgent.topProjects;
+
+  assert.equal(displayReady.actionStage, '待摆场');
+  assert.match(displayReady.stage, /施工图完成审核/);
+  assert.equal(displayReady.areaLabel, '980㎡');
+  assert.equal(displayReady.teamGroupText, '直营1组 · 组长：陈菲菲');
+  assert.equal(displayReady.teamDesignerText, '设计师：陈菲菲（硬装）');
+
+  assert.equal(softNotStarted.actionStage, '软装方案待开始');
+  assert.equal(softNotStarted.areaLabel, '680㎡');
+});
+
 test('buildTeamWorkCompletionReview reuses static groups when owner has no explicit roster', () => {
   const review = buildTeamWorkCompletionReview(
     [

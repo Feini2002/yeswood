@@ -60,7 +60,8 @@ export function applyDevelopmentDocumentationVisibility() {
 
 export function parsePageHash() {
   const raw = window.location.hash.replace('#', '') || 'overview';
-  const [page, queryString] = raw.split('?');
+  const [pageRaw, queryString] = raw.split('?');
+  const page = pageRaw.startsWith('developer-docs/') ? 'developer-docs' : pageRaw;
   const params = new URLSearchParams(queryString || '');
   const validPages = developmentAllowedPages();
   const legacyOwnerReview = page === 'owner-review';
@@ -93,6 +94,20 @@ export function parsePageHash() {
 
 export function currentPageId() {
   return parsePageHash().pageId;
+}
+
+export function normalizeLegacyRulesRoute() {
+  const raw = window.location.hash.replace('#', '');
+  const [page] = raw.split('?');
+  if (page !== 'rules' && !page.startsWith('rules/')) {
+    return;
+  }
+  const nextHash = '#developer-docs/dev-doc-rules-layers';
+  if (window.history?.replaceState) {
+    window.history.replaceState(null, '', nextHash);
+  } else {
+    window.location.hash = nextHash;
+  }
 }
 
 export function normalizeLegacyOwnerReviewRoute() {
@@ -166,6 +181,7 @@ export function applyHashSearch() {
 }
 
 export function showPage(pageId = currentPageId(), options = {}) {
+  normalizeLegacyRulesRoute();
   normalizeLegacyOwnerReviewRoute();
   applyDevelopmentDocumentationVisibility();
   pageId = currentPageId();
@@ -264,6 +280,10 @@ export function showPage(pageId = currentPageId(), options = {}) {
         console.warn('Profile dashboard load failed', error);
         routerHooks.renderProfilePage?.(pageId);
       });
+  }
+
+  if (pageId === 'developer-docs') {
+    routerHooks.loadDeveloperDocsPage?.();
   }
 }
 

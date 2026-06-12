@@ -42,6 +42,7 @@ import {
 import {
   REQUIRED_READ_MODEL_FEATURES,
   readDashboardSessionReadModel,
+  readProjectDetailReadModel,
   readTeamWorkCompletionDetailReadModel,
 } from './readModelRepository.mjs';
 import { attachDepartmentOperations, buildTeamMetricsPayload, resolveTeamForOwner } from './teamMetricsPayload.mjs';
@@ -996,9 +997,43 @@ async function handleApiRequest(request, response, url, config) {
   }
 
   if (url.pathname === '/api/projects') {
-    const snapshot = await getSnapshot(config);
     const projectId = String(url.searchParams.get('id') || '').trim();
     const view = String(url.searchParams.get('view') || 'summary').trim().toLowerCase();
+    const fallback = String(url.searchParams.get('fallback') || (view === 'full' ? 'readModel' : 'compute'))
+      .trim()
+      .toLowerCase();
+
+    if (projectId && view === 'full' && fallback !== 'compute') {
+      const readModel = readProjectDetailReadModel(config, { projectId });
+      if (readModel.status === 'ready' || readModel.status === 'stale') {
+        await sendJson(response, 200, {
+          item: readModel.payload,
+          readOnly: true,
+          readModel: true,
+          stale: readModel.status === 'stale',
+        });
+        return true;
+      }
+      if (readModel.status === 'not_found') {
+        await sendJson(response, 404, { error: 'Project not found', readModel: true });
+        return true;
+      }
+      triggerDashboardPrecomputeFromCurrentSnapshot(config, '/api/projects');
+      await sendJson(
+        response,
+        202,
+        {
+          ok: false,
+          status: 'preparing',
+          readModel: true,
+          reason: readModel.reason || readModel.status,
+        },
+        { route: '/api/projects', readModelHit: false, precomputeActive: precomputeActive(config) }
+      );
+      return true;
+    }
+
+    const snapshot = await getSnapshot(config);
 
     if (projectId) {
       const project = findProjectInSnapshot(snapshot.projects || [], projectId);

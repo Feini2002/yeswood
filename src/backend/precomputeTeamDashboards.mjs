@@ -5,9 +5,11 @@ import path from 'node:path';
 
 import { paths } from './config.mjs';
 import { composeDashboardMetrics } from './metrics/composeDashboard.mjs';
+import { readFranchiseScope, readWorkflowStage } from './metrics/fieldSemantics.mjs';
 import { DASHBOARD_CONTEXTS, resolveCanonicalOwner } from './metrics/projectScopes.mjs';
 import { readProjectOwnerNames, splitPersonnelNames } from './personnelNames.mjs';
 import { createFilterOptions, filterProjects } from './projectData.mjs';
+import { compactProjectForDetailReadModel } from './projectDetailPayload.mjs';
 import { publishReadModelDirectory } from './readModelRepository.mjs';
 import { mergeTeamWorkCompletionDetailPayload } from './teamWorkCompletionPayload.mjs';
 import { buildTeamMetricsPayload, resolveTeamForOwner } from './teamMetricsPayload.mjs';
@@ -22,8 +24,9 @@ export const TEAM_WORK_COMPLETION_SUMMARY_PRECOMPUTE_FEATURE = 'team-work-comple
 export const TEAM_WORK_COMPLETION_DETAIL_PRECOMPUTE_FEATURE = 'team-work-completion-detail';
 export const TEAM_METRICS_PRECOMPUTE_FEATURE = 'team-metrics';
 export const PROJECT_CATALOG_SUMMARY_PRECOMPUTE_FEATURE = 'project-catalog-summary';
+export const PROJECT_DETAIL_PRECOMPUTE_FEATURE = 'project-detail';
 export const PROFILE_DASHBOARD_PRECOMPUTE_FEATURE = 'profile-dashboard';
-const PRECOMPUTE_SCHEMA_VERSION = 5;
+const PRECOMPUTE_SCHEMA_VERSION = 8;
 const DEFAULT_RETAINED_PRECOMPUTE_VERSIONS = 3;
 const COMPLETE_PRECOMPUTE_FEATURES = [
   DASHBOARD_SESSION_PRECOMPUTE_FEATURE,
@@ -34,6 +37,7 @@ const COMPLETE_PRECOMPUTE_FEATURES = [
   TEAM_WORK_COMPLETION_SUMMARY_PRECOMPUTE_FEATURE,
   TEAM_WORK_COMPLETION_DETAIL_PRECOMPUTE_FEATURE,
   TEAM_METRICS_PRECOMPUTE_FEATURE,
+  PROJECT_DETAIL_PRECOMPUTE_FEATURE,
 ];
 
 export function precomputeSnapshotHash(snapshot = {}, architecture = snapshot.personnelArchitecture || {}) {
@@ -130,6 +134,14 @@ function projectCatalogSummaryFilePath(baseDir) {
   return path.join(baseDir, 'project-catalog', 'summary.json');
 }
 
+function projectDetailFilePath(baseDir, projectId = '') {
+  return path.join(baseDir, PROJECT_DETAIL_PRECOMPUTE_FEATURE, `${hashToken(projectId)}.json`);
+}
+
+function projectDetailIndexFilePath(baseDir) {
+  return path.join(baseDir, PROJECT_DETAIL_PRECOMPUTE_FEATURE, 'index.json');
+}
+
 function profileDashboardFilePath(baseDir, profile) {
   return path.join(baseDir, PROFILE_DASHBOARD_PRECOMPUTE_FEATURE, `${safeSegment(profile)}.json`);
 }
@@ -186,15 +198,61 @@ function fileExists(filePath) {
   }
 }
 
+function readJsonFileSync(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function processingQueuePayloadIsComplete(queue = null) {
+  if (!queue || typeof queue !== 'object' || !Array.isArray(queue.topProjects)) {
+    return false;
+  }
+  const totalCount = Number(queue.totalCount ?? queue.topProjects.length);
+  return Number.isFinite(totalCount);
+}
+
+function teamWorkCompletionHasProcessingQueues(payload = null) {
+  const queues = payload?.processingQueues;
+  return (
+    Boolean(queues && typeof queues === 'object') &&
+    processingQueuePayloadIsComplete(queues.urgent) &&
+    processingQueuePayloadIsComplete(queues.normal)
+  );
+}
+
+function projectDetailFilesComplete(baseDir) {
+  const index = readJsonFileSync(projectDetailIndexFilePath(baseDir));
+  if (!index || !Array.isArray(index.projectIds)) {
+    return false;
+  }
+  const projectIds = Array.from(new Set(index.projectIds.map((id) => String(id || '').trim()).filter(Boolean)));
+  if (Number(index.total || 0) > 0 && !projectIds.length) {
+    return false;
+  }
+  for (const projectId of projectIds) {
+    if (!fileExists(projectDetailFilePath(baseDir, projectId))) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function precomputeFilesComplete(config = {}, snapshotHash, manifest = {}) {
   const baseDir = precomputeDirForHash(config, snapshotHash);
   if (
     !fileExists(dashboardSessionFilePath(config, snapshotHash)) ||
     !fileExists(projectCatalogSummaryFilePath(baseDir)) ||
+    !fileExists(projectDetailIndexFilePath(baseDir)) ||
     !fileExists(profileDashboardFilePath(baseDir, 'department')) ||
     !fileExists(profileDashboardFilePath(baseDir, 'direct')) ||
     !fileExists(profileDashboardFilePath(baseDir, 'franchise'))
   ) {
+    return false;
+  }
+  if (!projectDetailFilesComplete(baseDir)) {
     return false;
   }
 
@@ -216,9 +274,14 @@ function precomputeFilesComplete(config = {}, snapshotHash, manifest = {}) {
       }
       for (const year of years) {
         const params = { owner, dashboardContext, year };
+        const summaryPath = teamWorkCompletionSummaryFilePath(config, snapshotHash, params);
+        const detailPath = teamWorkCompletionDetailFilePath(config, snapshotHash, params);
+        if (!fileExists(summaryPath) || !fileExists(detailPath)) {
+          return false;
+        }
         if (
-          !fileExists(teamWorkCompletionSummaryFilePath(config, snapshotHash, params)) ||
-          !fileExists(teamWorkCompletionDetailFilePath(config, snapshotHash, params))
+          !teamWorkCompletionHasProcessingQueues(readJsonFileSync(summaryPath)) ||
+          !teamWorkCompletionHasProcessingQueues(readJsonFileSync(detailPath))
         ) {
           return false;
         }
@@ -356,6 +419,7 @@ const READ_MODEL_PROJECT_FIELDS = [
   'progress',
   'hardProgressStage',
   'softProgressStage',
+  'franchiseScope',
   'startDate',
   'dueDate',
   'updatedAt',
@@ -382,6 +446,9 @@ function compactProjectForReadModel(project = {}) {
       summary[key] = project[key];
     }
   }
+  summary.hardProgressStage = summary.hardProgressStage || readWorkflowStage(project, { discipline: 'hard' });
+  summary.softProgressStage = summary.softProgressStage || readWorkflowStage(project, { discipline: 'soft' });
+  summary.franchiseScope = summary.franchiseScope || project.franchiseScope || readFranchiseScope(project);
   if (project.recordMeta) {
     summary.recordMeta = {
       id: project.recordMeta.id,
@@ -393,6 +460,32 @@ function compactProjectForReadModel(project = {}) {
 
 function compactProjectsForReadModel(projects = []) {
   return Array.isArray(projects) ? projects.map(compactProjectForReadModel) : [];
+}
+
+function projectDetailReadModelIds(project = {}) {
+  return Array.from(
+    new Set([project?.id, project?.recordMeta?.id].map((id) => String(id || '').trim()).filter(Boolean))
+  );
+}
+
+async function writeProjectDetailReadModels(baseDir, projects = []) {
+  const projectIds = [];
+  for (const project of Array.isArray(projects) ? projects : []) {
+    const ids = projectDetailReadModelIds(project);
+    if (!ids.length) {
+      continue;
+    }
+    const detail = compactProjectForDetailReadModel(project);
+    for (const projectId of ids) {
+      projectIds.push(projectId);
+      await writeJson(projectDetailFilePath(baseDir, projectId), detail);
+    }
+  }
+  await writeJson(projectDetailIndexFilePath(baseDir), {
+    projectIds,
+    total: projectIds.length,
+    readOnly: true,
+  });
 }
 
 function collectYearFromValue(value, years) {
@@ -628,6 +721,7 @@ function buildTeamWorkCompletionSummaryPayload(payload = {}) {
   const {
     projectsById: _projectsById,
     sourceProjects: _sourceProjects,
+    projectDetailsById: _projectDetailsById,
     dataQuality,
     summary = {},
     monthly = {},
@@ -741,6 +835,7 @@ export async function precomputeTeamDashboards(snapshot = {}, options = {}) {
 
   await fsp.mkdir(path.join(tmpDir, DASHBOARD_SESSION_PRECOMPUTE_FEATURE), { recursive: true });
   await fsp.mkdir(path.join(tmpDir, 'project-catalog'), { recursive: true });
+  await fsp.mkdir(path.join(tmpDir, PROJECT_DETAIL_PRECOMPUTE_FEATURE), { recursive: true });
   await fsp.mkdir(path.join(tmpDir, PROFILE_DASHBOARD_PRECOMPUTE_FEATURE), { recursive: true });
   await fsp.mkdir(path.join(tmpDir, TEAM_RESPONSIBILITY_REVIEW_PRECOMPUTE_FEATURE), { recursive: true });
   await fsp.mkdir(path.join(tmpDir, TEAM_WORK_COMPLETION_SUMMARY_PRECOMPUTE_FEATURE), { recursive: true });
@@ -757,6 +852,7 @@ export async function precomputeTeamDashboards(snapshot = {}, options = {}) {
       franchise: buildProfileDashboard(snapshot, architecture, 'franchise'),
     };
     await writeJson(projectCatalogSummaryFilePath(tmpDir), projectCatalog);
+    await writeProjectDetailReadModels(tmpDir, snapshot.projects || []);
     for (const [profile, payload] of Object.entries(profileDashboards)) {
       await writeJson(profileDashboardFilePath(tmpDir, profile), payload);
     }
@@ -877,7 +973,7 @@ export function readPrecomputedTeamWorkCompletion(config = {}, snapshot = {}, ar
   }
 
   const payload = readJsonFile(teamWorkCompletionSummaryFilePath(config, snapshotHash, params));
-  if (!payload) {
+  if (!payload || !teamWorkCompletionHasProcessingQueues(payload)) {
     return null;
   }
   if (params.requestedOwner && payload.requestedOwner !== params.requestedOwner) {
@@ -897,7 +993,7 @@ export function readPrecomputedTeamWorkCompletionDetail(config = {}, snapshot = 
   }
 
   const payload = readJsonFile(teamWorkCompletionDetailFilePath(config, snapshotHash, params));
-  if (!payload) {
+  if (!payload || !teamWorkCompletionHasProcessingQueues(payload)) {
     return null;
   }
   if (params.requestedOwner && payload.requestedOwner !== params.requestedOwner) {

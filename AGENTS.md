@@ -42,13 +42,13 @@
 | --- | --- | --- |
 | 可执行规则 | `src/backend/hardDecorationDeadlineRules.mjs`、`data/rules/china-workday-calendar-*.json` | 矩阵、工作日、兜底逻辑以这里为准 |
 | 人类可读规则 | `docs/rules/operational-rulebook.md` | 业务意图、边界、待定项；链接代码与数据权威 |
-| 运营展示 | 前端规则一览页（`#rules`） | 摘要、状态、关键口径；不手写完整矩阵副本 |
+| 运营展示 | 前端开发文档页规则章节（`#developer-docs`） | 摘要、状态、关键口径；不手写完整矩阵副本 |
 
 规则口径、Deadline、提醒节点、延期判定或阶段判定变更时，必须同步检查：
 
 - 后端规则常量与日历数据（`hardDecorationDeadlineRules.mjs`、`data/rules/`）
 - `docs/rules/operational-rulebook.md`
-- 前端规则一览页的摘要与状态展示
+- 前端开发文档页规则章节的摘要与状态展示
 - `tests/hardDecorationDeadlineRules.test.mjs`（矩阵与计算）
 - `tests/rulesDocs.test.mjs`（规则正文章节、链接、前端入口）
 - `tests/brand-ui.test.mjs`、`tests/publicAppBehavior.test.mjs`（规则页 DOM 与 Deadline 行为，若展示结构变化）
@@ -60,6 +60,11 @@
 - 平面方案最终延期状态和实际启动顺延后的效率 KPI 必须分开记录，不得互相覆盖。
 - 规则仍处讨论态时，先记入规则文档待定区，不要写成已生效逻辑。
 - 前端展示只同步已明确的运营口径；未确认公式、天数和责任边界标为待定。
+
+## 规则冲突前置确认
+
+- 当用户新需求、口头口径或实现方案与 AGENTS、规则文档、前端规则页或后端可执行规则存在冲突时，不得默认按旧规则继续，也不得直接绕过规则；必须先向用户确认这是规则变更、一次性例外，还是保留现有规则。
+- 用户确认规则变更后，必须同步检查可执行规则、规则文档、前端展示和相关测试，再继续实现。
 
 ## 命令执行与卡住防护
 

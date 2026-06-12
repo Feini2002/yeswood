@@ -29,9 +29,13 @@ test('operational rulebook keeps key sections and executable rule references', a
   assert.match(rulebook, /延期完成但效率OK/);
   assert.match(rulebook, /软装提醒规则/);
   assert.match(rulebook, /摆场提醒规则/);
+  assert.match(rulebook, /小组页待处理 Top5 队列规则/);
+  assert.match(rulebook, /teamWorkCompletionReview\.mjs/);
+  assert.match(rulebook, /商场交付时间/);
   assert.doesNotMatch(rulebook, /300 <= 面积 < 450/);
   assert.doesNotMatch(rulebook, /2000 平方米以上项目暂不在本矩阵内/);
   assert.doesNotMatch(rulebook, /2000 平方米以上项目是否新增面积档/);
+  assert.doesNotMatch(rulebook, /不再使用紧急程度判定|不再使用紧急判定/);
   assert.doesNotMatch(rulebook, /项目判断/);
   assert.doesNotMatch(rulebook, /\| [^|\n]* \| 紧急 \|/);
 });
@@ -63,17 +67,24 @@ test('AGENTS documents layered rule governance and test scope', async () => {
   assert.match(agents, /rulesDocs\.test\.mjs/);
   assert.match(agents, /hardDecorationDeadlineRules\.test\.mjs/);
   assert.match(agents, /钉钉表单已填写延期情况时优先采用表单/);
+  assert.match(agents, /规则冲突/);
+  assert.match(agents, /先确认/);
   assert.doesNotMatch(agents, /同步修改根目录业务说明文档/);
 });
 
-test('frontend rules page keeps operational entry and summary cards', async () => {
+test('frontend developer docs page keeps operational rules entry and summaries', async () => {
   const publicIndex = await readFile(join(root, 'public', 'index.html'), 'utf8');
 
-  assert.match(publicIndex, /规则一览/);
+  assert.match(publicIndex, /id="developer-docs"/);
+  assert.doesNotMatch(publicIndex, /id="rules" data-page="rules"/);
   assert.match(publicIndex, /延期提醒规则/);
   assert.match(publicIndex, /硬装 \/ 软装 \/ 摆场/);
   assert.match(publicIndex, /面积与店态 Deadline 矩阵/);
   assert.match(publicIndex, /负责人责任身份与数据通道/);
   assert.match(publicIndex, /待核对通道/);
+  assert.match(publicIndex, /紧急 \/ 非紧急待处理 Top5/);
+  assert.match(publicIndex, /人工标记紧急/);
+  assert.match(publicIndex, /窗口天数升序/);
+  assert.doesNotMatch(publicIndex, /不再使用紧急程度判定|不再使用紧急判定/);
   assert.doesNotMatch(publicIndex, /<span>紧急<\/span>/);
 });

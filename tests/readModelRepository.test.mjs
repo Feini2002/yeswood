@@ -9,6 +9,7 @@ import {
   READ_MODEL_SCHEMA_VERSION,
   publishReadModelDirectory,
   readDashboardSessionReadModel,
+  readProjectDetailReadModel,
   readTeamWorkCompletionDetailReadModel,
 } from '../src/backend/readModelRepository.mjs';
 
@@ -21,8 +22,25 @@ async function writeJson(filePath, payload) {
   await fs.writeFile(filePath, `${JSON.stringify(payload)}\n`, 'utf8');
 }
 
-async function seedReadModel(baseDir, { owner = 'Owner A', context = 'direct', year = 2026, schemaVersion = READ_MODEL_SCHEMA_VERSION } = {}) {
+async function seedReadModel(
+  baseDir,
+  {
+    owner = 'Owner A',
+    context = 'direct',
+    year = 2026,
+    schemaVersion = READ_MODEL_SCHEMA_VERSION,
+    projectDetail = true,
+    processingQueues = true,
+    projectBoard = true,
+    projectBoardSplitFields = true,
+    catalogWorkflowFields = true,
+  } = {}
+) {
   const currentDir = path.join(baseDir, 'current');
+  const processingQueuesPayload = {
+    urgent: { totalCount: 0, topProjects: [] },
+    normal: { totalCount: 0, topProjects: [] },
+  };
   await writeJson(path.join(currentDir, 'manifest.json'), {
     schemaVersion,
     readModel: true,
@@ -31,6 +49,7 @@ async function seedReadModel(baseDir, { owner = 'Owner A', context = 'direct', y
     features: [
       'dashboard-session',
       'project-catalog-summary',
+      ...(projectDetail ? ['project-detail'] : []),
       'profile-dashboard',
       'team-metrics',
       'team-work-completion',
@@ -42,6 +61,28 @@ async function seedReadModel(baseDir, { owner = 'Owner A', context = 'direct', y
     years: [2025, 2026],
     owners: [{ owner, key: ownerKey(owner) }],
   });
+  const projectBoardPayload = {
+    year: 2026,
+    previousYear: 2025,
+    currentYearEntryTotal: 1,
+    currentYearEntryDirect: 1,
+    currentYearEntryFranchise: 0,
+    pausedOrCanceled: 0,
+    ...(projectBoardSplitFields ? { pausedProjectTotal: 0, canceledProjectTotal: 0 } : {}),
+    closedProjectTotal: 0,
+    closedProjectDirect: 0,
+    closedProjectFranchise: 0,
+    previousYearUnclosedTotal: 0,
+    previousYearUnclosedDirect: 0,
+    previousYearUnclosedFranchise: 0,
+  };
+  const catalogProject = {
+    id: 'p1',
+    name: 'P1',
+    ...(catalogWorkflowFields
+      ? { franchiseScope: 'direct', hardProgressStage: '施工图', softProgressStage: '未开始' }
+      : {}),
+  };
   await writeJson(path.join(currentDir, 'dashboard-session', 'core.json'), {
     schemaVersion,
     readModel: true,
@@ -56,23 +97,39 @@ async function seedReadModel(baseDir, { owner = 'Owner A', context = 'direct', y
     },
     filters: { provinces: [] },
     metrics: { summary: { totalProjects: 1 } },
-    departmentMetrics: { profile: 'department' },
+    departmentMetrics: { profile: 'department', ...(projectBoard ? { projectBoard: projectBoardPayload } : {}) },
     profileDashboards: {
       direct: { metrics: { profile: 'direct' }, projects: [{ id: 'p1', name: 'P1' }] },
       franchise: { metrics: { profile: 'franchise' }, projects: [] },
     },
-    projectCatalog: { items: [{ id: 'p1', name: 'P1' }], fieldCatalog: [] },
+    projectCatalog: { items: [catalogProject], fieldCatalog: [] },
     team: { owner, dashboardContext: context, year },
   });
   await writeJson(path.join(currentDir, 'project-catalog', 'summary.json'), {
-    items: [{ id: 'p1', name: 'P1' }],
+    items: [catalogProject],
     fieldCatalog: [],
     view: 'summary',
     readOnly: true,
   });
+  if (projectDetail) {
+    await writeJson(path.join(currentDir, 'project-detail', 'index.json'), {
+      projectIds: ['p1'],
+      total: 1,
+      readOnly: true,
+    });
+    await writeJson(path.join(currentDir, 'project-detail', `${ownerKey('p1')}.json`), {
+      id: 'p1',
+      name: 'P1',
+      province: 'Zhejiang',
+      rawFields: {
+        usefulNote: { display: 'Ready for detail', kind: 'text' },
+      },
+      readOnly: true,
+    });
+  }
   await writeJson(path.join(currentDir, 'profile-dashboard', 'department.json'), {
     profile: 'department',
-    metrics: { profile: 'department' },
+    metrics: { profile: 'department', ...(projectBoard ? { projectBoard: projectBoardPayload } : {}) },
     projects: [],
     readOnly: true,
   });
@@ -102,6 +159,7 @@ async function seedReadModel(baseDir, { owner = 'Owner A', context = 'direct', y
     dashboardContext: context,
     year,
     summary: {},
+    ...(processingQueues ? { processingQueues: processingQueuesPayload } : {}),
   });
   await writeJson(path.join(currentDir, 'team-work-completion-detail', `${ownerKey(owner)}__${context}__${year}.json`), {
     owner,
@@ -109,6 +167,7 @@ async function seedReadModel(baseDir, { owner = 'Owner A', context = 'direct', y
     dashboardContext: context,
     year,
     summary: {},
+    ...(processingQueues ? { processingQueues: processingQueuesPayload } : {}),
     projectsById: { p1: { id: 'p1', name: 'P1' } },
   });
   await writeJson(path.join(currentDir, 'team-responsibility-review', `${ownerKey(owner)}__${context}.json`), {
@@ -143,6 +202,48 @@ test('readDashboardSessionReadModel reads the current hard read model without a 
   assert.equal(result.payload.projectCatalog.items.length, 1);
 });
 
+test('readDashboardSessionReadModel rejects dashboard sessions without project board metrics', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir, { projectBoard: false });
+
+  const result = readDashboardSessionReadModel(
+    { readModelDir: tempDir },
+    { owner: 'Owner A', dashboardContext: 'direct', year: 2026 }
+  );
+
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.payload, null);
+  assert.match(result.reason, /project board/i);
+});
+
+test('readDashboardSessionReadModel rejects project board metrics without pause and cancel splits', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir, { projectBoardSplitFields: false });
+
+  const result = readDashboardSessionReadModel(
+    { readModelDir: tempDir },
+    { owner: 'Owner A', dashboardContext: 'direct', year: 2026 }
+  );
+
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.payload, null);
+  assert.match(result.reason, /project board/i);
+});
+
+test('readDashboardSessionReadModel rejects summary catalogs without workflow fields', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir, { catalogWorkflowFields: false });
+
+  const result = readDashboardSessionReadModel(
+    { readModelDir: tempDir },
+    { owner: 'Owner A', dashboardContext: 'direct', year: 2026 }
+  );
+
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.payload, null);
+  assert.match(result.reason, /project catalog/i);
+});
+
 test('readTeamWorkCompletionDetailReadModel tolerates trimmed owner input on the fast path', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
   await seedReadModel(tempDir);
@@ -158,6 +259,58 @@ test('readTeamWorkCompletionDetailReadModel tolerates trimmed owner input on the
   assert.deepEqual(result.payload.projectsById, { p1: { id: 'p1', name: 'P1' } });
 });
 
+test('readProjectDetailReadModel reads project detail by id without a snapshot', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir);
+
+  const result = readProjectDetailReadModel({ readModelDir: tempDir }, { projectId: 'p1' });
+
+  assert.equal(result.status, 'ready');
+  assert.equal(result.payload.id, 'p1');
+  assert.equal(result.payload.province, 'Zhejiang');
+  assert.equal(result.payload.rawFields.usefulNote.display, 'Ready for detail');
+});
+
+test('readProjectDetailReadModel distinguishes nonexistent projects from preparing details', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir);
+  const currentDir = path.join(tempDir, 'current');
+  await writeJson(path.join(currentDir, 'project-detail', 'index.json'), {
+    projectIds: ['p1', 'p2'],
+    total: 2,
+    readOnly: true,
+  });
+
+  const notFound = readProjectDetailReadModel({ readModelDir: tempDir }, { projectId: 'missing' });
+  const preparing = readProjectDetailReadModel({ readModelDir: tempDir }, { projectId: 'p2' });
+
+  assert.equal(notFound.status, 'not_found');
+  assert.equal(preparing.status, 'incomplete');
+  assert.match(preparing.reason, /missing/i);
+});
+
+test('readDashboardSessionReadModel serves compatible core while new detail models are warming', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir, {
+    schemaVersion: 5,
+    projectDetail: false,
+    processingQueues: false,
+  });
+
+  const result = readDashboardSessionReadModel(
+    { readModelDir: tempDir },
+    { owner: 'Owner A', dashboardContext: 'direct', year: 2026 }
+  );
+  const detail = readProjectDetailReadModel({ readModelDir: tempDir }, { projectId: 'p1' });
+
+  assert.equal(result.status, 'ready');
+  assert.equal(result.payload.readModel, true);
+  assert.equal(result.payload.schemaVersion, 5);
+  assert.equal(result.payload.team.workCompletion.owner, 'Owner A');
+  assert.equal(result.payload.team.workCompletion.processingQueues, undefined);
+  assert.equal(detail.status, 'incomplete');
+});
+
 test('readDashboardSessionReadModel rejects non-current schema read models', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
   await seedReadModel(tempDir, { schemaVersion: 1 });
@@ -170,6 +323,26 @@ test('readDashboardSessionReadModel rejects non-current schema read models', asy
   assert.equal(result.status, 'incomplete');
   assert.equal(result.payload, null);
   assert.match(result.reason, /manifest|schema|incomplete/i);
+});
+
+test('readDashboardSessionReadModel tolerates missing processing queues while detail reader rejects them', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir, { processingQueues: false });
+
+  const session = readDashboardSessionReadModel(
+    { readModelDir: tempDir },
+    { owner: 'Owner A', dashboardContext: 'direct', year: 2026 }
+  );
+  const detail = readTeamWorkCompletionDetailReadModel(
+    { readModelDir: tempDir },
+    { owner: 'Owner A', dashboardContext: 'direct', year: 2026 }
+  );
+
+  assert.equal(session.status, 'ready');
+  assert.equal(session.payload.team.workCompletion.processingQueues, undefined);
+  assert.equal(detail.status, 'incomplete');
+  assert.equal(detail.payload, null);
+  assert.match(detail.reason, /processing queue/i);
 });
 
 test('readDashboardSessionReadModel reports missing and incomplete states explicitly', async () => {

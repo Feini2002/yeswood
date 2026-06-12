@@ -87,13 +87,49 @@ test('readRawFieldDisplay reads exact and fuzzy raw field displays', () => {
 test('classifyProjectStage maps workflow text to stable director stages', () => {
   assert.deepEqual(classifyProjectStage(projects[0]), { key: 'softEntry', label: '方案设计' });
   assert.deepEqual(classifyProjectStage(projects[1]), { key: 'purchase', label: '采购推进' });
-  assert.deepEqual(classifyProjectStage(projects[2]), { key: 'paused', label: '暂停' });
+  assert.deepEqual(classifyProjectStage(projects[2]), { key: 'paused', label: '暂停/取消' });
+});
+
+test('classifyProjectStage treats repeated pause after recovery as current pause', () => {
+  assert.deepEqual(
+    classifyProjectStage({
+      rawFields: {
+        硬装项目进度: raw('恢复后再次暂停'),
+        软装项目进度: raw('未开始'),
+      },
+    }),
+    { key: 'paused', label: '暂停/取消' }
+  );
+});
+
+test('classifyProjectStage groups canceled projects into the paused/canceled lifecycle lane', () => {
+  assert.deepEqual(
+    classifyProjectStage({
+      rawFields: {
+        硬装项目进度: raw('施工图'),
+        软装项目进度: raw('取消'),
+      },
+    }),
+    { key: 'paused', label: '暂停/取消' }
+  );
+});
+
+test('classifyProjectStage keeps recovered pause projects in active lifecycle stages', () => {
+  assert.deepEqual(
+    classifyProjectStage({
+      rawFields: {
+        硬装项目进度: raw('曾暂停，现施工图推进'),
+        软装项目进度: raw('未开始'),
+      },
+    }),
+    { key: 'point', label: '点位设计' }
+  );
 });
 
 test('classifyProjectStage only advances from soft completion on final completion statuses', () => {
   const baseProject = {
     rawFields: {
-      硬装项目进度: raw('闭环'),
+      硬装项目进度: raw('施工图'),
       软装项目进度: raw('软装方案中'),
       软装方案开始时间: raw('2026-05-02'),
     },
@@ -132,7 +168,7 @@ test('classifyProjectStage only advances from soft completion on final completio
 test('classifyProjectStage does not advance from unfinished point status', () => {
   const baseProject = {
     rawFields: {
-      硬装项目进度: raw('闭环'),
+      硬装项目进度: raw('施工图'),
       软装项目进度: raw('点位'),
       软装方案开始时间: raw('2026-05-02'),
     },
@@ -154,8 +190,9 @@ test('classifyProjectStage does not advance from unfinished point status', () =>
   );
 });
 
-test('classifyProjectStage keeps company follow-up visible after design responsibility completion', () => {
+test('classifyProjectStage treats single-track workflow closure as company closed', () => {
   const project = {
+    id: 'hard-closed-stale-soft',
     rawFields: {
       硬装项目进度: raw('闭环'),
       躺平内部审核结束时间: raw('2026-05-12'),
@@ -165,7 +202,7 @@ test('classifyProjectStage keeps company follow-up visible after design responsi
     },
   };
 
-  assert.deepEqual(classifyProjectStage(project), { key: 'purchase', label: '采购推进' });
+  assert.deepEqual(classifyProjectStage(project), { key: 'closed', label: '闭环完成' });
   assert.deepEqual(
     classifyProjectStage({
       rawFields: {
@@ -178,8 +215,9 @@ test('classifyProjectStage keeps company follow-up visible after design responsi
   );
 });
 
-test('classifyProjectStage records product list without advancing the main soft workflow', () => {
+test('classifyProjectStage closes hard-closed projects even when soft track is stale', () => {
   const project = {
+    id: 'hard-closed-stale-soft',
     rawFields: {
       硬装项目进度: raw('闭环'),
       软装项目进度: raw('软装方案中'),
@@ -188,11 +226,8 @@ test('classifyProjectStage records product list without advancing the main soft 
     },
   };
 
-  assert.deepEqual(classifyProjectStage(project), { key: 'softEntry', label: '方案设计' });
-  assert.deepEqual(
-    filterProjects([project], { lifecycleStage: 'softEntry' }).map((item) => item.rawFields.软装项目进度.display),
-    ['软装方案中']
-  );
+  assert.deepEqual(classifyProjectStage(project), { key: 'closed', label: '闭环完成' });
+  assert.deepEqual(filterProjects([project], { lifecycleStage: 'closed' }).map((item) => item.id), [project.id]);
   assert.deepEqual(filterProjects([project], { lifecycleStage: 'purchase' }), []);
 });
 
@@ -374,7 +409,7 @@ test('filterProjects can drill by the same lifecycle stage used by the director 
   );
 });
 
-test('classifyProjectStage keeps post-design follow-up work before closed', () => {
+test('classifyProjectStage treats hard closure as closed even when follow-up fields are open', () => {
   assert.deepEqual(
     classifyProjectStage({
       progress: 90,
@@ -385,11 +420,11 @@ test('classifyProjectStage keeps post-design follow-up work before closed', () =
         软装发项目群时间: raw('2026-05-11'),
       },
     }),
-    { key: 'purchase', label: '采购推进' }
+    { key: 'closed', label: '闭环完成' }
   );
 });
 
-test('classifyProjectStage only treats both hard and soft workflow closure as fully closed', () => {
+test('classifyProjectStage does not treat construction review as company closure', () => {
   assert.deepEqual(
     classifyProjectStage({
       progress: 75,
@@ -419,7 +454,7 @@ test('classifyProjectStage only treats both hard and soft workflow closure as fu
   );
 });
 
-test('classifyProjectStage treats 未安排摆场 as before site handoff', () => {
+test('classifyProjectStage closes hard-closed projects even when soft stage says 未安排摆场', () => {
   assert.deepEqual(
     classifyProjectStage({
       progress: 75,
@@ -431,7 +466,7 @@ test('classifyProjectStage treats 未安排摆场 as before site handoff', () =>
         软装完成情况: raw('准时完成'),
       },
     }),
-    { key: 'purchase', label: '采购推进' }
+    { key: 'closed', label: '闭环完成' }
   );
 });
 
@@ -535,6 +570,79 @@ test('buildDirectorOverviewModel prefers complete department profile totals over
   assert.equal(model.summary.notStarted, 0);
 });
 
+test('buildDirectorOverviewModel prefers backend projectBoard over local summary recomputation', () => {
+  const model = buildDirectorOverviewModel({
+    projects: [
+      {
+        id: 'local-active',
+        name: 'local-active',
+        startDate: '2026-02-01',
+        rawFields: {
+          组别: raw('直营新店'),
+          启动时间: raw('2026-02-01'),
+          硬装项目进度: raw('施工图'),
+          软装项目进度: raw('软装方案'),
+        },
+      },
+    ],
+    departmentMetrics: {
+      projectBoard: {
+        year: 2026,
+        previousYear: 2025,
+        currentYearEntryTotal: 11,
+        currentYearEntryDirect: 7,
+        currentYearEntryFranchise: 4,
+        pausedOrCanceled: 3,
+        closedProjectTotal: 9,
+        closedProjectDirect: 5,
+        closedProjectFranchise: 4,
+        previousYearUnclosedTotal: 2,
+        previousYearUnclosedDirect: 1,
+        previousYearUnclosedFranchise: 1,
+      },
+    },
+    now: new Date('2026-06-01T00:00:00.000Z'),
+  });
+  const signals = Object.fromEntries(model.signals.map((item) => [item.key, item]));
+
+  assert.equal(signals.currentYearEntryTotal?.value, 11);
+  assert.equal(signals.pausedOrCanceled?.value, 3);
+  assert.equal(signals.closedProjectTotal?.value, 9);
+  assert.equal(signals.previousYearUnclosedTotal?.value, 2);
+});
+
+test('buildDirectorOverviewModel local fallback reads summary catalog workflow fields', () => {
+  const summaryProject = (id, startDate, franchiseScope, hardProgressStage, softProgressStage) => ({
+    id,
+    name: id,
+    startDate,
+    franchiseScope,
+    hardProgressStage,
+    softProgressStage,
+  });
+  const model = buildDirectorOverviewModel({
+    projects: [
+      summaryProject('direct-active', '2026-02-01', 'direct', '施工图', '软装方案中'),
+      summaryProject('franchise-paused', '2026-03-01', 'franchise', '暂停', '未开始'),
+      summaryProject('direct-canceled', '2026-04-01', 'direct', '施工图', '取消'),
+      summaryProject('franchise-closed', '2026-05-01', 'franchise', '闭环', '闭环'),
+      summaryProject('direct-canceled-after-close', '2026-05-15', 'direct', '闭环', '取消'),
+      summaryProject('direct-previous-unclosed', '2025-12-01', 'direct', '施工图', '软装方案中'),
+    ],
+    now: new Date('2026-06-01T00:00:00.000Z'),
+  });
+  const signals = Object.fromEntries(model.signals.map((item) => [item.key, item]));
+
+  assert.equal(signals.currentYearEntryTotal?.value, 2);
+  assert.equal(signals.currentYearEntryDirect?.value, 1);
+  assert.equal(signals.currentYearEntryFranchise?.value, 1);
+  assert.equal(signals.pausedOrCanceled?.value, 3);
+  assert.equal(signals.closedProjectTotal?.value, 1);
+  assert.equal(signals.closedProjectDirect?.value, 0);
+  assert.equal(signals.closedProjectFranchise?.value, 1);
+  assert.equal(signals.previousYearUnclosedTotal?.value, 1);
+});
+
 test('buildDirectorOverviewModel surfaces DingTalk form project board signals', () => {
   const formProject = (id, group, startDate, hardStage, softStage, status = '') => ({
     id,
@@ -549,7 +657,7 @@ test('buildDirectorOverviewModel surfaces DingTalk form project board signals', 
     },
   });
   const formProjects = [
-    formProject('direct-2026-closed', '直营新店', '2026-01-05', '闭环', '闭环'),
+    formProject('direct-2026-closed', '直营新店', '2026-01-05', '闭环', '待采购'),
     formProject('direct-2026-active', '直营新店', '2026-02-08', '施工图', '软装方案中'),
     formProject('franchise-2026-closed', '加盟新店', '2026-03-10', '闭环', '闭环'),
     formProject('franchise-2026-active', '加盟新店', '2026-04-12', '平面方案', '未开始'),
@@ -590,6 +698,31 @@ test('buildDirectorOverviewModel surfaces DingTalk form project board signals', 
   assert.equal(signals.closedProjectFranchise?.value, 2);
   assert.equal(signals.previousYearUnclosedDirect?.value, 1);
   assert.equal(signals.previousYearUnclosedFranchise?.value, 1);
+});
+
+test('buildDirectorOverviewModel only counts exact workflow closure as project board closed', () => {
+  const formProject = (id, hardStage, softStage) => ({
+    id,
+    name: id,
+    startDate: '2026-03-10',
+    rawFields: {
+      组别: raw('直营新店'),
+      启动时间: raw('2026-03-10'),
+      硬装项目进度: raw(hardStage),
+      软装项目进度: raw(softStage),
+    },
+  });
+  const model = buildDirectorOverviewModel({
+    projects: [
+      formProject('exact-hard-closed', '闭环', '待采购'),
+      formProject('generic-complete-label', '完成', '已完成'),
+    ],
+    now: new Date('2026-06-01T00:00:00.000Z'),
+  });
+  const signals = Object.fromEntries(model.signals.map((item) => [item.key, item]));
+
+  assert.equal(signals.closedProjectTotal?.value, 1);
+  assert.equal(signals.closedProjectDirect?.value, 1);
 });
 
 test('region matrix uses active projects, full store statuses, expandable province rows, and source-name audit', () => {

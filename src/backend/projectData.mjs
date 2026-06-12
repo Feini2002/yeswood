@@ -27,7 +27,12 @@ import {
   readStoreTierLabel,
   normalizePriorityStatus,
 } from './metrics/fieldSemantics.mjs';
-import { countPausedProjects, excludePausedProjects } from './metrics/pausedProjects.mjs';
+import {
+  countCanceledProjects,
+  countPausedOrCanceledProjects,
+  countPausedProjects,
+  excludePausedProjects,
+} from './metrics/pausedProjects.mjs';
 import { resolveOwnerMonthlyProjects, resolveProfileProjects } from './metrics/projectScopes.mjs';
 import {
   buildPersonDisplayLookup,
@@ -1014,6 +1019,8 @@ export { enrichProjectsForDisplay } from './personnelDisplay.mjs';
 export function calculateDashboardMetrics(projects, options = {}) {
   const normalizedArchitecture = normalizePersonnelArchitecture(options.personnelArchitecture || {});
   const pausedCount = countPausedProjects(projects);
+  const canceledCount = countCanceledProjects(projects);
+  const pausedOrCanceledCount = countPausedOrCanceledProjects(projects);
   const activeProjects = excludePausedProjects(projects);
   const responsibilityProjects = activeProjects.filter((project) => hasOpenDesignResponsibility(project));
   const totalProjects = activeProjects.length;
@@ -1054,8 +1061,12 @@ export function calculateDashboardMetrics(projects, options = {}) {
       highRiskProjects,
       averageProgress,
       pausedProjects: pausedCount,
+      canceledProjects: canceledCount,
+      pausedOrCanceledProjects: pausedOrCanceledCount,
     },
     pausedCount,
+    canceledCount,
+    pausedOrCanceledCount,
     totalScopeCount: projects.length,
     statusCounts: countBy(responsibilityProjects, (project) => project.status),
     priorityStatusCounts: countBy(responsibilityProjects, (project) => project.status),

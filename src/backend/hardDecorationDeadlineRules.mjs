@@ -320,7 +320,7 @@ function compareDate(a, b) {
 }
 
 function normalDeadlineStatus() {
-  return { key: 'normal', label: '不紧急', source: '硬装表单不再使用紧急判定' };
+  return { key: 'area_store_tier', label: '面积店态矩阵', source: '按面积店态矩阵计算' };
 }
 
 function resolveAreaBucket(area) {

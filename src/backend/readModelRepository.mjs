@@ -6,10 +6,11 @@ import path from 'node:path';
 import { paths } from './config.mjs';
 import { mergeTeamWorkCompletionDetailPayload } from './teamWorkCompletionPayload.mjs';
 
-export const READ_MODEL_SCHEMA_VERSION = 5;
+export const READ_MODEL_SCHEMA_VERSION = 8;
 const CURRENT_READ_MODEL_SCHEMA_VERSIONS = new Set([READ_MODEL_SCHEMA_VERSION]);
 export const DASHBOARD_SESSION_READ_MODEL_FEATURE = 'dashboard-session';
 export const PROJECT_CATALOG_SUMMARY_READ_MODEL_FEATURE = 'project-catalog-summary';
+export const PROJECT_DETAIL_READ_MODEL_FEATURE = 'project-detail';
 export const PROFILE_DASHBOARD_READ_MODEL_FEATURE = 'profile-dashboard';
 export const TEAM_METRICS_READ_MODEL_FEATURE = 'team-metrics';
 export const TEAM_WORK_COMPLETION_READ_MODEL_FEATURE = 'team-work-completion';
@@ -17,9 +18,12 @@ export const TEAM_WORK_COMPLETION_SUMMARY_READ_MODEL_FEATURE = 'team-work-comple
 export const TEAM_WORK_COMPLETION_DETAIL_READ_MODEL_FEATURE = 'team-work-completion-detail';
 export const TEAM_RESPONSIBILITY_REVIEW_READ_MODEL_FEATURE = 'team-responsibility-review';
 
+const MIN_DASHBOARD_SESSION_SCHEMA_VERSION = 5;
+
 export const REQUIRED_READ_MODEL_FEATURES = [
   DASHBOARD_SESSION_READ_MODEL_FEATURE,
   PROJECT_CATALOG_SUMMARY_READ_MODEL_FEATURE,
+  PROJECT_DETAIL_READ_MODEL_FEATURE,
   PROFILE_DASHBOARD_READ_MODEL_FEATURE,
   TEAM_METRICS_READ_MODEL_FEATURE,
   TEAM_WORK_COMPLETION_READ_MODEL_FEATURE,
@@ -27,6 +31,9 @@ export const REQUIRED_READ_MODEL_FEATURES = [
   TEAM_WORK_COMPLETION_DETAIL_READ_MODEL_FEATURE,
   TEAM_RESPONSIBILITY_REVIEW_READ_MODEL_FEATURE,
 ];
+const DASHBOARD_SESSION_REQUIRED_READ_MODEL_FEATURES = REQUIRED_READ_MODEL_FEATURES.filter(
+  (feature) => feature !== PROJECT_DETAIL_READ_MODEL_FEATURE
+);
 
 export function readModelBaseDir(config = {}) {
   if (config.readModelDir) {
@@ -62,6 +69,10 @@ function safeSegment(value) {
 
 function teamWorkCompletionFileName({ owner, dashboardContext, year }) {
   return `${hashToken(owner)}__${safeSegment(dashboardContext || 'all')}__${safeSegment(year)}.json`;
+}
+
+function projectDetailFileName(projectId = '') {
+  return `${hashToken(projectId)}.json`;
 }
 
 function teamResponsibilityReviewFileName({ owner, dashboardContext }) {
@@ -140,11 +151,26 @@ async function cleanupReadModelTempDirs(baseDir, { maxAgeMs = 60 * 60 * 1000, no
   }
 }
 
-function manifestIsComplete(manifest) {
+function currentSchemaVersion(version) {
+  return CURRENT_READ_MODEL_SCHEMA_VERSIONS.has(version);
+}
+
+function dashboardSessionSchemaVersion(version) {
+  const numeric = Number(version);
+  return Number.isInteger(numeric) && numeric >= MIN_DASHBOARD_SESSION_SCHEMA_VERSION && numeric <= READ_MODEL_SCHEMA_VERSION;
+}
+
+function manifestIsComplete(
+  manifest,
+  {
+    requiredFeatures = REQUIRED_READ_MODEL_FEATURES,
+    acceptsSchemaVersion = currentSchemaVersion,
+  } = {}
+) {
   return (
-    CURRENT_READ_MODEL_SCHEMA_VERSIONS.has(manifest?.schemaVersion) &&
+    acceptsSchemaVersion(manifest?.schemaVersion) &&
     manifest.readModel === true &&
-    REQUIRED_READ_MODEL_FEATURES.every((feature) => manifest.features?.includes(feature))
+    requiredFeatures.every((feature) => manifest.features?.includes(feature))
   );
 }
 
@@ -174,6 +200,55 @@ function readProjectCatalog(dir, payload = {}) {
   return payload.projectCatalog || readJsonFile(path.join(dir, 'project-catalog', 'summary.json')) || null;
 }
 
+const PROJECT_BOARD_REQUIRED_FIELDS = [
+  'currentYearEntryTotal',
+  'currentYearEntryDirect',
+  'currentYearEntryFranchise',
+  'pausedOrCanceled',
+  'pausedProjectTotal',
+  'canceledProjectTotal',
+  'closedProjectTotal',
+  'closedProjectDirect',
+  'closedProjectFranchise',
+  'previousYearUnclosedTotal',
+  'previousYearUnclosedDirect',
+  'previousYearUnclosedFranchise',
+];
+
+const PROJECT_CATALOG_REQUIRED_SUMMARY_FIELDS = ['franchiseScope', 'hardProgressStage', 'softProgressStage'];
+
+function hasProjectBoardMetrics(metrics = null) {
+  const board = metrics?.projectBoard;
+  return Boolean(
+    board &&
+      typeof board === 'object' &&
+      PROJECT_BOARD_REQUIRED_FIELDS.every((field) => Number.isFinite(Number(board[field])))
+  );
+}
+
+function hasDashboardProjectBoard(payload = {}, profileDashboards = {}) {
+  return (
+    hasProjectBoardMetrics(payload.departmentMetrics) ||
+    hasProjectBoardMetrics(profileDashboards?.department?.metrics || profileDashboards?.department)
+  );
+}
+
+function hasRequiredProjectCatalogSummaryFields(projectCatalog = null) {
+  if (!projectCatalog || !Array.isArray(projectCatalog.items)) {
+    return false;
+  }
+  if (projectCatalog.items.length === 0) {
+    return true;
+  }
+  return projectCatalog.items.every((project) =>
+    PROJECT_CATALOG_REQUIRED_SUMMARY_FIELDS.every((field) => Object.hasOwn(project || {}, field))
+  );
+}
+
+function readProjectDetailIndex(dir) {
+  return readJsonFile(path.join(dir, PROJECT_DETAIL_READ_MODEL_FEATURE, 'index.json'));
+}
+
 function readTeamPayloads(dir, { owner, dashboardContext, year }) {
   if (!owner) {
     return { metrics: null, workCompletion: null, responsibilityReview: null };
@@ -190,6 +265,23 @@ function readTeamPayloads(dir, { owner, dashboardContext, year }) {
     path.join(dir, 'team-responsibility-review', teamResponsibilityReviewFileName({ owner, dashboardContext }))
   );
   return { metrics, workCompletion, workCompletionDetail, responsibilityReview };
+}
+
+function processingQueuePayloadIsComplete(queue = null) {
+  if (!queue || typeof queue !== 'object' || !Array.isArray(queue.topProjects)) {
+    return false;
+  }
+  const totalCount = Number(queue.totalCount ?? queue.topProjects.length);
+  return Number.isFinite(totalCount);
+}
+
+function teamWorkCompletionHasProcessingQueues(payload = null) {
+  const queues = payload?.processingQueues;
+  return (
+    Boolean(queues && typeof queues === 'object') &&
+    processingQueuePayloadIsComplete(queues.urgent) &&
+    processingQueuePayloadIsComplete(queues.normal)
+  );
 }
 
 function ownerFromManifest(manifest, owner) {
@@ -226,14 +318,19 @@ function buildReadModelResult(dir, params = {}, { stale = false, currentUnavaila
   if (!manifest) {
     return { status: 'missing', payload: null, reason: 'read model manifest is missing' };
   }
-  if (!manifestIsComplete(manifest)) {
+  if (
+    !manifestIsComplete(manifest, {
+      requiredFeatures: DASHBOARD_SESSION_REQUIRED_READ_MODEL_FEATURES,
+      acceptsSchemaVersion: dashboardSessionSchemaVersion,
+    })
+  ) {
     return { status: 'incomplete', payload: null, reason: 'read model manifest is incomplete' };
   }
 
   const payload = readJsonFile(path.join(dir, 'dashboard-session', 'core.json'));
   if (
     !payload ||
-    !CURRENT_READ_MODEL_SCHEMA_VERSIONS.has(payload.schemaVersion) ||
+    !dashboardSessionSchemaVersion(payload.schemaVersion) ||
     payload.snapshotHash !== manifest.snapshotHash
   ) {
     return { status: 'incomplete', payload: null, reason: 'dashboard session read model is missing' };
@@ -249,6 +346,12 @@ function buildReadModelResult(dir, params = {}, { stale = false, currentUnavaila
   }
   if (!profileDashboards.direct || !profileDashboards.franchise || !profileDashboards.department) {
     return { status: 'incomplete', payload: null, reason: 'profile dashboard read model is missing' };
+  }
+  if (!hasDashboardProjectBoard(payload, profileDashboards)) {
+    return { status: 'incomplete', payload: null, reason: 'dashboard session project board metrics are missing' };
+  }
+  if (!hasRequiredProjectCatalogSummaryFields(projectCatalog)) {
+    return { status: 'incomplete', payload: null, reason: 'project catalog summary workflow fields are missing' };
   }
 
   const team = readTeamPayloads(dir, { owner, dashboardContext, year });
@@ -311,12 +414,51 @@ function buildTeamWorkCompletionDetailReadModelResult(
     return { status: 'incomplete', payload: null, reason: 'team work completion detail read model is missing' };
   }
   const payload = mergeTeamWorkCompletionDetailPayload(team.workCompletion || {}, team.workCompletionDetail);
+  if (!teamWorkCompletionHasProcessingQueues(payload)) {
+    return { status: 'incomplete', payload: null, reason: 'team work completion processing queues are missing' };
+  }
   return {
     status: stale ? 'stale' : 'ready',
     payload:
       params.requestedOwner && payload?.requestedOwner !== params.requestedOwner
         ? { ...payload, requestedOwner: params.requestedOwner }
         : payload,
+    reason: currentUnavailableReason || undefined,
+  };
+}
+
+function buildProjectDetailReadModelResult(
+  dir,
+  params = {},
+  { stale = false, currentUnavailableReason = '' } = {}
+) {
+  const manifest = readManifest(dir);
+  if (!manifest) {
+    return { status: 'missing', payload: null, reason: 'read model manifest is missing' };
+  }
+  if (!manifestIsComplete(manifest)) {
+    return { status: 'incomplete', payload: null, reason: 'read model manifest is incomplete' };
+  }
+
+  const projectId = String(params.projectId || '').trim();
+  if (!projectId) {
+    return { status: 'missing', payload: null, reason: 'project id is required' };
+  }
+  const index = readProjectDetailIndex(dir);
+  if (!index || !Array.isArray(index.projectIds)) {
+    return { status: 'incomplete', payload: null, reason: 'project detail read model index is missing' };
+  }
+  if (!index.projectIds.includes(projectId)) {
+    return { status: 'not_found', payload: null, reason: 'project detail read model is not indexed' };
+  }
+
+  const payload = readJsonFile(path.join(dir, PROJECT_DETAIL_READ_MODEL_FEATURE, projectDetailFileName(projectId)));
+  if (!payload) {
+    return { status: 'incomplete', payload: null, reason: 'project detail read model file is missing' };
+  }
+  return {
+    status: stale ? 'stale' : 'ready',
+    payload,
     reason: currentUnavailableReason || undefined,
   };
 }
@@ -350,6 +492,23 @@ export function readTeamWorkCompletionDetailReadModel(config = {}, params = {}) 
     currentUnavailableReason: current.reason || current.status,
   });
   if (stale.status === 'stale') {
+    return stale;
+  }
+  return current;
+}
+
+export function readProjectDetailReadModel(config = {}, params = {}) {
+  const readParams = { ...params, config };
+  const current = buildProjectDetailReadModelResult(currentReadModelDir(config), readParams);
+  if (current.status === 'ready' || current.status === 'not_found') {
+    return current;
+  }
+
+  const stale = buildProjectDetailReadModelResult(lastKnownGoodReadModelDir(config), readParams, {
+    stale: true,
+    currentUnavailableReason: current.reason || current.status,
+  });
+  if (stale.status === 'stale' || stale.status === 'not_found') {
     return stale;
   }
   return current;

@@ -113,6 +113,9 @@ export async function loadPublicAppHarness({ fetchImpl } = {}) {
   runtimeStore.projectCatalogPromise = null;
   runtimeStore.drillProjectsCache = new Map();
   runtimeStore.drillResolvePromises = new Map();
+  runtimeStore.drillPreloadKeys = new Set();
+  runtimeStore.overviewLifecycleDrillPreloadKey = '';
+  runtimeStore.overviewLifecycleDrillPreloadPromise = null;
   runtimeStore.projectDetailCache = new Map();
   runtimeStore.projectDetailPromises = new Map();
   runtimeStore.profileDashboardPromises = new Map();
@@ -171,6 +174,7 @@ export async function loadPublicAppHarness({ fetchImpl } = {}) {
     handleTeamCompletionMemberClick: mod.handleTeamCompletionMemberClick,
     handleTeamCompletionMonthClick: mod.handleTeamCompletionMonthClick,
     handleTeamCompletionMemberModalClick: mod.handleTeamCompletionMemberModalClick,
+    handleTeamCompletionProcessingQueueClick: mod.handleTeamCompletionProcessingQueueClick,
     openTeamCompletionGroupModal: mod.openTeamCompletionGroupModal,
     openTeamCompletionMemberModal: mod.openTeamCompletionMemberModal,
     openTeamCompletionMonthModal: mod.openTeamCompletionMonthModal,

@@ -1033,6 +1033,15 @@
   white-space: nowrap;
 }
 
+.project-detail-lifecycle-note {
+  border-bottom-color: #D9E1D3;
+  background: #F7FAF2;
+}
+
+.project-detail-lifecycle-note b {
+  color: #163C2B;
+}
+
 .project-detail-deadline {
   padding: 14px 18px;
   border-bottom: 1px solid #D9E1D3;

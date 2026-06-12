@@ -1,10 +1,6 @@
 import { isInYear, parseDateForMetrics } from './calculators.mjs';
-import { readFranchiseScope, readStoreNatureKey, readWorkflowStage } from './fieldSemantics.mjs';
-import { isPausedProject } from './pausedProjects.mjs';
-import { readProjectStatusFromRawFields } from '../projectStatus.mjs';
-
-const CANCELED_STATUSES = new Set(['取消', '已取消', '关闭', '已关闭']);
-const CANCELED_PATTERN = /取消|已取消|关闭|已关闭/;
+import { readFranchiseScope, readStoreNatureKey } from './fieldSemantics.mjs';
+import { isCanceledProject, isPausedOrCanceledProject } from './pausedProjects.mjs';
 
 export function isDirectFranchiseScoped(project) {
   const scope = readFranchiseScope(project);
@@ -23,18 +19,11 @@ export function matchesEntryScope(project, scope = 'directFranchise') {
 }
 
 export function isEntryExcludedCanceled(project) {
-  const status = readProjectStatusFromRawFields(project?.rawFields, project?.status);
-  if (CANCELED_STATUSES.has(status)) {
-    return true;
-  }
-  const hardStage = readWorkflowStage(project, { discipline: 'hard' });
-  const softStage = readWorkflowStage(project, { discipline: 'soft' });
-  const text = [hardStage, softStage, status].filter(Boolean).join(' ');
-  return CANCELED_PATTERN.test(text);
+  return isCanceledProject(project);
 }
 
 export function isEntryExcludedProject(project) {
-  return isPausedProject(project) || isEntryExcludedCanceled(project);
+  return isPausedOrCanceledProject(project);
 }
 
 export function hasValidEntryStartDate(project) {

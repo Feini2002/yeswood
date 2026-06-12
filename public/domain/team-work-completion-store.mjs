@@ -1,6 +1,7 @@
 import { TEAM_WORK_COMPLETION_CACHE_LIMIT } from '../lib/constants.mjs';
 import { runtimeStore } from '../lib/runtime-flags.mjs';
 import { state } from '../lib/state.mjs';
+import { rememberProjectDetails } from './project-catalog.mjs';
 
 function teamWorkCompletionSnapshotCacheKey(snapshot = state.snapshot) {
   return [
@@ -58,7 +59,24 @@ export function rememberTeamWorkCompletion(
     [requestedKey]: payload,
     [canonicalKey]: payload,
   };
+  rememberProjectDetails(payload.projectDetailsById);
   pruneTeamWorkCompletionCache();
+}
+
+export function teamWorkCompletionReviewMatchesOwner(review = null, owner = '') {
+  const requestedOwner = String(owner || '').trim();
+  if (!review || !requestedOwner) {
+    return false;
+  }
+  return [
+    review.owner,
+    review.requestedOwner,
+    review.displayName,
+    review.team?.owner,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .includes(requestedOwner);
 }
 
 export function teamWorkCompletionHasDetail(review = state.teamWorkCompletion) {

@@ -7,6 +7,7 @@ import {
 } from './fieldSemantics.mjs';
 import {
   calculateFieldCoverage,
+  isInYear,
   calculateMonthlyOps,
   calculateStoreSegmentKpis,
   calculateTierKpis,
@@ -14,8 +15,9 @@ import {
 } from './calculators.mjs';
 import { STORE_SEGMENT_LABELS, STORE_SEGMENT_ORDER } from './fieldSemantics.mjs';
 import { buildAnnualEntryStructure } from './buildAnnualEntryStructure.mjs';
-import { countYearEntry } from './entryScope.mjs';
-import { partitionProjectsByPaused } from './pausedProjects.mjs';
+import { countYearEntry, isDirectFranchiseScoped } from './entryScope.mjs';
+import { isPausedOrCanceledProject, partitionProjectsByPaused } from './pausedProjects.mjs';
+import { readFranchiseScope, readWorkflowStage } from './fieldSemantics.mjs';
 import { getMetricDefinitions, getProfile, MONTHLY_OPS_KEYS, TIER_LABELS } from './profiles.mjs';
 import { filterProjectsByProfile } from './scopes.mjs';
 import { findResponsibilityIdentity } from '../responsibilityIdentities.mjs';
@@ -170,10 +172,51 @@ function buildCurrentYearEntry(allProjects, profileId, options = {}) {
   };
 }
 
+function isProjectBoardClosed(project) {
+  return readWorkflowStage(project, { discipline: 'hard' }) === '闭环' || readWorkflowStage(project, { discipline: 'soft' }) === '闭环';
+}
+
+function countBoardProjects(projects, predicate, scope = '') {
+  return projects.filter((project) => (!scope || readFranchiseScope(project) === scope) && predicate(project)).length;
+}
+
+function buildProjectBoardSummary(allProjects = [], options = {}) {
+  const now = options.now || new Date();
+  const year = options.year ?? dashboardYear(now);
+  const previousYear = year - 1;
+  const scopedProjects = (allProjects || []).filter(isDirectFranchiseScoped);
+  const pausedOrCanceledPredicate = (project) => isPausedOrCanceledProject(project);
+  const closedPredicate = (project) => !isPausedOrCanceledProject(project) && isProjectBoardClosed(project);
+  const previousYearUnclosedPredicate = (project) =>
+    isInYear(project?.startDate, previousYear) && !isPausedOrCanceledProject(project) && !isProjectBoardClosed(project);
+
+  return {
+    year,
+    previousYear,
+    currentYearEntryTotal: countYearEntry(allProjects, year, { scope: 'directFranchise' }),
+    currentYearEntryDirect: countYearEntry(allProjects, year, { scope: 'direct' }),
+    currentYearEntryFranchise: countYearEntry(allProjects, year, { scope: 'franchise' }),
+    pausedOrCanceled: countBoardProjects(scopedProjects, pausedOrCanceledPredicate),
+    pausedProjectTotal: countBoardProjects(scopedProjects, (project) => partitionProjectsByPaused([project]).paused.length === 1),
+    canceledProjectTotal: countBoardProjects(scopedProjects, (project) => partitionProjectsByPaused([project]).canceled.length === 1),
+    closedProjectTotal: countBoardProjects(scopedProjects, closedPredicate),
+    closedProjectDirect: countBoardProjects(scopedProjects, closedPredicate, 'direct'),
+    closedProjectFranchise: countBoardProjects(scopedProjects, closedPredicate, 'franchise'),
+    previousYearUnclosedTotal: countBoardProjects(scopedProjects, previousYearUnclosedPredicate),
+    previousYearUnclosedDirect: countBoardProjects(scopedProjects, previousYearUnclosedPredicate, 'direct'),
+    previousYearUnclosedFranchise: countBoardProjects(scopedProjects, previousYearUnclosedPredicate, 'franchise'),
+  };
+}
+
 export function composeDashboardMetrics(allProjects, profileId, options = {}) {
   const profile = getProfile(profileId);
   const scopedProjects = filterProjectsByProfile(allProjects, profileId, options);
-  const { active: metricsProjects, paused: pausedProjects } = partitionProjectsByPaused(scopedProjects);
+  const {
+    active: metricsProjects,
+    paused: pausedProjects,
+    canceled: canceledProjects,
+    stopped: pausedOrCanceledProjects,
+  } = partitionProjectsByPaused(scopedProjects);
   const tiers = resolveProfileTiers(profile, metricsProjects);
   const tierLabels = resolveTierLabels(metricsProjects, tiers);
   const tierValues = {};
@@ -214,8 +257,11 @@ export function composeDashboardMetrics(allProjects, profileId, options = {}) {
     monthlyOpsPerspective: buildMonthlyOpsPerspective(baseMetricOptions.ownerDiscipline),
     scopeCount: metricsProjects.length,
     pausedCount: pausedProjects.length,
+    canceledCount: canceledProjects.length,
+    pausedOrCanceledCount: pausedOrCanceledProjects.length,
     totalScopeCount: scopedProjects.length,
     currentYearEntry: buildCurrentYearEntry(entryStructureProjects, profile.id, options),
+    projectBoard: buildProjectBoardSummary(allProjects, options),
     tiers: tierValues,
     monthlyOps,
     totals: buildTotals(tierValues, monthlyOps, tiers),

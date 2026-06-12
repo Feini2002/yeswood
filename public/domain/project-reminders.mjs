@@ -8,6 +8,7 @@ import {
 import {
   readProjectNodeValue,
   hasProjectNodeValue,
+  isCanceledWorkflowStage,
   isPausedWorkflowStage,
   hasActivePointDesignStartSignal,
   needsPointCompletionEvidence,
@@ -26,9 +27,10 @@ import {
   resolvePrimaryWorkflowDiscipline,
   resolveWorkflowStageDateRule,
   isProjectNodeStatusComplete,
+  isPausedOrCanceledProject,
+  projectStopState,
   PROJECT_NODE_FIELD_ALIASES,
   HARD_SCHEME_COMPLETION_DATE_FIELDS,
-  PAUSED_STAGE_PATTERN,
   FOLLOW_UP_STAGE_PATTERN,
   projectWorkbenchStageRank,
   isProjectWorkflowClosed,
@@ -40,7 +42,7 @@ const HARD_DEADLINE_REMINDER_TYPES = new Set(['missing_field', 'manual_review', 
 const HARD_DEADLINE_REMINDER_SOURCES = new Set(['system_deadline', 'missing_field', 'manual_review', 'form_conflict']);
 
 export function projectFieldGapReminders(project) {
-  if (isProjectWorkflowClosed(project)) {
+  if (isProjectWorkflowClosed(project) || isPausedOrCanceledProject(project)) {
     return [];
   }
 
@@ -232,13 +234,18 @@ export function resolvePrimaryProjectKeyDate(project) {
   const hardClosed = isHardWorkflowClosed(project);
   const softClosed = isSoftDesignClosed(project);
   const companyClosed = isCompanyLifecycleClosed(project);
+  const stopState = projectStopState(project);
 
-  if (PAUSED_STAGE_PATTERN.test(rawHardStage) || PAUSED_STAGE_PATTERN.test(rawSoftStage)) {
+  if (stopState.key !== 'active') {
+    const statusStage =
+      stopState.key === 'canceled'
+        ? [rawHardStage, rawSoftStage].find(isCanceledWorkflowStage)
+        : [rawHardStage, rawSoftStage].find(isPausedWorkflowStage);
     return makeProjectReminder({
-      label: '暂停',
-      discipline: PAUSED_STAGE_PATTERN.test(rawSoftStage) ? 'soft' : 'hard',
-      stage: PAUSED_STAGE_PATTERN.test(rawSoftStage) ? rawSoftStage : rawHardStage,
-      message: '项目暂停中',
+      label: stopState.label,
+      discipline: statusStage === rawSoftStage ? 'soft' : 'hard',
+      stage: statusStage || rawHardStage || rawSoftStage,
+      message: stopState.message,
       kind: 'status',
     });
   }
@@ -467,8 +474,7 @@ export function resolvePointHandoffReminder(project) {
     isSleepStoreProject(project) ||
     isCompanyLifecycleClosed(project) ||
     !hasActivePointDesignStartSignal(project) ||
-    isPausedWorkflowStage(readWorkflowStage(project, 'hard')) ||
-    isPausedWorkflowStage(readWorkflowStage(project, 'soft')) ||
+    isPausedOrCanceledProject(project) ||
     isSoftDesignClosed(project) ||
     hasProjectNodeValue(project, 'pointDone')
   ) {
@@ -485,11 +491,15 @@ export function resolvePointHandoffReminder(project) {
 
 
 export function resolveProjectKeyDateReminders(project) {
+  const statusReminder = resolvePrimaryProjectKeyDate(project);
+  if (statusReminder.kind === 'status' && ['暂停', '取消'].includes(statusReminder.label)) {
+    return [statusReminder];
+  }
   const systemPrimary = normalizeSystemProjectReminder(project?.primaryReminder);
   if (systemPrimary && !isHardDeadlineKeyDateException(systemPrimary)) {
     return [systemPrimary];
   }
-  const primary = resolvePrimaryProjectKeyDate(project);
+  const primary = statusReminder;
   const reminders = isEmptyProjectReminder(primary) ? [] : [primary];
   const pointReminder = resolvePointHandoffReminder(project);
   if (pointReminder && !reminders.some((item) => projectReminderIdentity(item) === projectReminderIdentity(pointReminder))) {
@@ -526,7 +536,7 @@ export function formatProjectReminderText(keyDate) {
 
 
 export function readProjectKeyDate(project) {
-  if (isProjectWorkflowClosed(project)) {
+  if (isProjectWorkflowClosed(project) && !isPausedOrCanceledProject(project)) {
     return '--';
   }
 

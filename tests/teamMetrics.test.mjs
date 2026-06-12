@@ -19,6 +19,7 @@ import {
   readPrecomputedTeamResponsibilityReview,
   readPrecomputedTeamWorkCompletion,
 } from '../src/backend/precomputeTeamDashboards.mjs';
+import { READ_MODEL_SCHEMA_VERSION } from '../src/backend/readModelRepository.mjs';
 import { createServer } from '../src/backend/server.mjs';
 import { syncProjects } from '../src/backend/syncService.mjs';
 
@@ -1598,7 +1599,7 @@ test('/api/dashboard-session returns a precomputed local browsing bundle', async
       const payload = await getJson(port, '/api/dashboard-session?context=all&year=2026');
 
       assert.equal(payload.status, 200);
-      assert.equal(payload.body.schemaVersion, 5);
+      assert.equal(payload.body.schemaVersion, READ_MODEL_SCHEMA_VERSION);
       assert.equal(payload.body.readOnly, true);
       assert.equal(payload.body.snapshotHash, precomputeSnapshotHash(sourceSnapshot, sourceSnapshot.personnelArchitecture));
       assert.equal(payload.body.snapshot.source, sourceSnapshot.source);

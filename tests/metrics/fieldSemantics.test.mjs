@@ -324,12 +324,16 @@ test('normalizePriorityStatus maps legacy and empty values to 未设置', () => 
 test('isHardNotStarted and isHardInProgress follow hard workflow rules', () => {
   const notStarted = sampleProject({ rawFields: { 硬装项目进度: { display: '未开始' } } });
   const paused = sampleProject({ rawFields: { 硬装项目进度: { display: '暂停' } } });
+  const recoveredPaused = sampleProject({ rawFields: { 硬装项目进度: { display: '暂停后恢复，现施工图推进' } } });
+  const rePaused = sampleProject({ rawFields: { 硬装项目进度: { display: '暂停后恢复又暂停' } } });
   const inProgress = sampleProject({ rawFields: { 硬装项目进度: { display: '施工图' } } });
   const meetingDone = sampleProject({ rawFields: { 硬装项目进度: { display: '完成上会' } } });
 
   assert.equal(isHardNotStarted(notStarted), true);
   assert.equal(isHardInProgress(notStarted), false);
-  assert.equal(isHardInProgress(paused), true);
+  assert.equal(isHardInProgress(paused), false);
+  assert.equal(isHardInProgress(recoveredPaused), true);
+  assert.equal(isHardInProgress(rePaused), false);
   assert.equal(isHardInProgress(inProgress), true);
   assert.equal(isHardInProgress(meetingDone), true);
   assert.equal(isWorkflowClosed(meetingDone, { discipline: 'hard' }), false);
@@ -511,12 +515,27 @@ test('isProjectNotStarted requires both hard and soft not started', () => {
       软装项目进度: { display: '暂停' },
     },
   });
+  const softRecoveredPaused = sampleProject({
+    rawFields: {
+      硬装项目进度: { display: '未开始' },
+      软装项目进度: { display: '暂停后恢复，现待采购' },
+    },
+  });
+  const softRePaused = sampleProject({
+    rawFields: {
+      硬装项目进度: { display: '未开始' },
+      软装项目进度: { display: '恢复后再次暂停' },
+    },
+  });
 
   assert.equal(isProjectNotStarted(hardOnly), false);
   assert.equal(isProjectNotStarted(bothNotStarted), true);
   assert.equal(isProjectNotStarted(softPaused), false);
   assert.equal(isProjectNotStarted(softPaused, { includeSoftPause: true }), true);
   assert.equal(isSoftNotStarted(softPaused, { includePause: true }), true);
+  assert.equal(isProjectNotStarted(softRecoveredPaused, { includeSoftPause: true }), false);
+  assert.equal(isSoftNotStarted(softRecoveredPaused, { includePause: true }), false);
+  assert.equal(isProjectNotStarted(softRePaused, { includeSoftPause: true }), true);
 });
 
 test('isProjectInProgress is true when hard or soft is advancing', () => {
@@ -538,10 +557,31 @@ test('isProjectInProgress is true when hard or soft is advancing', () => {
       软装项目进度: { display: '未开始' },
     },
   });
+  const currentPaused = sampleProject({
+    rawFields: {
+      硬装项目进度: { display: '暂停' },
+      软装项目进度: { display: '未开始' },
+    },
+  });
+  const recoveredPaused = sampleProject({
+    rawFields: {
+      硬装项目进度: { display: '暂停后恢复，现施工图推进' },
+      软装项目进度: { display: '未开始' },
+    },
+  });
+  const rePaused = sampleProject({
+    rawFields: {
+      硬装项目进度: { display: '暂停后恢复又暂停' },
+      软装项目进度: { display: '未开始' },
+    },
+  });
 
   assert.equal(isProjectInProgress(hardOnly), true);
   assert.equal(isProjectInProgress(softOnly), true);
   assert.equal(isProjectInProgress(neither), false);
+  assert.equal(isProjectInProgress(currentPaused), false);
+  assert.equal(isProjectInProgress(recoveredPaused), true);
+  assert.equal(isProjectInProgress(rePaused), false);
 });
 
 test('readStoreTier and readFranchiseScope parse tier and scope fields', () => {

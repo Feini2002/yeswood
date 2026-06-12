@@ -16,6 +16,24 @@ const TEAM_OWNER_ROLE_LABELS = {
 const SOLE_DUAL_DISCIPLINE_OWNER_NAME = '杨锦帆';
 const CREATIVE_OWNER_CATEGORY_LABEL = '创意负责人';
 
+function readStoredTeamOwner() {
+  try {
+    return String(localStorage.getItem(TEAM_OWNER_STORAGE_KEY) || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+function storedTeamOwnerIsSelectable(storedOwner, options = [], pageId = '') {
+  if (!storedOwner) {
+    return false;
+  }
+  if (options.some((item) => item.owner === storedOwner)) {
+    return true;
+  }
+  return (pageId === 'teams' || pageId === 'owner-review') && !teamOwnerDirectoryReady();
+}
+
 export function peopleFromArchitecture(architecture = {}) {
   const rawPeople = architecture.people || {};
   const people = Array.isArray(rawPeople) ? rawPeople : Object.values(rawPeople);
@@ -120,8 +138,8 @@ export function resolveTeamOwner() {
   if (pageId === 'teams' && owner) {
     return owner;
   }
-  const stored = localStorage.getItem(TEAM_OWNER_STORAGE_KEY);
-  if (stored && options.some((item) => item.owner === stored)) {
+  const stored = readStoredTeamOwner();
+  if (storedTeamOwnerIsSelectable(stored, options, pageId)) {
     return stored;
   }
   return options[0]?.owner || '';
@@ -143,8 +161,8 @@ export function resolveOwnerReviewOwner() {
   if ((pageId === 'teams' || pageId === 'owner-review') && owner) {
     return owner;
   }
-  const stored = localStorage.getItem(TEAM_OWNER_STORAGE_KEY);
-  if (stored && options.some((item) => item.owner === stored)) {
+  const stored = readStoredTeamOwner();
+  if (storedTeamOwnerIsSelectable(stored, options, pageId)) {
     return stored;
   }
   return options[0]?.owner || '';

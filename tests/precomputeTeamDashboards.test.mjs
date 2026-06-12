@@ -137,6 +137,149 @@ test('precomputeTeamDashboards writes work completion payloads that match live c
   assert.deepEqual(actual.monthly.months[5].projectIds.lifecycle, ['direct-2026']);
 });
 
+test('precomputeTeamDashboards keeps processing queues in the summary payload sorted by delivery window', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'precompute-team-dashboard-'));
+  const config = { precomputeDir: path.join(tempDir, 'precomputed') };
+  const activeProject = (id, { status = '一般', startDate = '2026-06-01', deliveryDate = '', dueDate = '' } = {}) => ({
+    ...project(id, {
+      项目状态: status,
+      硬装项目进度: '施工中',
+      软装项目进度: '软装方案',
+      启动时间: startDate,
+      商场交付时间: deliveryDate,
+      计划开业时间: dueDate,
+      项目闭环时间: '',
+      闭环周期: '',
+    }),
+    status,
+    startDate,
+    dueDate: dueDate || deliveryDate,
+  });
+  const sourceSnapshot = snapshot({
+    sourceRecords: 11,
+    totalRecords: 11,
+    projects: [
+      activeProject('urgent-window-2', {
+        status: '紧急',
+        startDate: '2026-06-01',
+        deliveryDate: '2026-06-03',
+      }),
+      activeProject('urgent-due-fallback', {
+        status: '紧急',
+        startDate: '2026-06-01',
+        dueDate: '2026-06-05',
+      }),
+      activeProject('urgent-window-7', {
+        status: '紧急插队',
+        startDate: '2026-06-01',
+        deliveryDate: '2026-06-08',
+      }),
+      activeProject('normal-window-1', {
+        status: '一般',
+        startDate: '2026-06-01',
+        deliveryDate: '2026-06-02',
+      }),
+      activeProject('normal-window-3', {
+        status: '不紧急',
+        startDate: '2026-06-01',
+        deliveryDate: '2026-06-04',
+      }),
+      activeProject('normal-window-4', {
+        status: '一般',
+        startDate: '2026-06-01',
+        deliveryDate: '2026-06-05',
+      }),
+      activeProject('normal-window-5', {
+        status: '一般',
+        startDate: '2026-06-01',
+        deliveryDate: '2026-06-06',
+      }),
+      activeProject('normal-window-6', {
+        status: '一般',
+        startDate: '2026-06-01',
+        deliveryDate: '2026-06-07',
+      }),
+      activeProject('normal-window-7', {
+        status: '一般',
+        startDate: '2026-06-01',
+        deliveryDate: '',
+        dueDate: '2026-06-08',
+      }),
+      activeProject('normal-nonurgent-literal', {
+        status: '非紧急',
+        startDate: '2026-06-01',
+        deliveryDate: '2026-06-09',
+      }),
+      project('closed-urgent', { 项目状态: '紧急', 商场交付时间: '2026-06-02' }),
+    ],
+  });
+  const [owner] = ownersFromSnapshot(sourceSnapshot, personnelArchitecture);
+
+  await precomputeTeamDashboards(sourceSnapshot, {
+    config,
+    contexts: ['direct'],
+    years: [2026],
+    now: new Date('2026-06-11T00:00:00.000Z'),
+  });
+
+  const summary = readPrecomputedTeamWorkCompletion(config, sourceSnapshot, personnelArchitecture, {
+    owner,
+    requestedOwner: owner,
+    dashboardContext: 'direct',
+    year: 2026,
+  });
+
+  assert.equal(summary.projectsById, undefined);
+  assert.equal(summary.processingQueues.urgent.totalCount, 3);
+  assert.deepEqual(summary.processingQueues.urgent.topProjects.map((item) => item.id), [
+    'urgent-window-2',
+    'urgent-due-fallback',
+    'urgent-window-7',
+  ]);
+  assert.equal(summary.processingQueues.normal.totalCount, 7);
+  assert.deepEqual(summary.processingQueues.normal.topProjects.map((item) => item.id), [
+    'normal-window-1',
+    'normal-window-3',
+    'normal-window-4',
+    'normal-window-5',
+    'normal-window-6',
+  ]);
+  assert.equal(summary.processingQueues.normal.projects, undefined);
+  assert.equal(summary.processingQueues.normal.topProjects[1].urgent, false);
+  assert.equal(summary.processingQueues.urgent.topProjects[0].windowDays, 2);
+  assert.equal(summary.processingQueues.urgent.topProjects[1].targetDateSource, '计划开业时间');
+  assert.equal(summary.processingQueues.normal.topProjects.at(-1).targetDateSource, '商场交付时间');
+});
+
+test('readPrecomputedTeamWorkCompletion rejects summary payloads without processing queues', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'precompute-team-dashboard-'));
+  const config = { precomputeDir: path.join(tempDir, 'precomputed') };
+  const sourceSnapshot = snapshot();
+  const [owner] = ownersFromSnapshot(sourceSnapshot, personnelArchitecture);
+
+  const result = await precomputeTeamDashboards(sourceSnapshot, {
+    config,
+    contexts: ['direct'],
+    years: [2026],
+    now: new Date('2026-06-11T00:00:00.000Z'),
+  });
+  const summaryDir = path.join(config.precomputeDir, result.snapshotHash, 'team-work-completion-summary');
+  const [summaryFile] = await fs.readdir(summaryDir);
+  const summaryPath = path.join(summaryDir, summaryFile);
+  const staleSummary = JSON.parse(await fs.readFile(summaryPath, 'utf8'));
+  delete staleSummary.processingQueues;
+  await fs.writeFile(summaryPath, `${JSON.stringify(staleSummary)}\n`, 'utf8');
+
+  const summary = readPrecomputedTeamWorkCompletion(config, sourceSnapshot, personnelArchitecture, {
+    owner,
+    requestedOwner: owner,
+    dashboardContext: 'direct',
+    year: 2026,
+  });
+
+  assert.equal(summary, null);
+});
+
 test('precomputeTeamDashboards splits work completion summary from detail payloads', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'precompute-team-dashboard-'));
   const config = { precomputeDir: path.join(tempDir, 'precomputed') };
@@ -228,7 +371,7 @@ test('precomputeTeamDashboards writes dashboard session and responsibility revie
     'utf8'
   );
   const sessionFromFile = JSON.parse(sessionFile);
-  assert.equal(sessionFromFile.schemaVersion, 5);
+  assert.equal(sessionFromFile.schemaVersion, 8);
   assert.equal(sessionFromFile.snapshotHash, result.snapshotHash);
   assert.equal(sessionFromFile.projectCatalog, undefined);
   assert.equal(sessionFromFile.profileDashboards, undefined);
@@ -283,6 +426,7 @@ test('precomputeTeamDashboards publishes hard read model current bundle', async 
   assert.equal(manifest.snapshotHash, result.snapshotHash);
   assert.equal(manifest.readModel, true);
   assert.ok(manifest.features.includes('project-catalog-summary'));
+  assert.ok(manifest.features.includes('project-detail'));
   assert.ok(manifest.features.includes('profile-dashboard'));
   assert.deepEqual(manifest.contexts, ['all', 'franchise', 'direct']);
   assert.ok(manifest.years.includes(2025));
@@ -304,7 +448,21 @@ test('precomputeTeamDashboards publishes hard read model current bundle', async 
   assert.ok(Array.isArray(catalog.items));
   assert.ok(catalog.items.length > 0);
   assert.equal(catalog.items.some((item) => item.rawFields), false);
+  assert.equal(catalog.items[0].hardProgressStage, '闭环');
+  assert.equal(catalog.items[0].softProgressStage, '闭环');
+  assert.equal(catalog.items[0].franchiseScope, 'direct');
   assert.equal(JSON.stringify(catalog).includes('Expires=1781147357'), false);
+
+  const projectDetailDir = path.join(currentDir, 'project-detail');
+  const projectDetailIndex = JSON.parse(await fs.readFile(path.join(projectDetailDir, 'index.json'), 'utf8'));
+  assert.ok(projectDetailIndex.projectIds.includes('direct-2026'));
+  const projectDetailFiles = (await fs.readdir(projectDetailDir)).filter((fileName) => fileName !== 'index.json');
+  assert.ok(projectDetailFiles.length > 0);
+  const projectDetail = JSON.parse(await fs.readFile(path.join(projectDetailDir, projectDetailFiles[0]), 'utf8'));
+  assert.ok(projectDetail.id);
+  assert.ok(projectDetail.name);
+  assert.ok(projectDetail.rawFields);
+  assert.equal(JSON.stringify(projectDetail).includes('Expires=1781147357'), false);
 
   const workCompletionSummary = await fs.readdir(path.join(currentDir, 'team-work-completion-summary'));
   const workCompletionDetail = await fs.readdir(path.join(currentDir, 'team-work-completion-detail'));
@@ -312,6 +470,17 @@ test('precomputeTeamDashboards publishes hard read model current bundle', async 
   assert.ok(workCompletionSummary.some((fileName) => fileName.endsWith('__2026.json')));
   assert.ok(workCompletionDetail.some((fileName) => fileName.endsWith('__2025.json')));
   assert.ok(workCompletionDetail.some((fileName) => fileName.endsWith('__2026.json')));
+  const workCompletionDetail2026 = JSON.parse(
+    await fs.readFile(
+      path.join(
+        currentDir,
+        'team-work-completion-detail',
+        workCompletionDetail.find((fileName) => fileName.endsWith('__2026.json'))
+      ),
+      'utf8'
+    )
+  );
+  assert.ok(workCompletionDetail2026.projectDetailsById?.['direct-2026']);
 
   const sessionOwner = session.team.owner || owner;
   assert.equal(sessionOwner, owner);
@@ -355,6 +524,25 @@ test('hasCompletePrecompute returns manifest only for the current snapshot hash'
 
   assert.deepEqual(hasCompletePrecompute(sourceSnapshot, config), manifest);
   assert.equal(hasCompletePrecompute(staleSnapshot, config), null);
+});
+
+test('hasCompletePrecompute verifies indexed project detail files', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'precompute-team-dashboard-'));
+  const config = { precomputeDir: path.join(tempDir, 'precomputed') };
+  const sourceSnapshot = snapshot();
+
+  const manifest = await precomputeTeamDashboards(sourceSnapshot, {
+    config,
+    contexts: ['direct'],
+    years: [2026],
+  });
+  assert.deepEqual(hasCompletePrecompute(sourceSnapshot, config), manifest);
+
+  const detailDir = path.join(config.precomputeDir, manifest.snapshotHash, 'project-detail');
+  const [detailFile] = (await fs.readdir(detailDir)).filter((fileName) => fileName !== 'index.json');
+  await fs.rm(path.join(detailDir, detailFile));
+
+  assert.equal(hasCompletePrecompute(sourceSnapshot, config), null);
 });
 
 test('hasPrecomputedTeamBundle verifies files for the requested owner context and year', async () => {

@@ -690,10 +690,11 @@ test('sidebar navigation switches independent dashboard pages instead of scrolli
     readStylesBundle(),
   ]);
 
-  for (const page of ['overview', 'franchise', 'direct', 'teams', 'details', 'rules', 'developer-docs']) {
+  for (const page of ['overview', 'franchise', 'direct', 'teams', 'details', 'developer-docs']) {
     assert.match(html, new RegExp(`href="#${page}"[^>]+data-page="${page}"`));
     assert.match(html, new RegExp(`class="dashboard-page[^\"]*" id="${page}"`));
   }
+  assert.doesNotMatch(html, /href="#rules"[^>]+data-page="rules"|id="rules" data-page="rules"/);
   assert.doesNotMatch(html, /href="#personnel"[^>]+data-page="personnel"|id="personnel" data-page="personnel"/);
   assert.doesNotMatch(html, /href="#risk"[^>]+data-page="risk"|id="risk" data-page="risk"/);
 
@@ -703,16 +704,18 @@ test('sidebar navigation switches independent dashboard pages instead of scrolli
   assert.match(css, /\.dashboard-page\.is-active\s*{[^}]*display:\s*block/s);
 });
 
-test('frontend exposes a desktop rules catalog page seeded with delay reminder rules', async () => {
+test('developer docs page keeps merged operational rules content', async () => {
   const [html, js, css] = await Promise.all([
     readFile(join(publicDir, 'index.html'), 'utf8'),
     readFrontendJsBundle(),
     readStylesBundle(),
   ]);
 
-  assert.match(html, /nav-group-label">规则与文档/);
-  assert.match(html, /href="#rules"[^>]+data-page="rules"[\s\S]*?规则一览/);
-  assert.match(html, /class="dashboard-page rules-dashboard" id="rules" data-page="rules"/);
+  assert.match(html, /nav-group-label">开发文档/);
+  assert.match(html, /class="dashboard-page developer-docs-dashboard" id="developer-docs" data-page="developer-docs"/);
+  assert.match(html, /id="dev-doc-rules-stages"/);
+  assert.match(html, /id="dev-doc-rules-responsibility"/);
+  assert.match(html, /id="dev-doc-rules-team-queue"/);
   assert.match(html, /延期提醒规则/);
   assert.match(html, /硬装 \/ 软装 \/ 摆场/);
   assert.match(html, /复尺时间 Y/);
@@ -726,7 +729,10 @@ test('frontend exposes a desktop rules catalog page seeded with delay reminder r
   assert.match(html, /延期完成但效率OK/);
   assert.match(html, /KPI 单独记录效率 OK/);
   assert.match(html, /面积与店态 Deadline 矩阵/);
-  assert.match(html, /不再使用紧急判定/);
+  assert.match(html, /紧急 \/ 非紧急待处理 Top5/);
+  assert.match(html, /teamWorkCompletionReview\.mjs/);
+  assert.match(html, /日期待核对靠后/);
+  assert.doesNotMatch(html, /不再使用紧急判定|不再使用紧急程度判定/);
   assert.match(html, /mini店：≤300㎡/);
   assert.match(html, /中小店：300～450㎡/);
   assert.match(html, /超体店：1500～2000㎡/);
@@ -747,13 +753,13 @@ test('frontend exposes a desktop rules catalog page seeded with delay reminder r
   assert.match(html, /方案快截止了/);
   assert.match(html, /Y\+31/);
   assert.match(html, /施工图终审/);
-  assert.match(css, /\.rules-dashboard/);
+  assert.match(css, /\.developer-docs-dashboard/);
   assert.match(css, /\.rules-deadline-table/);
   assert.match(css, /\.rules-info-button/);
   assert.match(css, /\.rules-info-dialog/);
   assert.match(css, /\.rules-info-close\s*{[^}]*position:\s*static;[^}]*box-shadow:\s*none;/s);
   assert.match(css, /\.rules-info-timeline/);
-  assert.match(css, /\.rules-stage-grid/);
+  assert.match(css, /\.dev-prd-rule-list/);
   assert.match(css, /\.rules-timeline/);
 });
 
@@ -767,21 +773,56 @@ test('frontend keeps rules and developer docs in a development-only documentatio
   assert.match(html, /<section class="nav-group" data-development-only/);
   assert.match(html, /href="#developer-docs"[^>]+data-page="developer-docs"[\s\S]*?开发文档/);
   assert.match(html, /class="dashboard-page developer-docs-dashboard" id="developer-docs" data-page="developer-docs" data-development-only/);
-  assert.match(html, /系统交接台账/);
-  assert.match(html, /数据从来源表单到本地/);
-  assert.match(html, /筛选和口径/);
-  assert.match(html, /统计函数地图/);
-  assert.match(html, /日常维护记录/);
-  assert.match(html, /尽量用白话记录/);
+  assert.match(html, /class="dev-prd-shell"/);
+  assert.match(html, /class="dev-prd-toc"/);
+  assert.match(html, /id="dev-doc-frontend-layers"/);
+  assert.match(html, /id="dev-doc-loading"/);
+  assert.match(html, /id="dev-doc-handover"/);
+  assert.match(html, /系统框架与交接说明/);
 
   assert.match(js, /DEVELOPMENT_ONLY_PAGES/);
   assert.match(js, /function isDevelopmentDocumentationVisible/);
   assert.match(js, /function applyDevelopmentDocumentationVisibility/);
+  assert.match(js, /initDeveloperDocsPage/);
   assert.match(css, /\[data-development-only\]\s*{\s*display:\s*none;/s);
   assert.match(css, /body\.is-development-dashboard \.nav-group\[data-development-only\]/);
   assert.match(css, /body\.is-development-dashboard \.dashboard-page\[data-development-only\]\.is-active/);
   assert.match(css, /\.developer-docs-dashboard/);
-  assert.match(css, /\.dev-doc-form/);
+  assert.match(css, /\.dev-prd-shell/);
+});
+
+test('developer docs use the operational dashboard visual system while preserving the document toc', async () => {
+  const [html, css] = await Promise.all([
+    readFile(join(publicDir, 'index.html'), 'utf8'),
+    readStylesBundle(),
+  ]);
+
+  assert.match(html, /class="dev-prd-shell"/);
+  assert.match(html, /class="dev-prd-workbench"/);
+  assert.match(html, /class="dev-prd-toc"/);
+  assert.match(html, /data-dev-doc-target="home"/);
+  assert.match(html, /data-dev-doc-target="overview"/);
+  assert.match(html, /data-dev-doc-target="rules"/);
+  assert.match(html, /class="dev-prd-page is-active"[^>]+data-dev-doc-page="home"/);
+  assert.match(html, /data-dev-doc-page="overview"/);
+  assert.match(html, /data-dev-doc-page="rules"/);
+  assert.match(html, /class="dev-prd-page-canvas"/);
+  assert.doesNotMatch(html, /class="dev-prd-section-grid"/);
+  assert.doesNotMatch(html, /data-dev-doc-section=/);
+  assert.match(html, /class="rules-deadline-table-wrap"/);
+  assert.match(html, /class="dev-prd-toc-main"/);
+  assert.match(html, /class="dev-prd-toc-subline"/);
+  assert.match(html, /data-dev-doc-target="home"[\s\S]*?class="dev-prd-toc-subline"[\s\S]*?data-dev-doc-target="overview"/);
+  assert.match(html, /data-dev-doc-target="rules"[\s\S]*?class="dev-prd-toc-subline"[\s\S]*?data-dev-doc-target="metrics"/);
+  assert.match(css, /\.dev-prd-workbench\s*{[^}]*grid-template-columns:\s*320px\s+minmax\(0,\s*1fr\)/s);
+  assert.match(css, /\.dev-prd-content\s*{[^}]*width:\s*100%;[^}]*max-width:\s*none;/s);
+  assert.match(css, /\.dev-prd-page-canvas\s*{/);
+  assert.match(css, /\.dev-prd-page-canvas\s*{[^}]*min-height:\s*calc\(100vh - 96px\)/s);
+  assert.match(css, /\.dev-prd-page-meta\s*{/);
+  assert.match(css, /\.dev-prd-copy-section\s*{/);
+  assert.match(css, /\.dev-prd-copy-section\s*{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*minmax\(180px,\s*240px\)\s+minmax\(0,\s*1fr\)/s);
+  assert.match(css, /\.dev-prd-summary-band\s*{/);
+  assert.match(css, /\.rules-deadline-table-wrap\s*{[^}]*overflow-x:\s*auto/s);
 });
 
 test('project filters remain scoped after removing the standalone personnel board', async () => {
@@ -830,7 +871,7 @@ test('project details page uses a scan-first workbench with shared top filters a
   assert.match(html, /id="detailsViewTabs"/);
   assert.match(html, /data-details-view="progress"/);
   assert.doesNotMatch(html, /data-details-view="people"|data-drill-view="people"/);
-  assert.match(html, /id="pausedProjectToggle"[^>]*>[\s\S]*?查看暂停项目/);
+  assert.match(html, /id="pausedProjectToggle"[^>]*>[\s\S]*?查看暂停\/取消项目/);
   assert.match(html, /id="pausedProjectFilterField"/);
   assert.doesNotMatch(html, /data-details-view="paused"/);
   assert.doesNotMatch(html, /id="detailFilterPanel"|id="detailSearchInput"/);
@@ -846,7 +887,7 @@ test('project details page uses a scan-first workbench with shared top filters a
   assert.match(js, /isPausedProject/);
   assert.match(js, /showPausedProjects/);
   assert.match(js, /setPausedProjectFilter/);
-  assert.match(js, /暂无暂停项目/);
+  assert.match(js, /暂无暂停\/取消项目/);
   assert.match(js, /WORKFLOW_STAGE_DATE_RULES/);
   assert.match(js, /readEffectiveWorkflowStage/);
   assert.match(js, /projectStageDisplayItems/);

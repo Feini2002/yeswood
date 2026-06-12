@@ -102,7 +102,7 @@ test('mini store project can be delayed by original deadline while efficiency re
   const record = calculateHardDecorationDeadlineRecord(project, { calendar, today: '2026-05-18' });
 
   assert.equal(record.areaBucket.label, 'mini店：≤300㎡');
-  assert.equal(record.urgency.label, '不紧急');
+  assert.equal(record.urgency.label, '面积店态矩阵');
   assert.equal(record.deadlines.floorPlanStart, '2026-05-06');
   assert.equal(record.deadlines.floorPlanDue, '2026-05-12');
   assert.equal(record.floorPlan.start.status, 'delayed_start');
@@ -149,13 +149,13 @@ test('floor plan efficiency is overtime when shifted budget is also exceeded', a
   );
 });
 
-test('hard decoration matrix ignores urgent form status and uses the normal area deadline', () => {
+test('hard decoration matrix uses the area deadline bucket consistently', () => {
   const normalRule = resolveHardDecorationRule({ area: 280, urgencyText: '一般' });
   const urgentRule = resolveHardDecorationRule({ area: 280, urgencyText: '紧急' });
 
-  assert.equal(normalRule.urgency.label, '不紧急');
+  assert.equal(normalRule.urgency.label, '面积店态矩阵');
   assert.equal(normalRule.offsets.floorPlanDue, 6);
-  assert.equal(urgentRule.urgency.label, '不紧急');
+  assert.equal(urgentRule.urgency.label, '面积店态矩阵');
   assert.equal(urgentRule.offsets.floorPlanDue, 6);
   assert.equal(urgentRule.areaBucket.label, 'mini店：≤300㎡');
 });
