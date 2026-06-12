@@ -76,7 +76,7 @@ export const DEFAULT_DATE_FIELDS = {
   productListVolume: ['产品清单发出时间'],
   schemeVolume: ['软装方案开始时间'],
   purchaseVolume: ['采购时间'],
-  siteVolume: ['摆场文件发出时间(项目群）', '摆场时间', '现场摆场时间'],
+  siteVolume: ['摆场文件发出时间(项目群）', '摆场开始时间', '摆场时间', '现场摆场时间'],
 };
 
 /**
@@ -99,13 +99,13 @@ export const TIER_DATE_FIELDS = {
     schemeDoneYtd: ['躺平内部审核结束时间', '上会日期', '施工图初稿完成时间（外包首次提供图纸的时间）', '复尺时间'],
     schemeDelayDoneYtd: ['上会日期', '躺平内部审核结束时间', 'updatedAt'],
     schemeDelayDoneMonth: ['updatedAt', '上会日期'],
-    siteVolume: ['摆场文件发出时间(项目群）', '摆场时间', '现场摆场时间'],
+    siteVolume: ['摆场文件发出时间(项目群）', '摆场开始时间', '摆场时间', '现场摆场时间'],
   },
   sinking: {
     schemeDoneYtd: ['上会日期', '复尺时间', '躺平内部审核结束时间', '施工图初稿完成时间（外包首次提供图纸的时间）'],
     schemeDelayDoneYtd: ['上会日期', 'updatedAt'],
     schemeDelayDoneMonth: ['updatedAt', '上会日期'],
-    siteVolume: ['摆场文件发出时间(项目群）', '摆场时间', '现场摆场时间'],
+    siteVolume: ['摆场文件发出时间(项目群）', '摆场开始时间', '摆场时间', '现场摆场时间'],
   },
 };
 
@@ -233,8 +233,8 @@ export function getMetricDefinitions() {
     },
     siteVolume: {
       title: '摆场交付',
-      definition: '公司协同阶段的进度为摆场，且摆场文件发出或现场摆场时间在本月；不计入设计责任制完成口径。',
-      fields: ['软装项目进度', '摆场文件发出时间(项目群）', '摆场时间', '现场摆场时间'],
+      definition: '公司协同阶段的进度为摆场，且摆场开始、摆场文件发出或现场摆场时间在本月；不计入设计责任制完成口径。',
+      fields: ['软装项目进度', '摆场开始时间', '摆场文件发出时间(项目群）', '摆场时间', '现场摆场时间'],
     },
     priorityStatus: {
       title: '项目状态（优先级）',

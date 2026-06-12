@@ -5,6 +5,7 @@ import {
   displayProjectHardOwner,
   displayProjectSoftOwner,
 } from './project-display.mjs';
+import { resolveProjectStageReminder } from './project-stage-reminder-rules.mjs';
 import {
   readProjectNodeValue,
   hasProjectNodeValue,
@@ -227,235 +228,7 @@ export function readNormalizedProjectDate(project, fieldNames = []) {
 
 
 export function resolvePrimaryProjectKeyDate(project) {
-  const rawHardStage = readWorkflowStage(project, 'hard');
-  const rawSoftStage = readWorkflowStage(project, 'soft');
-  const hardStage = readEffectiveWorkflowStage(project, 'hard');
-  const softStage = readEffectiveWorkflowStage(project, 'soft');
-  const hardClosed = isHardWorkflowClosed(project);
-  const softClosed = isSoftDesignClosed(project);
-  const companyClosed = isCompanyLifecycleClosed(project);
-  const stopState = projectStopState(project);
-
-  if (stopState.key !== 'active') {
-    const statusStage =
-      stopState.key === 'canceled'
-        ? [rawHardStage, rawSoftStage].find(isCanceledWorkflowStage)
-        : [rawHardStage, rawSoftStage].find(isPausedWorkflowStage);
-    return makeProjectReminder({
-      label: stopState.label,
-      discipline: statusStage === rawSoftStage ? 'soft' : 'hard',
-      stage: statusStage || rawHardStage || rawSoftStage,
-      message: stopState.message,
-      kind: 'status',
-    });
-  }
-
-  if (companyClosed) {
-    return makeProjectReminder({
-      label: '闭环',
-      discipline: isSleepStoreProject(project) ? 'hard' : 'soft',
-      stage: softStage || hardStage,
-      message: '项目已闭环',
-      kind: 'status',
-    });
-  }
-
-  if (!hardClosed) {
-    const meetingStageComplete = isProjectMeetingStageComplete(project);
-    const measureStageComplete = isProjectMeasureStageComplete(project);
-    const hardNodeProgress = inferHardNodeProgress(project, hardStage, softStage);
-
-    if (!meetingStageComplete && !measureStageComplete && shouldPromptHardNode(hardNodeProgress, 'meeting')) {
-      return makeProjectReminder({
-        label: '上会',
-        discipline: 'hard',
-        stage: hardStage,
-        message: '待上会',
-        missing: true,
-      });
-    }
-    if (!measureStageComplete && shouldPromptHardNode(hardNodeProgress, 'measure')) {
-      return makeProjectReminder({
-        label: '复尺',
-        discipline: 'hard',
-        stage: hardStage,
-        message: '待复尺',
-        missing: true,
-      });
-    }
-    if (!hasProjectNodeValue(project, 'floorPlanStart') && shouldPromptHardNode(hardNodeProgress, 'floorPlanStart')) {
-      return makeProjectReminder({
-        label: '平面开始',
-        discipline: 'hard',
-        stage: hardStage,
-        message: '待平面开始',
-        missing: true,
-      });
-    }
-    if (!hasProjectNodeValue(project, 'floorPlanFinish') && shouldPromptHardNode(hardNodeProgress, 'floorPlanFinish')) {
-      return makeProjectReminder({
-        label: '平面结束',
-        raw: readProjectNodeValue(project, 'floorPlanStart'),
-        discipline: 'hard',
-        stage: hardStage || '平面阶段',
-        message: '待平面结束',
-        missing: true,
-      });
-    }
-    if (!hasProjectNodeValue(project, 'constructionDraft') && shouldPromptHardNode(hardNodeProgress, 'constructionDraft')) {
-      return makeProjectReminder({
-        label: '施工图初稿',
-        discipline: 'hard',
-        stage: hardStage || '施工图阶段',
-        message: '待施工图初稿',
-        missing: true,
-      });
-    }
-    if (!hasProjectNodeValue(project, 'constructionReview') && shouldPromptHardNode(hardNodeProgress, 'constructionReview')) {
-      return makeProjectReminder({
-        label: '施工图审核',
-        raw: readProjectNodeValue(project, 'constructionDraft'),
-        discipline: 'hard',
-        stage: hardStage || '施工图阶段',
-        message: '待施工图审核',
-        missing: true,
-      });
-    }
-  }
-
-  if (!softClosed && !isSleepStoreProject(project)) {
-    const pointEvidenceExpected = needsPointCompletionEvidence(project, softStage);
-    if (!pointEvidenceExpected) {
-      return makeProjectReminder({
-        label: '点位',
-        discipline: 'soft',
-        stage: softStage,
-        message: '待点位跟进',
-        missing: true,
-      });
-    }
-    if (!hasProjectNodeValue(project, 'pointDone')) {
-      return makeProjectReminder({
-        label: '点位完成',
-        discipline: 'soft',
-        stage: softStage,
-        message: '待点位完成',
-        missing: true,
-      });
-    }
-    if (!hasProjectNodeValue(project, 'softSchemeStart')) {
-      return makeProjectReminder({
-        label: '软装方案',
-        discipline: 'soft',
-        stage: softStage,
-        message: '待软装方案',
-        missing: true,
-      });
-    }
-    const softDoneRaw = readProjectNodeValue(project, 'softDoneTime') || readProjectNodeValue(project, 'displayFileSent');
-    if (!softDoneRaw) {
-      return makeProjectReminder({
-        label: '软装完成',
-        raw: readProjectNodeValue(project, 'softSchemeStart'),
-        discipline: 'soft',
-        stage: softStage,
-        message: '待软装完成',
-        missing: true,
-      });
-    }
-    if (!isSoftCompletionDone(project)) {
-      return makeProjectReminder({
-        label: '软装完成情况',
-        raw: softDoneRaw,
-        discipline: 'soft',
-        stage: softStage,
-        message: '待软装完成情况',
-        missing: true,
-      });
-    }
-  }
-
-  if (!isSleepStoreProject(project) && isSoftCompletionDone(project)) {
-    if (!hasProjectNodeValue(project, 'productListSent')) {
-      return makeProjectReminder({
-        label: '产品清单接收',
-        discipline: 'followup',
-        stage: softStage,
-        message: '待产品清单接收',
-        missing: true,
-        kind: 'followup',
-      });
-    }
-    if (!hasProjectNodeValue(project, 'purchaseTime')) {
-      return makeProjectReminder({
-        label: '采购',
-        discipline: 'followup',
-        stage: softStage,
-        message: '待采购',
-        missing: true,
-        kind: 'followup',
-      });
-    }
-    if (!hasProjectNodeValue(project, 'purchaseStatus')) {
-      return makeProjectReminder({
-        label: '采购情况',
-        discipline: 'followup',
-        stage: softStage,
-        message: '待采购完成情况',
-        missing: true,
-        kind: 'followup',
-      });
-    }
-    if (/施工整改/.test(hardStage)) {
-      return makeProjectReminder({
-        label: '整改',
-        discipline: 'followup',
-        stage: hardStage,
-        message: '施工整改期',
-        kind: 'status',
-      });
-    }
-    if (!hasProjectNodeValue(project, 'displayFileSent') && !hasProjectNodeValue(project, 'displayTime')) {
-      return makeProjectReminder({
-        label: '摆场',
-        discipline: 'followup',
-        stage: softStage,
-        message: '待摆场',
-        missing: true,
-        kind: 'followup',
-      });
-    }
-  }
-
-  const currentDiscipline = resolvePrimaryWorkflowDiscipline(project);
-  const currentStage = readEffectiveWorkflowStage(project, currentDiscipline);
-  const rule = resolveWorkflowStageDateRule(currentStage, currentDiscipline);
-  if (rule) {
-    const raw = readNormalizedProjectDate(project, rule.fields);
-    if (raw) {
-      return makeProjectReminder({
-        label: rule.label,
-        raw,
-        discipline: FOLLOW_UP_STAGE_PATTERN.test(currentStage) ? 'followup' : currentDiscipline,
-        stage: currentStage,
-        kind: FOLLOW_UP_STAGE_PATTERN.test(currentStage) ? 'followup' : 'node',
-      });
-    }
-  }
-
-  const displayRaw = isSleepStoreProject(project) ? '' : readProjectNodeValue(project, 'displayTime') || readProjectNodeValue(project, 'displayFileSent');
-  if (displayRaw) {
-    return makeProjectReminder({
-      label: '摆场',
-      raw: displayRaw,
-      discipline: 'followup',
-      stage: softStage,
-      message: '摆场节点跟进',
-      kind: 'followup',
-    });
-  }
-
-  return { label: '', raw: '', formatted: '--', discipline: currentDiscipline, stage: currentStage, message: '' };
+  return resolveProjectStageReminder(project).primaryReminder;
 }
 
 
@@ -491,7 +264,8 @@ export function resolvePointHandoffReminder(project) {
 
 
 export function resolveProjectKeyDateReminders(project) {
-  const statusReminder = resolvePrimaryProjectKeyDate(project);
+  const stageReminderResult = resolveProjectStageReminder(project);
+  const statusReminder = stageReminderResult.primaryReminder;
   if (statusReminder.kind === 'status' && ['暂停', '取消'].includes(statusReminder.label)) {
     return [statusReminder];
   }
@@ -499,13 +273,12 @@ export function resolveProjectKeyDateReminders(project) {
   if (systemPrimary && !isHardDeadlineKeyDateException(systemPrimary)) {
     return [systemPrimary];
   }
-  const primary = statusReminder;
-  const reminders = isEmptyProjectReminder(primary) ? [] : [primary];
+  const reminders = (stageReminderResult.reminders || []).filter((item) => !isEmptyProjectReminder(item));
   const pointReminder = resolvePointHandoffReminder(project);
   if (pointReminder && !reminders.some((item) => projectReminderIdentity(item) === projectReminderIdentity(pointReminder))) {
     reminders.push(pointReminder);
   }
-  return reminders.length ? reminders : [primary];
+  return reminders.length ? reminders : [statusReminder];
 }
 
 

@@ -1,4 +1,5 @@
 import { summarizeRawFields } from './projectPresentation.mjs';
+import { resolveProjectStageReminder } from '../../public/domain/project-stage-reminder-rules.mjs';
 
 const DETAIL_PROJECT_FIELDS = [
   'id',
@@ -66,6 +67,14 @@ export function compactProjectForDetailReadModel(project = {}) {
     }
   }
   const rawFields = summarizeDetailRawFields(project.rawFields);
+  const stageReminder = resolveProjectStageReminder(project);
+  detail.stageReminder = {
+    facts: stageReminder.facts,
+    currentStage: stageReminder.currentStage,
+    primaryReminder: stageReminder.primaryReminder,
+    dataGaps: stageReminder.dataGaps,
+    reminders: stageReminder.reminders,
+  };
   if (Object.keys(rawFields).length) {
     detail.rawFields = rawFields;
   }

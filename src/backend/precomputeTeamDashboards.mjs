@@ -6,6 +6,7 @@ import path from 'node:path';
 import { paths } from './config.mjs';
 import { composeDashboardMetrics } from './metrics/composeDashboard.mjs';
 import { readFranchiseScope, readWorkflowStage } from './metrics/fieldSemantics.mjs';
+import { resolveProjectStageReminder } from '../../public/domain/project-stage-reminder-rules.mjs';
 import { DASHBOARD_CONTEXTS, resolveCanonicalOwner } from './metrics/projectScopes.mjs';
 import { readProjectOwnerNames, splitPersonnelNames } from './personnelNames.mjs';
 import { createFilterOptions, filterProjects } from './projectData.mjs';
@@ -449,6 +450,14 @@ function compactProjectForReadModel(project = {}) {
   summary.hardProgressStage = summary.hardProgressStage || readWorkflowStage(project, { discipline: 'hard' });
   summary.softProgressStage = summary.softProgressStage || readWorkflowStage(project, { discipline: 'soft' });
   summary.franchiseScope = summary.franchiseScope || project.franchiseScope || readFranchiseScope(project);
+  const stageReminder = resolveProjectStageReminder(project);
+  summary.stageReminder = {
+    facts: stageReminder.facts,
+    currentStage: stageReminder.currentStage,
+    primaryReminder: stageReminder.primaryReminder,
+    dataGaps: stageReminder.dataGaps,
+    reminders: stageReminder.reminders,
+  };
   if (project.recordMeta) {
     summary.recordMeta = {
       id: project.recordMeta.id,

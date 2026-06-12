@@ -1,5 +1,6 @@
 import { matchesDashboardContext } from './metrics/projectScopes.mjs';
 import { normalizeCell, readRawDisplay, readWorkflowStage } from './metrics/fieldSemantics.mjs';
+import { resolveProjectStageReminder } from '../../public/domain/project-stage-reminder-rules.mjs';
 import {
   resolveCompanyLifecycleState,
   resolveDisplayCompletionState,
@@ -42,6 +43,7 @@ const QUEUE_NODE_FIELD_ALIASES = {
   purchaseTime: ['采购时间'],
   purchaseStatus: ['采购完成情况', '采购情况'],
   displayFileSent: ['摆场文件发出时间(项目群）', '摆场文件发出时间（项目群）'],
+  displayStart: ['摆场开始时间', '摆场时间', '现场摆场时间'],
   displayTime: ['摆场时间', '现场摆场时间'],
 };
 const URGENT_TEXT_PATTERN = /紧急/;
@@ -374,6 +376,12 @@ function resolveProcessingQueueActionStage(project = {}, states = {}) {
   }
   if (!purchaseDone) {
     return '采购待完成';
+  }
+
+  const stageReminder = resolveProjectStageReminder(project);
+  const unifiedActionStage = stageReminder.primaryReminder?.message || '';
+  if (['待摆场', '等待摆场结束', '项目待闭环'].includes(unifiedActionStage)) {
+    return unifiedActionStage;
   }
 
   if (!hasQueueNode(project, 'displayFileSent') || !hasQueueNode(project, 'displayTime')) {

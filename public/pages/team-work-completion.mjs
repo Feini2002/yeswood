@@ -1,6 +1,11 @@
 import { renderEmptyState } from '../dashboard/empty-state.mjs';
 import { resolveTeamDashboardContext, resolveTeamOwner } from '../domain/personnel.mjs';
-import { contextLabel, normalizeDashboardContext } from '../lib/constants.mjs';
+import {
+  contextLabel,
+  DEFAULT_TEAM_DASHBOARD_CONTEXT,
+  normalizeDashboardContext,
+  resolveTeamPageDashboardContext,
+} from '../lib/constants.mjs';
 import { bindDashboardTooltips, elements } from '../lib/dom.mjs';
 import { escapeHtml } from '../lib/format.mjs';
 import { currentPageId } from '../lib/router.mjs';
@@ -499,11 +504,13 @@ export function preloadTeamWorkCompletionDetail(
     return existingRequest;
   }
 
-  const dashboardContext = normalizeDashboardContext(review.dashboardContext || resolveTeamDashboardContext() || 'all');
+  const dashboardContext = resolveTeamPageDashboardContext(
+    review.dashboardContext || resolveTeamDashboardContext() || DEFAULT_TEAM_DASHBOARD_CONTEXT
+  );
   const year = Number(review.year || state.teamWorkCompletionYear || new Date().getFullYear());
   const params = new URLSearchParams();
   params.set('owner', owner);
-  params.set('context', dashboardContext || 'all');
+  params.set('context', dashboardContext || DEFAULT_TEAM_DASHBOARD_CONTEXT);
   params.set('year', String(Number.isFinite(year) ? year : new Date().getFullYear()));
   params.set('view', 'detail');
   params.set('fallback', allowCompute ? 'compute' : 'readModel');
@@ -1161,17 +1168,16 @@ function resolveTeamCompletionDashboardContext(review = state.teamWorkCompletion
   }
   if (currentPageId() === 'teams') {
     const hashContext = resolveTeamDashboardContext();
-    return hashContext || 'all';
+    return hashContext || DEFAULT_TEAM_DASHBOARD_CONTEXT;
   }
-  const resolved = normalizeDashboardContext(review?.dashboardContext);
-  return resolved || 'all';
+  return resolveTeamPageDashboardContext(review?.dashboardContext);
 }
 
 export function syncTeamCompletionControls(review = state.teamWorkCompletion, pendingDashboardContext = '') {
   const dashboardContext = resolveTeamCompletionDashboardContext(review, pendingDashboardContext);
   if (elements.teamCompletionContextTabs) {
     elements.teamCompletionContextTabs.querySelectorAll('[data-team-completion-context]').forEach((button) => {
-      const context = button.dataset.teamCompletionContext || 'all';
+      const context = button.dataset.teamCompletionContext || DEFAULT_TEAM_DASHBOARD_CONTEXT;
       const active = context === dashboardContext;
       button.classList.toggle('is-active', active);
       button.setAttribute('aria-selected', active ? 'true' : 'false');

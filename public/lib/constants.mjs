@@ -1,4 +1,5 @@
 export const DASHBOARD_CONTEXTS = new Set(['all', 'franchise', 'direct']);
+export const DEFAULT_TEAM_DASHBOARD_CONTEXT = 'direct';
 export const DEVELOPMENT_ONLY_PAGES = new Set(['developer-docs']);
 export const FILTERABLE_PAGES = new Set(['details']);
 export const TEAM_OWNER_STORAGE_KEY = 'teamDashboardOwner';
@@ -6,6 +7,14 @@ export const TEAM_WORK_COMPLETION_CACHE_LIMIT = 12;
 
 export function normalizeDashboardContext(value = '') {
   return DASHBOARD_CONTEXTS.has(value) ? value : '';
+}
+
+export function resolveTeamPageDashboardContext(value = '') {
+  const normalized = normalizeDashboardContext(value);
+  if (!normalized || normalized === 'all') {
+    return DEFAULT_TEAM_DASHBOARD_CONTEXT;
+  }
+  return normalized;
 }
 
 export function contextLabel(value = '') {

@@ -2,6 +2,8 @@
  * Slim project payloads for list/overview APIs. Detail views can request view=full or ?id=.
  */
 
+import { resolveProjectStageReminder } from '../../public/domain/project-stage-reminder-rules.mjs';
+
 export function summarizeRawFields(rawFields = {}) {
   const summary = {};
   for (const [key, cell] of Object.entries(rawFields)) {
@@ -21,8 +23,16 @@ export function summarizeProject(project = {}) {
   if (!project || typeof project !== 'object') {
     return project;
   }
+  const stageReminder = resolveProjectStageReminder(project);
   return {
     ...project,
+    stageReminder: {
+      facts: stageReminder.facts,
+      currentStage: stageReminder.currentStage,
+      primaryReminder: stageReminder.primaryReminder,
+      dataGaps: stageReminder.dataGaps,
+      reminders: stageReminder.reminders,
+    },
     recordMeta: project.recordMeta
       ? {
           id: project.recordMeta.id,

@@ -31,11 +31,12 @@ const FIELD_ALIASES = {
   pointDone: ['点位完成时间'],
   softSchemeStart: ['软装方案开始时间'],
   softCompletion: ['软装完成情况'],
-  softDoneTime: ['软装完成时间', '软装发项目群时间'],
-  productListSent: ['产品清单发出时间'],
+  softDoneTime: ['软装完成时间', '软装发项目群时间', '软装发群/完成时间'],
+  productListSent: ['产品清单发出时间', '产品清单接收时间', '流程记录：产品清单接收时间'],
   purchaseTime: ['采购时间'],
   purchaseStatus: ['采购完成情况', '采购情况'],
   displayFileSent: ['摆场文件发出时间(项目群）', '摆场文件发出时间（项目群）'],
+  displayStart: ['摆场开始时间', '摆场时间', '现场摆场时间'],
   displayTime: ['摆场时间', '现场摆场时间'],
 };
 
@@ -152,6 +153,7 @@ function hasSoftLifecycleEvidence(project, softStage = readNode(project, 'softSt
         'purchaseTime',
         'purchaseStatus',
         'displayFileSent',
+        'displayStart',
         'displayTime',
       ])
   );
@@ -307,7 +309,7 @@ function softLifecycleStage(project, softStage) {
   const pointStarted = /点位/.test(text) || hasAnyNode(project, ['pointStatus', 'pointDone']);
   const schemeStarted = /软装方案|方案/.test(text) || hasNode(project, 'softSchemeStart') || Boolean(readNode(project, 'softCompletion'));
   const purchaseStarted = /待采购|采购/.test(text) || hasAnyNode(project, ['purchaseTime', 'purchaseStatus']);
-  const displayStarted = (/摆场|白场|进场/.test(text) && !/未安排摆场/.test(text)) || hasAnyNode(project, ['displayFileSent', 'displayTime']);
+  const displayStarted = (/摆场|白场|进场/.test(text) && !/未安排摆场/.test(text)) || hasAnyNode(project, ['displayFileSent', 'displayStart', 'displayTime']);
   if (displayStarted) {
     return { key: 'site', label: lifecycleStageLabel('site') };
   }

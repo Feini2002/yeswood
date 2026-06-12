@@ -4,7 +4,9 @@ import { elements } from './dom.mjs';
 import {
   DEVELOPMENT_ONLY_PAGES,
   FILTERABLE_PAGES,
+  DEFAULT_TEAM_DASHBOARD_CONTEXT,
   normalizeDashboardContext,
+  resolveTeamPageDashboardContext,
   contextLabel,
 } from './constants.mjs';
 
@@ -223,7 +225,10 @@ export function showPage(pageId = currentPageId(), options = {}) {
     routerHooks.ensureTeamOwnerOptions?.();
     routerHooks.ensureOwnerReviewControls?.();
     const owner = routerHooks.resolveTeamOwner?.() || parsePageHash().owner || '';
-    const dashboardContext = routerHooks.resolveTeamDashboardContext?.() || parsePageHash().dashboardContext || 'all';
+    const dashboardContext =
+      routerHooks.resolveTeamDashboardContext?.() ||
+      resolveTeamPageDashboardContext(parsePageHash().dashboardContext) ||
+      DEFAULT_TEAM_DASHBOARD_CONTEXT;
     const year = routerHooks.resolveTeamWorkCompletionYear?.() || Number(parsePageHash().year || 0) || undefined;
     routerHooks
       .loadTeamDashboardSession?.({ owner, dashboardContext, year })

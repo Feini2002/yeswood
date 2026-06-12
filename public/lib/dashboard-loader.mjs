@@ -45,6 +45,7 @@ import {
   renderTeamWorkCompletionDashboard,
 } from '../pages/teams.mjs';
 import { DASHBOARD_UPDATE_CHECK_INTERVAL_MS, shouldReloadDashboard } from '../realtime.js';
+import { resolveTeamPageDashboardContext } from './constants.mjs';
 import { runtimeStore } from './runtime-flags.mjs';
 import { LIFECYCLE_STAGE_ORDER } from '../dashboard/project-lifecycle.mjs';
 import {
@@ -191,7 +192,9 @@ function applyFilterOptions(filters = {}) {
 function dashboardSessionRequestContext(options = {}) {
   const route = parsePageHash();
   const owner = options.owner || route.owner || resolveTeamOwner();
-  const dashboardContext = options.dashboardContext || route.dashboardContext || resolveTeamDashboardContext() || 'all';
+  const dashboardContext = resolveTeamPageDashboardContext(
+    options.dashboardContext || route.dashboardContext || resolveTeamDashboardContext()
+  );
   const year = Number(options.year || route.year || state.teamWorkCompletionYear || new Date().getFullYear());
   return { owner, dashboardContext, year };
 }

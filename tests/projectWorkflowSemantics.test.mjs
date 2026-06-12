@@ -6,7 +6,9 @@ import {
   isCanceledProject,
   isPausedOrCanceledProject,
   isPausedProject,
+  readEffectiveWorkflowStage,
 } from '../public/domain/project-workflow.mjs';
+import { resolveProjectKeyDateReminders } from '../public/domain/project-reminders.mjs';
 import { classifyProjectLifecycleStage } from '../public/dashboard/project-lifecycle.mjs';
 
 function raw(display) {

@@ -375,7 +375,7 @@ test('frontend exposes team work completion module inside team dashboard', async
   assert.match(js, /data-owner-review-copy-summary/);
   assert.match(js, /handleOwnerReviewKeydown/);
   assert.match(js, /resetOwnerReviewForTeamOwnerChange/);
-  assert.match(js, /loadTeamWorkCompletion\(owner,\s*dashboardContext(?:,\s*year)?\)/);
+  assert.match(js, /loadTeamWorkCompletion\(owner,\s*dashboardContext/);
   const ownerReviewHeroSummary = js.match(/function renderOwnerReviewHeroSummary\(review\) \{[\s\S]*?\n\}/)?.[0] || '';
   assert.match(ownerReviewHeroSummary, /执行负载/);
   assert.doesNotMatch(ownerReviewHeroSummary, /团队项目|责任项|本月完成|延期未闭环/);
@@ -931,18 +931,17 @@ test('project details page uses a scan-first workbench with shared top filters a
   assert.match(js, /meetingStatus:\s*\['上会情况'\]/);
   assert.match(js, /measureStatus:\s*\['复尺情况'\]/);
   assert.match(js, /function progressFallbackStage/);
-  assert.match(js, /function inferHardNodeProgress/);
-  assert.match(js, /function shouldPromptHardNode/);
+  assert.match(js, /project-stage-reminder-rules\.mjs/);
+  assert.match(js, /resolveProjectStageReminder/);
+  assert.match(js, /PROJECT_STAGE_FIELD_ALIASES/);
   assert.match(js, /function isProjectMeetingStageComplete/);
   assert.match(js, /function isProjectMeasureStageComplete/);
-  assert.match(js, /if \(!meetingStageComplete && !measureStageComplete && shouldPromptHardNode\(hardNodeProgress, 'meeting'\)\)/);
-  assert.match(js, /if \(!measureStageComplete && shouldPromptHardNode\(hardNodeProgress, 'measure'\)\)/);
   assert.match(js, /躺平内部审核结束时间/);
   assert.match(js, /施工图完成审核时间（施工图终稿完成时间\/商场审核完成时间）/);
   assert.match(js, /待平面开始/);
   assert.match(js, /待平面结束/);
   assert.match(js, /待施工图审核/);
-  assert.match(js, /施工整改期/);
+  assert.match(js, /resolveProjectKeyDateReminders/);
   assert.doesNotMatch(js, /label:\s*'启动'/);
   assert.doesNotMatch(js, /label:\s*'开业'/);
   assert.match(js, /renderProjectDetailModal/);
@@ -989,13 +988,15 @@ test('details workbench defaults to workflow order and pushes closed projects to
   assert.match(js, /sortProjectWorkbenchProjects\(projects\)/);
 });
 
-test('project key date prioritizes soft completion before downstream purchasing follow-up', async () => {
+test('project key date delegates business stage reminders to the unified stage table', async () => {
   const js = await readFrontendJsBundle();
   const keyDateBlock = extractFunctionSource(js, 'resolvePrimaryProjectKeyDate');
 
-  assert.match(keyDateBlock, /softSchemeStart[\s\S]*isSoftCompletionDone\(project\)[\s\S]*productListSent/);
-  assert.match(keyDateBlock, /待软装完成情况/);
-  assert.match(keyDateBlock, /待软装完成/);
+  assert.match(keyDateBlock, /resolveProjectStageReminder\(project\)\.primaryReminder/);
+  assert.match(js, /displayStart:\s*\['摆场开始时间', '摆场时间', '现场摆场时间'\]/);
+  assert.match(js, /displayFileSent:\s*\['摆场文件发出时间\(项目群）', '摆场文件发出时间（项目群）'\]/);
+  assert.match(js, /等待摆场结束/);
+  assert.match(js, /项目待闭环/);
 });
 
 test('project detail surfaces omit load values and risk judgment', async () => {

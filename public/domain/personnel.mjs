@@ -1,7 +1,11 @@
 import { state } from '../lib/state.mjs';
 import { elements } from '../lib/dom.mjs';
 import { escapeHtml } from '../lib/format.mjs';
-import { TEAM_OWNER_STORAGE_KEY, normalizeDashboardContext } from '../lib/constants.mjs';
+import {
+  TEAM_OWNER_STORAGE_KEY,
+  normalizeDashboardContext,
+  resolveTeamPageDashboardContext,
+} from '../lib/constants.mjs';
 import { currentPageId, parsePageHash } from '../lib/router.mjs';
 import {
   enhanceTeamOwnerSelect,
@@ -151,7 +155,7 @@ export function resolveTeamDashboardContext() {
   if (pageId !== 'teams') {
     return '';
   }
-  return normalizeDashboardContext(dashboardContext);
+  return resolveTeamPageDashboardContext(dashboardContext);
 }
 
 

@@ -9,9 +9,10 @@
 这个仓库按“换电脑后 clone 即可继续开发，恢复本地数据后即可查看业务看板”的方式维护。
 
 - 代码、文档、测试、脚本、规则数据和人员种子随仓库提交。
-- `.env`、`data/app.sqlite`、`data/dashboard-cache.json`、日志、依赖和本地索引不进 Git。
-- 新电脑安装 Node.js 并 clone 仓库后，复制本机备份的 `.env` 与 `data/app.sqlite`，或配置 `.env` 后重新同步灌库。
-- 仓库虽然是私人仓库，仍按运行时数据和密钥不入库的策略维护。
+- `.env` 随私有仓库提交，作为换机后直接恢复真实钉钉接入和本地同步配置的权威文件。
+- `data/app.sqlite`、`data/dashboard-cache.json`、`data/precomputed/`、`data/read-model/`、日志、依赖和本地索引不进 Git。
+- 新电脑安装 Node.js 并 clone 仓库后，直接使用仓库内 `.env`；业务数据库仍可复制本机备份的 `data/app.sqlite`，或用 `.env` 重新同步灌库。
+- 仓库必须保持私有；若未来要公开或共享给无权限成员，必须先移除 `.env`、轮换其中所有密钥，并恢复常规密钥不入库策略。
 
 完整 Git 与本地数据策略见 [`docs/handbook/git-and-data.md`](./docs/handbook/git-and-data.md)，安全边界见 [`docs/contracts/security-boundary.md`](./docs/contracts/security-boundary.md)。
 
@@ -62,6 +63,7 @@ npm test
 - **首页年度进店结构 V3**：单行状态带、季度切换、ECharts 主图与下钻弹窗（`public/dashboard/annual-entry-structure.mjs`）。
 - **团队工作完成情况**：小组页主模块，按团队 / 小组 / 成员聚合月度完成量与进行中状态（`public/pages/team-work-completion.mjs`）。
 - 项目明细弹窗、项目 drill-down 列表、今日处理动作队列。
+- 统一项目阶段提醒口径：项目详情、下钻列表、小组待处理队列和读模型共用同一阶段提醒表；摆场开始即进入“摆场中”，摆场文件发出即默认“摆场结束”。
 - 风险健康分析、部门团队运转 Agent、进店节奏分析、月度运转指标、项目负荷与难度计算。
 - 硬装 Deadline 规则计算、工作日日历、规则文档与前端开发文档规则章节。
 - 前端 ES Module 分层架构（`lib/`、`domain/`、`components/`、`pages/`），入口 `app.js` 仅做编排；规格见 [`openspec/specs/frontend-architecture/spec.md`](./openspec/specs/frontend-architecture/spec.md)。
@@ -83,7 +85,7 @@ npm test
 
 ## 规则与文档入口
 
-运营规则、Deadline 和延期提醒的人类可读正文见 [`docs/rules/operational-rulebook.md`](./docs/rules/operational-rulebook.md)。可执行矩阵与工作日计算以 `src/backend/hardDecorationDeadlineRules.mjs` 为准；前端开发文档页（`#developer-docs`）规则章节只提供运营摘要。
+运营规则、Deadline、阶段提醒和延期提醒的人类可读正文见 [`docs/rules/operational-rulebook.md`](./docs/rules/operational-rulebook.md)。项目阶段提醒的可执行口径以 `public/domain/project-stage-reminder-rules.mjs` 为准；硬装 Deadline 的可执行矩阵与工作日计算以 `src/backend/hardDecorationDeadlineRules.mjs` 为准；前端开发文档页（`#developer-docs`）规则章节只提供运营摘要。
 
 业务背景与阶段语境见 [`公司情况与业务环境.md`](./公司情况与业务环境.md)。完整文档索引见 [`docs/README.md`](./docs/README.md)。
 
@@ -136,7 +138,7 @@ Invoke-RestMethod -Method Post `
 
 ## 接入真实钉钉
 
-`.env` 不进 Git。需要调整钉钉来源时，在本地 `.env` 中重点看这些变量：
+`.env` 当前随私有仓库提交。需要调整钉钉来源时，重点看这些变量；文档只列配置名，不展示真实值：
 
 ```text
 DINGTALK_MODE

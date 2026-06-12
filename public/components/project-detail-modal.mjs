@@ -86,6 +86,7 @@ function buildProjectDetailFieldGroups() {
       { label: '流程记录：产品清单接收时间', fields: PROJECT_NODE_FIELD_ALIASES.productListSent, value: (project) => formatDate(readProjectNodeValue(project, 'productListSent')), always: true },
       { label: '采购时间', fields: PROJECT_NODE_FIELD_ALIASES.purchaseTime, value: (project) => formatDate(readProjectNodeValue(project, 'purchaseTime')), always: true },
       { label: '采购完成情况', fields: PROJECT_NODE_FIELD_ALIASES.purchaseStatus, always: true },
+      { label: '摆场开始时间', fields: PROJECT_NODE_FIELD_ALIASES.displayStart, value: (project) => formatDate(readProjectNodeValue(project, 'displayStart')), always: true },
       { label: '摆场文件发出时间', fields: PROJECT_NODE_FIELD_ALIASES.displayFileSent, value: (project) => formatDate(readProjectNodeValue(project, 'displayFileSent')), always: true },
       { label: '摆场时间', fields: PROJECT_NODE_FIELD_ALIASES.displayTime, value: (project) => formatDate(readProjectNodeValue(project, 'displayTime')), always: true },
       { label: '启动时间', fields: PROJECT_NODE_FIELD_ALIASES.managementStart, value: (project) => formatDate(project.startDate || readProjectNodeValue(project, 'managementStart')), always: true },

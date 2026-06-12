@@ -1814,7 +1814,7 @@ test('team work completion controls switch context year and render transient sta
   app.state.teamWorkCompletionYear = 2026;
   app.window.location.hash = '#teams?owner=苏佳蕾&dashboardContext=direct&year=2026';
   const sectionShells = attachTeamCompletionSectionShells(app);
-  const completionContextTabs = ['all', 'direct', 'franchise'].map((context) => {
+  const completionContextTabs = ['direct', 'franchise'].map((context) => {
     const classes = new Set();
     const button = fakeElement();
     button.dataset.teamCompletionContext = context;
@@ -2464,7 +2464,7 @@ test('team work completion keeps current dashboard visible while switching uncac
     dataQuality: { notes: [], unmappedMemberCount: 0, missingDateCompletionCount: 0, weakProjectKeyCount: 0 },
   };
   app.renderTeamWorkCompletionDashboard();
-  const completionContextTabs = ['all', 'direct', 'franchise'].map((context) => {
+  const completionContextTabs = ['direct', 'franchise'].map((context) => {
     const classes = new Set(context === 'direct' ? ['is-active'] : []);
     const button = fakeElement();
     button.dataset.teamCompletionContext = context;
@@ -2772,7 +2772,7 @@ test('initial teams route honors the last stored owner before personnel options 
   await app.init();
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assert.equal(requested[0], '/api/dashboard-session?owner=Owner+B&context=all&year=2026');
+  assert.equal(requested[0], '/api/dashboard-session?owner=Owner+B&context=direct&year=2026');
   assert.equal(app.elements.teamOwnerSelect.value, 'Owner B');
   assert.equal(app.state.teamMetrics.owner, 'Owner B');
   assert.equal(app.state.teamWorkCompletion.owner, 'Owner B');
@@ -2861,7 +2861,7 @@ test('initial profile route uses dashboard session without profile fanout', asyn
   await app.init();
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assert.deepEqual(requested, ['/api/dashboard-session?context=all&year=2026']);
+  assert.deepEqual(requested, ['/api/dashboard-session?context=direct&year=2026']);
   assert.equal(app.state.profileMetrics.direct.profile, 'direct');
   assert.equal(app.state.profileProjects.direct.length, 1);
 });
@@ -2971,7 +2971,7 @@ test('overview dashboard preloads lifecycle drill caches after first render', as
       if (path.startsWith('/api/dashboard-session')) {
         return {
           ok: true,
-          json: async () => sampleDashboardSession({ owner: 'Owner A', dashboardContext: 'all', year: 2026 }),
+          json: async () => sampleDashboardSession({ owner: 'Owner A', dashboardContext: 'direct', year: 2026 }),
         };
       }
       if (path.startsWith('/api/projects') && path.includes('fields=ids')) {
@@ -3112,7 +3112,7 @@ test('overview dashboard preloads team work completion detail for first teams mo
   const detailRequests = requested.filter((path) => path.startsWith('/api/team-work-completion') && path.includes('view=detail'));
   assert.equal(detailRequests.length, 1);
   assert.match(detailRequests[0], /owner=Owner\+A/);
-  assert.match(detailRequests[0], /context=all/);
+  assert.match(detailRequests[0], /context=direct/);
   assert.match(detailRequests[0], /fallback=readModel/);
   assert.ok(app.state.teamWorkCompletion.detailReady);
 });
@@ -3126,7 +3126,7 @@ test('overview dashboard cached team bundle makes first teams switch local', asy
       if (path.startsWith('/api/dashboard-session')) {
         return {
           ok: true,
-          json: async () => sampleDashboardSession({ owner: 'Owner A', dashboardContext: 'all', year: 2026 }),
+          json: async () => sampleDashboardSession({ owner: 'Owner A', dashboardContext: 'direct', year: 2026 }),
         };
       }
       if (path.startsWith('/api/projects') && path.includes('fields=ids')) {
@@ -3159,13 +3159,13 @@ test('overview dashboard cached team bundle makes first teams switch local', asy
   await loadDashboard();
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  app.window.location.hash = '#teams?owner=Owner%20A&dashboardContext=all&year=2026';
+  app.window.location.hash = '#teams?owner=Owner%20A&dashboardContext=direct&year=2026';
   app.showPage('teams');
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.deepEqual(
     requested.filter((path) => path.startsWith('/api/dashboard-session')),
-    ['/api/dashboard-session?context=all&year=2026']
+    ['/api/dashboard-session?context=direct&year=2026']
   );
   assert.deepEqual(
     requested.filter(
@@ -4416,7 +4416,7 @@ function project(rawFields = {}, overrides = {}) {
   };
 }
 
-test('project key date requires actual meeting and measure dates before advancing hard reminders', async () => {
+test('project key date can advance from downstream hard stage text while exact dates remain field facts', async () => {
   const app = await loadPublicAppHarness();
 
   const measureDelayed = app.resolveProjectKeyDate(
@@ -4436,8 +4436,8 @@ test('project key date requires actual meeting and measure dates before advancin
       上会情况: '准时完成',
     })
   );
-  assert.equal(meetingStatusOnly.label, '上会');
-  assert.equal(meetingStatusOnly.message, '待上会');
+  assert.equal(meetingStatusOnly.label, '复尺');
+  assert.equal(meetingStatusOnly.message, '待复尺');
 
   const measureStatusOnly = app.resolveProjectKeyDate(
     project({
@@ -4451,7 +4451,7 @@ test('project key date requires actual meeting and measure dates before advancin
   assert.equal(measureStatusOnly.message, '待复尺');
 });
 
-test('soft progress does not hide missing hard-node dates in next reminder', async () => {
+test('soft progress advances the main reminder while hard-node gaps remain separate field gaps', async () => {
   const app = await loadPublicAppHarness();
 
   const reminder = app.resolveProjectKeyDate(
@@ -4462,8 +4462,8 @@ test('soft progress does not hide missing hard-node dates in next reminder', asy
     })
   );
 
-  assert.equal(reminder.label, '上会');
-  assert.equal(reminder.message, '待上会');
+  assert.equal(reminder.label, '软装方案');
+  assert.equal(reminder.message, '待软装方案');
 });
 
 test('floor plan handoff shows parallel construction drawing and point design work', async () => {
@@ -4792,7 +4792,7 @@ test('updated construction stage starts point design even when floor plan handof
   assert.doesNotMatch(stage, /软装：未开始/);
 
   const reminders = app.resolveProjectKeyDateReminders(stageUpdatedProject);
-  assert.deepEqual(JSON.parse(JSON.stringify(reminders.map((item) => item.label))), ['施工图初稿', '点位完成']);
+  assert.deepEqual(JSON.parse(JSON.stringify(reminders.map((item) => item.label))), ['施工图审核', '点位完成']);
   assert.match(app.readProjectKeyDate(stageUpdatedProject), /待点位完成/);
 });
 
@@ -4816,7 +4816,7 @@ test('paused workflow keeps pause as the only project key reminder after handoff
   assert.deepEqual(JSON.parse(JSON.stringify(app.resolveProjectKeyDateReminders(hardPaused).map((item) => item.label))), ['暂停']);
 });
 
-test('completed soft point status asks for missing completion time instead of point follow-up', async () => {
+test('completed soft point status advances the main reminder while missing time remains a data gap', async () => {
   const app = await loadPublicAppHarness();
 
   const stageReminder = app.resolveProjectKeyDate(
@@ -4826,8 +4826,8 @@ test('completed soft point status asks for missing completion time instead of po
       施工图完成审核时间: '2026-05-01',
     })
   );
-  assert.equal(stageReminder.label, '点位完成');
-  assert.equal(stageReminder.message, '待点位完成');
+  assert.equal(stageReminder.label, '软装方案');
+  assert.equal(stageReminder.message, '待软装方案');
 
   const statusReminder = app.resolveProjectKeyDate(
     project({
@@ -4837,8 +4837,8 @@ test('completed soft point status asks for missing completion time instead of po
       施工图完成审核时间: '2026-05-01',
     })
   );
-  assert.equal(statusReminder.label, '点位完成');
-  assert.equal(statusReminder.message, '待点位完成');
+  assert.equal(statusReminder.label, '软装方案');
+  assert.equal(statusReminder.message, '待软装方案');
 });
 
 test('field gap reminders track completed stage evidence without changing workflow reminders', async () => {
@@ -5029,8 +5029,8 @@ test('downstream soft stages require missing point evidence without reverting wo
       施工图完成审核时间: '2026-05-01',
     })
   );
-  assert.equal(reminder.label, '点位完成');
-  assert.equal(reminder.message, '待点位完成');
+  assert.equal(reminder.label, '采购完成');
+  assert.equal(reminder.message, '待采购完成');
 
   assert.deepEqual(
     JSON.parse(JSON.stringify(app.projectFieldGapReminders(
@@ -5101,8 +5101,8 @@ test('soft completion status does not short-circuit follow-up reminders', async 
     })
   );
 
-  assert.equal(reminder.label, '产品清单接收');
-  assert.equal(reminder.message, '待产品清单接收');
+  assert.equal(reminder.label, '采购完成');
+  assert.equal(reminder.message, '待采购完成');
 });
 
 test('design responsibility completion does not close company follow-up reminders', async () => {

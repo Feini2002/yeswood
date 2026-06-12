@@ -301,7 +301,7 @@ async function loadSelectedTeamOwner(owner = elements.teamOwnerSelect.value) {
   resetOwnerReviewForTeamOwnerChange();
   navigateToTeam(owner);
   const dashboardContext = resolveTeamDashboardContext();
-  return loadTeamDashboardScope(owner, dashboardContext || 'all', state.teamWorkCompletionYear);
+  return loadTeamDashboardScope(owner, dashboardContext || 'direct', state.teamWorkCompletionYear);
 }
 
 export async function init() {
