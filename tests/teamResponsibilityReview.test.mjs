@@ -267,6 +267,7 @@ test('buildTeamResponsibilityReview builds company-wide member load modules for 
         VM设计师: raw('软装同事'),
         摆场设计师: raw('陈晶晶、严许'),
         软装项目进度: raw('摆场'),
+        摆场开始时间: raw('2026-06-07'),
       },
     }),
     project({
@@ -277,8 +278,20 @@ test('buildTeamResponsibilityReview builds company-wide member load modules for 
         组别: raw('直营新店'),
         负责人: raw('其他负责人'),
         摆场设计师: raw('陈晶晶'),
-        硬装项目进度: raw('闭环'),
-        软装项目进度: raw('闭环'),
+        软装项目进度: raw('摆场'),
+        '摆场文件发出时间(项目群）': raw('2026-06-09'),
+      },
+    }),
+    project({
+      id: 'chen-display-waiting-after-purchase',
+      name: '采购完成待摆场店',
+      owner: '其他负责人',
+      rawFields: {
+        组别: raw('直营新店'),
+        负责人: raw('其他负责人'),
+        摆场设计师: raw('陈晶晶'),
+        软装项目进度: raw('待采购'),
+        采购完成情况: raw('已完成'),
       },
     }),
     project({
@@ -309,10 +322,10 @@ test('buildTeamResponsibilityReview builds company-wide member load modules for 
   const chen = review.memberLoads.find((item) => item.name === '陈晶晶');
   assert.ok(chen);
   assert.equal(chen.groupName, '直营1组');
-  assert.equal(chen.summary.associatedProjectCount, 5);
+  assert.equal(chen.summary.associatedProjectCount, 6);
   assert.equal(chen.summary.floorPlanActiveCount, 1);
   assert.equal(chen.summary.floorPlanCompletedCount, 1);
-  assert.equal(chen.summary.displayActiveCount, 1);
+  assert.equal(chen.summary.displayActiveCount, 2);
   assert.equal(chen.summary.displayCompletedCount, 1);
   assert.deepEqual(
     chen.floorPlan.active.map((item) => item.projectId),
@@ -324,7 +337,14 @@ test('buildTeamResponsibilityReview builds company-wide member load modules for 
   );
   assert.deepEqual(
     chen.display.active.map((item) => item.projectId),
-    ['chen-display-active']
+    ['chen-display-active', 'chen-display-waiting-after-purchase']
+  );
+  assert.deepEqual(
+    chen.display.active.map((item) => [item.projectId, item.status]),
+    [
+      ['chen-display-active', '摆场已开始'],
+      ['chen-display-waiting-after-purchase', '待摆场'],
+    ]
   );
   assert.deepEqual(
     chen.display.completed.map((item) => item.projectId),
@@ -337,10 +357,11 @@ test('buildTeamResponsibilityReview builds company-wide member load modules for 
       ['chen-floor-done-history', '历史平面完成店', '其他负责人', 'completed'],
       ['chen-display-active', '摆场推进店', '其他负责人', 'active'],
       ['chen-display-done', '摆场闭环店', '其他负责人', 'completed'],
+      ['chen-display-waiting-after-purchase', '采购完成待摆场店', '其他负责人', 'active'],
       ['chen-associated-only', '仅关联软装店', '其他负责人', 'associated'],
     ]
   );
-  assert.equal(review.summary.memberAssociatedProjectCount >= 5, true);
+  assert.equal(review.summary.memberAssociatedProjectCount >= 6, true);
 });
 
 test('buildTeamResponsibilityReview validates display assignees through existing designer evidence without inferring a display role', () => {

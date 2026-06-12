@@ -6,6 +6,9 @@ import {
   isCanceledProject,
   isPausedOrCanceledProject,
   isPausedProject,
+  projectStageDisplayItems,
+  projectWorkbenchStageRank,
+  readProjectStage,
   readEffectiveWorkflowStage,
 } from '../public/domain/project-workflow.mjs';
 import { resolveProjectKeyDateReminders } from '../public/domain/project-reminders.mjs';
@@ -77,4 +80,59 @@ test('frontend distinguishes canceled projects while grouping them with paused p
   assert.equal(isPausedProject(hardCanceled), false);
   assert.equal(isPausedOrCanceledProject(hardCanceled), true);
   assert.deepEqual(classifyProjectLifecycleStage(hardCanceled), { key: 'paused', label: '暂停/取消' });
+});
+
+test('project stage display follows unified procurement facts over stale soft progress text', () => {
+  const purchasing = project({
+    软装项目进度: raw('待采购'),
+    采购时间: raw('2026-05-22'),
+  });
+  const purchaseDone = project({
+    软装项目进度: raw('待采购'),
+    采购完成情况: raw('已完成'),
+  });
+
+  assert.equal(readEffectiveWorkflowStage(purchasing, 'soft'), '采购中');
+  assert.equal(readEffectiveWorkflowStage(purchaseDone, 'soft'), '采购完成');
+  assert.match(readProjectStage(purchasing), /软装：采购中/);
+  assert.match(readProjectStage(purchaseDone), /软装：采购完成/);
+  assert.deepEqual(projectStageDisplayItems(purchaseDone).map((item) => item.value), ['采购完成']);
+});
+
+test('project stage display uses unified downstream facts when soft progress is blank', () => {
+  const productListReady = project({
+    '流程记录：产品清单接收时间': raw('2026-05-22'),
+  });
+  const displayStarted = project({
+    摆场开始时间: raw('2026-06-07'),
+  });
+
+  assert.equal(readEffectiveWorkflowStage(productListReady, 'soft'), '产品清单已接收');
+  assert.equal(readEffectiveWorkflowStage(displayStarted, 'soft'), '摆场中');
+  assert.match(readProjectStage(productListReady), /软装：产品清单已接收/);
+  assert.match(readProjectStage(displayStarted), /软装：摆场中/);
+});
+
+test('project workbench sorting follows unified display facts over stale purchase text', () => {
+  const blankKeyDate = { label: '', stage: '' };
+  const stalePurchaseDisplayStarted = project({
+    软装项目进度: raw('待采购'),
+    摆场开始时间: raw('2026-06-07'),
+  });
+  const displayTextProject = project({
+    软装项目进度: raw('摆场'),
+  });
+  const purchaseTextProject = project({
+    软装项目进度: raw('待采购'),
+  });
+
+  assert.equal(
+    projectWorkbenchStageRank(stalePurchaseDisplayStarted, blankKeyDate),
+    projectWorkbenchStageRank(displayTextProject, blankKeyDate)
+  );
+  assert.equal(
+    projectWorkbenchStageRank(stalePurchaseDisplayStarted, blankKeyDate) >
+      projectWorkbenchStageRank(purchaseTextProject, blankKeyDate),
+    true
+  );
 });

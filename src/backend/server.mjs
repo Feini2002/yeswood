@@ -31,6 +31,7 @@ import {
 import { reserveSyncGate } from './syncGate.mjs';
 import { buildDepartmentOperationsAnalysis } from './agents/departmentOperationsAgent.mjs';
 import { findProjectInSnapshot, summarizeProject, summarizeProjects } from './projectPresentation.mjs';
+import { compactProjectForDetailReadModel, decorateProjectForFullDetailResponse } from './projectDetailPayload.mjs';
 import {
   precomputeSnapshotHash,
   readPrecomputedDashboardSession,
@@ -1042,7 +1043,7 @@ async function handleApiRequest(request, response, url, config) {
         return true;
       }
       await sendJson(response, 200, {
-        item: view === 'summary' ? summarizeProject(project) : project,
+        item: view === 'summary' ? summarizeProject(project) : decorateProjectForFullDetailResponse(project),
         readOnly: true,
       });
       return true;
@@ -1071,7 +1072,10 @@ async function handleApiRequest(request, response, url, config) {
       return true;
     }
 
-    const items = view === 'full' ? projects : summarizeProjects(projects);
+    const items =
+      view === 'full'
+        ? projects.map((project) => decorateProjectForFullDetailResponse(project))
+        : summarizeProjects(projects);
     await sendJson(response, 200, {
       items,
       total: items.length,
@@ -1212,7 +1216,7 @@ async function handleApiRequest(request, response, url, config) {
         dashboardContext,
         year,
       });
-      const readModelHit = readModel.status === 'ready' || readModel.status === 'stale';
+      const readModelHit = readModel.status === 'ready';
       const perf = {
         route: '/api/team-work-completion',
         owner: ownerParam,
@@ -1225,7 +1229,7 @@ async function handleApiRequest(request, response, url, config) {
         fallbackComputed: false,
         precomputeActive: precomputeActive(config),
       };
-      if (readModelHit) {
+      if (readModel.status === 'ready') {
         await sendJson(response, 200, readModel.payload, perf);
         return true;
       }

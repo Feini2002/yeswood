@@ -50,7 +50,7 @@ export const PROJECT_STAGE_FIELD_ALIASES = {
 const STAGE_META = {
   [PROJECT_STAGE_KEYS.canceled]: { label: '取消', rank: 1000 },
   [PROJECT_STAGE_KEYS.paused]: { label: '暂停', rank: 990 },
-  [PROJECT_STAGE_KEYS.closed]: { label: '闭环', rank: 980 },
+  [PROJECT_STAGE_KEYS.closed]: { label: '闭环完成', rank: 980 },
   [PROJECT_STAGE_KEYS.displayFinished]: { label: '摆场结束', rank: 900 },
   [PROJECT_STAGE_KEYS.displayInProgress]: { label: '摆场中', rank: 880 },
   [PROJECT_STAGE_KEYS.purchaseDone]: { label: '采购完成', rank: 820 },
@@ -175,9 +175,50 @@ function readStageNodes(project) {
   return nodes;
 }
 
+function expandCompactWorkflowFacts(project = {}) {
+  const compact = project?.workflowFacts;
+  if (!compact || typeof compact !== 'object') {
+    return null;
+  }
+  const hardStage = normalizeText(project?.hardProgressStage);
+  const softStage = isSleepStoreProject(project) ? '' : normalizeText(project?.softProgressStage);
+  const status = normalizeText(project?.status);
+  return {
+    projectId: project?.id || '',
+    hardStage,
+    softStage,
+    status,
+    sleepStore: isSleepStoreProject(project),
+    canceled: Boolean(compact.canceled),
+    paused: Boolean(compact.paused),
+    closed: Boolean(compact.lifecycleClosed),
+    stageText: [hardStage, softStage, status].filter(Boolean).join(' '),
+    nodes: {
+      displayStarted: Boolean(compact.displayStarted),
+      displayStart: compact.displayStartedAt || '',
+      displayStartedDirect: Boolean(compact.displayStartedAt || compact.displayStarted),
+      displayStartedByStage: false,
+      displayEnded: Boolean(compact.displayEnded),
+      displayFileSent: compact.displayEndedAt || '',
+      displayEndedDirect: Boolean(compact.displayEndedAt || compact.displayEnded),
+      purchaseStarted: Boolean(compact.purchaseStarted),
+      purchaseDone: Boolean(compact.purchaseDone),
+      purchaseDoneDirect: Boolean(compact.purchaseDone),
+      productListReady: Boolean(compact.productListReady),
+      softDone: Boolean(compact.softDone),
+    },
+  };
+}
+
 export function resolveProjectWorkflowFacts(project = {}) {
   if (!project?.rawFields && project?.stageReminder?.facts) {
     return project.stageReminder.facts;
+  }
+  if (!project?.rawFields) {
+    const compactFacts = expandCompactWorkflowFacts(project);
+    if (compactFacts) {
+      return compactFacts;
+    }
   }
   const nodes = readStageNodes(project);
   const text = stageText(project, nodes);
@@ -199,17 +240,20 @@ export function resolveProjectWorkflowFacts(project = {}) {
 
   const purchaseStatusDone = isCompleteText(nodes.purchaseStatus);
   const purchaseStartedByStage = /待采购|采购/.test(text) && !/未采购|未开始采购/.test(text);
-  const purchaseDoneDirect = hasNode(nodes, 'purchaseTime') || purchaseStatusDone || /已采购|采购.*完成/.test(text);
+  const purchaseStartedDirect = hasNode(nodes, 'purchaseTime');
+  const purchaseDoneByStage = /已采购|采购.*完成/.test(text) && !/待采购完成|待采购|未采购|未开始采购/.test(text);
+  const purchaseDoneDirect = purchaseStatusDone || purchaseDoneByStage;
   const purchaseDone = purchaseDoneDirect || displayStarted || displayEnded;
-  const purchaseStarted = purchaseDone || purchaseStartedByStage || hasNode(nodes, 'purchaseStatus');
+  const purchaseStarted = purchaseDone || purchaseStartedDirect || purchaseStartedByStage || hasNode(nodes, 'purchaseStatus');
 
   const productListReady =
     hasNode(nodes, 'productListSent') || purchaseStarted || purchaseDone || displayStarted || displayEnded || /产品清单|采购|摆场|闭环/.test(text);
 
   const softDoneStatusFilled = hasValue(nodes.softDoneStatus);
   const softDoneStatusDone = isCompleteText(nodes.softDoneStatus);
-  const softDoneStatusBlocksCompletion = softDoneStatusFilled && !softDoneStatusDone;
-  const softDoneDirect = softDoneStatusDone || (hasNode(nodes, 'softDoneTime') && !softDoneStatusBlocksCompletion);
+  const softDoneTimeDirect = hasNode(nodes, 'softDoneTime');
+  const softDoneStatusBlocksCompletion = softDoneStatusFilled && !softDoneStatusDone && !softDoneTimeDirect;
+  const softDoneDirect = softDoneStatusDone || softDoneTimeDirect;
   const softDone =
     !sleepStore &&
     (softDoneDirect ||
@@ -252,12 +296,15 @@ export function resolveProjectWorkflowFacts(project = {}) {
       displayEnded,
       displayEndedDirect,
       purchaseStarted,
+      purchaseStartedDirect,
       purchaseDoneDirect,
+      purchaseDoneByStage,
       purchaseDone,
       productListReady,
       softDoneStatusFilled,
       softDoneStatusDone,
       softDoneStatusBlocksCompletion,
+      softDoneTimeDirect,
       softDoneDirect,
       softDone,
       softStarted,
@@ -323,7 +370,7 @@ function resolvePrimaryReminder(facts, currentStage) {
     return makeReminder({ label: '暂停', discipline: 'status', stage: currentStage.label, message: '项目暂停中', kind: 'status' });
   }
   if (facts.closed) {
-    return makeReminder({ label: '闭环', discipline: 'status', stage: currentStage.label, message: '项目已闭环', kind: 'status' });
+    return makeReminder({ discipline: 'status', stage: currentStage.label, kind: 'status' });
   }
   if (nodes.displayEnded) {
     return makeReminder({ label: '闭环', discipline: 'followup', stage: currentStage.label, message: '项目待闭环' });
@@ -385,8 +432,9 @@ function resolvePrimaryReminder(facts, currentStage) {
 
 export function resolveProjectStageReminder(project = {}) {
   if (!project?.rawFields && project?.stageReminder?.currentStage && project?.stageReminder?.primaryReminder) {
+    const facts = project.stageReminder.facts || resolveProjectWorkflowFacts(project);
     return {
-      facts: project.stageReminder.facts || {},
+      facts,
       currentStage: project.stageReminder.currentStage,
       primaryReminder: project.stageReminder.primaryReminder,
       dataGaps: project.stageReminder.dataGaps || [],
@@ -403,6 +451,36 @@ export function resolveProjectStageReminder(project = {}) {
     primaryReminder,
     dataGaps,
     reminders: [primaryReminder, ...dataGaps.map(gapToReminder)],
+  };
+}
+
+export function compactProjectWorkflowFacts(facts = {}) {
+  const nodes = facts.nodes || {};
+  return {
+    canceled: Boolean(facts.canceled),
+    paused: Boolean(facts.paused),
+    lifecycleClosed: Boolean(facts.closed),
+    displayStarted: Boolean(nodes.displayStarted),
+    displayStartedAt: nodes.displayStart || '',
+    displayEnded: Boolean(nodes.displayEnded),
+    displayEndedAt: nodes.displayFileSent || '',
+    purchaseStarted: Boolean(nodes.purchaseStarted),
+    purchaseDone: Boolean(nodes.purchaseDone),
+    productListReady: Boolean(nodes.productListReady),
+    softDone: Boolean(nodes.softDone),
+  };
+}
+
+export function compactProjectStageReminder(stageReminder = {}, { includeFacts = false } = {}) {
+  const dataGaps = Array.isArray(stageReminder.dataGaps) ? stageReminder.dataGaps : [];
+  const reminders = Array.isArray(stageReminder.reminders) ? stageReminder.reminders : [];
+  return {
+    ...(includeFacts ? { facts: stageReminder.facts || {} } : {}),
+    currentStage: stageReminder.currentStage || stageInfo(PROJECT_STAGE_KEYS.notStarted),
+    primaryReminder: stageReminder.primaryReminder || makeReminder(),
+    dataGapCount: dataGaps.length,
+    dataGaps,
+    reminders,
   };
 }
 

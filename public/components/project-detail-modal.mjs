@@ -82,7 +82,7 @@ function buildProjectDetailFieldGroups() {
       { label: '点位完成时间', fields: PROJECT_NODE_FIELD_ALIASES.pointDone, value: (project) => formatDate(readProjectNodeValue(project, 'pointDone')), always: true },
       { label: '软装方案开始时间', fields: PROJECT_NODE_FIELD_ALIASES.softSchemeStart, value: (project) => formatDate(readProjectNodeValue(project, 'softSchemeStart')), always: true },
       { label: '软装完成情况', fields: PROJECT_NODE_FIELD_ALIASES.softDoneStatus, always: true },
-      { label: '软装发群/完成时间', fields: [...PROJECT_NODE_FIELD_ALIASES.softDoneTime, ...PROJECT_NODE_FIELD_ALIASES.displayFileSent], value: (project) => formatDate(readProjectNodeValue(project, 'softDoneTime') || readProjectNodeValue(project, 'displayFileSent')), always: true },
+      { label: '软装发群/完成时间', fields: PROJECT_NODE_FIELD_ALIASES.softDoneTime, value: (project) => formatDate(readProjectNodeValue(project, 'softDoneTime')), always: true },
       { label: '流程记录：产品清单接收时间', fields: PROJECT_NODE_FIELD_ALIASES.productListSent, value: (project) => formatDate(readProjectNodeValue(project, 'productListSent')), always: true },
       { label: '采购时间', fields: PROJECT_NODE_FIELD_ALIASES.purchaseTime, value: (project) => formatDate(readProjectNodeValue(project, 'purchaseTime')), always: true },
       { label: '采购完成情况', fields: PROJECT_NODE_FIELD_ALIASES.purchaseStatus, always: true },

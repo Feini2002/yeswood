@@ -211,7 +211,8 @@ export function pruneTeamWorkCompletionCache(maxEntries) {
 export async function loadTeamDashboardSessionBundle(
   owner = resolveTeamOwner(),
   dashboardContext = resolveTeamDashboardContext() || DEFAULT_TEAM_DASHBOARD_CONTEXT,
-  year = resolveTeamWorkCompletionYear()
+  year = resolveTeamWorkCompletionYear(),
+  { shouldApply = () => true } = {}
 ) {
   if (!owner) {
     return null;
@@ -222,6 +223,9 @@ export async function loadTeamDashboardSessionBundle(
   params.set('context', dashboardContext || 'all');
   params.set('year', String(normalizedYear));
   const payload = await fetchJson(`${DASHBOARD_SESSION_ENDPOINT}?${params}`, { timeoutMs: 15_000 });
+  if (!shouldApply()) {
+    return { status: 'stale', reason: 'scope-changed' };
+  }
   if (payload?.status === 'preparing' && !payload.team) {
     const previousReview = state.teamWorkCompletion?.owner ? state.teamWorkCompletion : null;
     const preserveReview = teamWorkCompletionReviewMatchesOwner(previousReview, owner);
@@ -818,6 +822,70 @@ function normalizeTeamDashboardScopeContext(dashboardContext = DEFAULT_TEAM_DASH
 }
 
 
+function teamDashboardScopeStillCurrent(owner, dashboardContext, year, requestId) {
+  if (requestId !== runtimeStore.teamDashboardScopeRequestId || currentPageId() !== 'teams') {
+    return false;
+  }
+  const resolvedDashboardContext = resolveTeamPageDashboardContext(dashboardContext);
+  const normalizedYear = Number(year) || new Date().getFullYear();
+  return (
+    resolveTeamOwner() === owner &&
+    resolveTeamPageDashboardContext(resolveTeamDashboardContext()) === resolvedDashboardContext &&
+    resolveTeamWorkCompletionYear() === normalizedYear
+  );
+}
+
+
+function applyCachedTeamDashboardScope(owner, dashboardContext, year) {
+  const resolvedDashboardContext = resolveTeamPageDashboardContext(dashboardContext);
+  const normalizedYear = Number(year) || new Date().getFullYear();
+  const cachedCompletion = cachedTeamWorkCompletion(owner, resolvedDashboardContext, normalizedYear);
+  const cachedReview = cachedOwnerReview(owner, resolvedDashboardContext);
+  const cachedMetrics =
+    state.teamMetricsBatchKey === teamMetricsContextKey(resolvedDashboardContext) ? state.teamMetricsByOwner?.[owner] : null;
+  const applied = {
+    completion: false,
+    metrics: false,
+    review: false,
+  };
+
+  if (cachedCompletion) {
+    state.teamWorkCompletion = cachedCompletion;
+    state.teamWorkCompletionYear = cachedCompletion.year || normalizedYear;
+    state.teamWorkCompletionLoading = false;
+    state.teamWorkCompletionError = '';
+    state.teamWorkCompletionRefreshStatus = 'refreshing';
+    state.teamWorkCompletionRefreshError = '';
+    state.teamWorkCompletionSwitchTarget = '';
+    state.selectedTeamOwner = cachedCompletion.owner || owner;
+    localStorage.setItem(TEAM_OWNER_STORAGE_KEY, cachedCompletion.owner || owner);
+    queueTeamWorkCompletionDetailPreload(cachedCompletion, {
+      reason: 'scope-cache-hit',
+      allowCompute: false,
+    });
+    applied.completion = true;
+  }
+
+  if (cachedReview) {
+    state.ownerReview = cachedReview;
+    state.ownerReviewLoading = false;
+    state.ownerReviewError = '';
+    state.ownerReviewRefreshStatus = 'refreshing';
+    state.ownerReviewRefreshError = '';
+    applied.review = true;
+  }
+
+  if (cachedMetrics) {
+    state.teamMetrics = cachedMetrics;
+    state.teamMetricsLoading = false;
+    state.teamMetricsError = '';
+    applied.metrics = true;
+  }
+
+  return applied;
+}
+
+
 export async function loadTeamDashboardScope(
   owner = resolveTeamOwner(),
   dashboardContext = DEFAULT_TEAM_DASHBOARD_CONTEXT,
@@ -828,10 +896,28 @@ export async function loadTeamDashboardScope(
   }
 
   const resolvedDashboardContext = resolveTeamPageDashboardContext(dashboardContext);
-  const sessionBundle = await loadTeamDashboardSessionBundle(owner, resolvedDashboardContext, year).catch((error) => {
+  const normalizedYear = Number(year) || new Date().getFullYear();
+  const requestId = ++runtimeStore.teamDashboardScopeRequestId;
+  const appliedScope = applyCachedTeamDashboardScope(owner, resolvedDashboardContext, year);
+  if (currentPageId() === 'teams') {
+    if (appliedScope.metrics) {
+      renderTeamDashboard({ renderCompletion: appliedScope.completion });
+    } else if (appliedScope.completion) {
+      renderTeamWorkCompletionDashboard();
+    }
+    if (appliedScope.review) {
+      renderOwnerReviewDashboard();
+    }
+  }
+  const sessionBundle = await loadTeamDashboardSessionBundle(owner, resolvedDashboardContext, normalizedYear, {
+    shouldApply: () => teamDashboardScopeStillCurrent(owner, resolvedDashboardContext, normalizedYear, requestId),
+  }).catch((error) => {
     console.warn('Team dashboard session bundle load failed', error);
     return null;
   });
+  if (sessionBundle?.status === 'stale') {
+    return [{ status: 'fulfilled', value: sessionBundle }];
+  }
   if (sessionBundle?.metrics && sessionBundle.workCompletion && sessionBundle.responsibilityReview) {
     if (currentPageId() === 'teams') {
       renderTeamDashboard();
@@ -1296,7 +1382,7 @@ export function renderTeamHero(metrics) {
 }
 
 
-export function renderTeamDashboard() {
+export function renderTeamDashboard({ renderCompletion = true } = {}) {
   if (state.teamMetricsLoading) {
     renderTeamDashboardLoading();
     return;
@@ -1327,7 +1413,9 @@ export function renderTeamDashboard() {
   renderTeamEntryTrendBoard(metrics);
   renderTeamDifficultyBoard(metrics);
   renderTeamTierCharts(metrics);
-  renderTeamWorkCompletionDashboard();
+  if (renderCompletion) {
+    renderTeamWorkCompletionDashboard();
+  }
   if (!elements.teamKpiGrid.hidden) {
     bindDashboardTooltips(elements.teamKpiGrid);
     bindDashboardTooltips(elements.teamProgressGrid);

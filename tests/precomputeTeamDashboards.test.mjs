@@ -251,6 +251,56 @@ test('precomputeTeamDashboards keeps processing queues in the summary payload so
   assert.equal(summary.processingQueues.normal.topProjects.at(-1).targetDateSource, '商场交付时间');
 });
 
+test('precomputeTeamDashboards writes unified procurement action stages into processing queues', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'precompute-team-dashboard-'));
+  const config = { precomputeDir: path.join(tempDir, 'precomputed') };
+  const activeProject = (id, { status = '一般', purchaseTime = '', purchaseStatus = '' } = {}) => ({
+    ...project(id, {
+      项目状态: status,
+      硬装项目进度: '施工中',
+      软装项目进度: '待采购',
+      启动时间: '2026-06-01',
+      商场交付时间: '2026-06-05',
+      计划开业时间: '',
+      项目闭环时间: '',
+      闭环周期: '',
+      采购时间: purchaseTime,
+      采购完成情况: purchaseStatus,
+    }),
+    status,
+    startDate: '2026-06-01',
+    dueDate: '2026-06-05',
+  });
+  const sourceSnapshot = snapshot({
+    sourceRecords: 2,
+    totalRecords: 2,
+    projects: [
+      activeProject('purchase-time-only', { status: '紧急', purchaseTime: '2026-05-30' }),
+      activeProject('purchase-completed-stale-progress', { status: '一般', purchaseStatus: '已完成' }),
+    ],
+  });
+  const [owner] = ownersFromSnapshot(sourceSnapshot, personnelArchitecture);
+
+  await precomputeTeamDashboards(sourceSnapshot, {
+    config,
+    contexts: ['direct'],
+    years: [2026],
+    now: new Date('2026-06-11T00:00:00.000Z'),
+  });
+
+  const summary = readPrecomputedTeamWorkCompletion(config, sourceSnapshot, personnelArchitecture, {
+    owner,
+    requestedOwner: owner,
+    dashboardContext: 'direct',
+    year: 2026,
+  });
+
+  const urgentById = Object.fromEntries(summary.processingQueues.urgent.topProjects.map((item) => [item.id, item]));
+  const normalById = Object.fromEntries(summary.processingQueues.normal.topProjects.map((item) => [item.id, item]));
+  assert.equal(urgentById['purchase-time-only'].actionStage, '待采购完成');
+  assert.equal(normalById['purchase-completed-stale-progress'].actionStage, '待摆场');
+});
+
 test('readPrecomputedTeamWorkCompletion rejects summary payloads without processing queues', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'precompute-team-dashboard-'));
   const config = { precomputeDir: path.join(tempDir, 'precomputed') };
@@ -278,6 +328,34 @@ test('readPrecomputedTeamWorkCompletion rejects summary payloads without process
   });
 
   assert.equal(summary, null);
+});
+
+test('readPrecomputedTeamWorkCompletion rejects stale cached manifests after a schema bump', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'precompute-team-dashboard-'));
+  const config = { precomputeDir: path.join(tempDir, 'precomputed') };
+  const sourceSnapshot = snapshot();
+  const [owner] = ownersFromSnapshot(sourceSnapshot, personnelArchitecture);
+
+  const result = await precomputeTeamDashboards(sourceSnapshot, {
+    config,
+    contexts: ['direct'],
+    years: [2026],
+    now: new Date('2026-06-11T00:00:00.000Z'),
+  });
+  const manifestPath = path.join(config.precomputeDir, result.snapshotHash, 'manifest.json');
+  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+  config.precomputeIndex = new Map([[result.snapshotHash, { ...manifest, schemaVersion: manifest.schemaVersion - 1 }]]);
+  await fs.writeFile(manifestPath, `${JSON.stringify({ ...manifest, schemaVersion: manifest.schemaVersion - 1 })}\n`, 'utf8');
+
+  const summary = readPrecomputedTeamWorkCompletion(config, sourceSnapshot, personnelArchitecture, {
+    owner,
+    requestedOwner: owner,
+    dashboardContext: 'direct',
+    year: 2026,
+  });
+
+  assert.equal(summary, null);
+  assert.equal(config.precomputeIndex.has(result.snapshotHash), false);
 });
 
 test('precomputeTeamDashboards splits work completion summary from detail payloads', async () => {
@@ -371,7 +449,7 @@ test('precomputeTeamDashboards writes dashboard session and responsibility revie
     'utf8'
   );
   const sessionFromFile = JSON.parse(sessionFile);
-  assert.equal(sessionFromFile.schemaVersion, 8);
+  assert.equal(sessionFromFile.schemaVersion, 10);
   assert.equal(sessionFromFile.snapshotHash, result.snapshotHash);
   assert.equal(sessionFromFile.projectCatalog, undefined);
   assert.equal(sessionFromFile.profileDashboards, undefined);
@@ -449,6 +527,9 @@ test('precomputeTeamDashboards publishes hard read model current bundle', async 
   assert.ok(catalog.items.length > 0);
   assert.equal(catalog.items.some((item) => item.rawFields), false);
   assert.equal(catalog.items[0].hardProgressStage, '闭环');
+  assert.equal(catalog.items[0].stageReminder.currentStage.label, '闭环完成');
+  assert.equal(typeof catalog.items[0].stageReminder.dataGapCount, 'number');
+  assert.equal(typeof catalog.items[0].workflowFacts.lifecycleClosed, 'boolean');
   assert.equal(catalog.items[0].softProgressStage, '闭环');
   assert.equal(catalog.items[0].franchiseScope, 'direct');
   assert.equal(JSON.stringify(catalog).includes('Expires=1781147357'), false);

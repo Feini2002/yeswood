@@ -7,6 +7,7 @@ import test from 'node:test';
 
 import { createServer } from '../src/backend/server.mjs';
 import { precomputeSnapshotHash, precomputeTeamDashboards } from '../src/backend/precomputeTeamDashboards.mjs';
+import { READ_MODEL_SCHEMA_VERSION, hashToken } from '../src/backend/readModelRepository.mjs';
 
 function raw(display) {
   return { display };
@@ -62,6 +63,62 @@ function record(recordId, overrides = {}) {
     updatedAt: '2026-06-30T00:00:00.000Z',
     riskLevel: '低',
     rawFields,
+  };
+}
+
+async function writeJson(filePath, payload) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, `${JSON.stringify(payload)}\n`, 'utf8');
+}
+
+function readModelManifest(snapshotHash = 'hash-1') {
+  return {
+    schemaVersion: READ_MODEL_SCHEMA_VERSION,
+    readModel: true,
+    snapshotHash,
+    generatedAt: '2026-06-11T08:00:00.000Z',
+    owners: [{ owner: personnelArchitecture.teams[0].owner }],
+    features: [
+      'dashboard-session',
+      'project-catalog-summary',
+      'project-detail',
+      'profile-dashboard',
+      'team-metrics',
+      'team-work-completion',
+      'team-work-completion-summary',
+      'team-work-completion-detail',
+      'team-responsibility-review',
+    ],
+  };
+}
+
+function teamWorkCompletionReadModelFileName({ owner, dashboardContext = 'all', year = 2026 }) {
+  return `${hashToken(owner)}__${dashboardContext || 'all'}__${year}.json`;
+}
+
+function teamWorkCompletionDetailPayload({ owner, dashboardContext = 'direct', year = 2026, projectId = 'stale-project' }) {
+  return {
+    owner,
+    requestedOwner: owner,
+    dashboardContext,
+    year,
+    projectCount: 1,
+    summary: {
+      floorPlan: { completedCount: 1, inProgressCount: 0, missingDateCount: 0, completedProjectIds: [projectId] },
+      display: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+      lifecycle: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+    },
+    monthly: { months: [] },
+    groups: [],
+    members: [],
+    processingQueues: {
+      urgent: { totalCount: 0, topProjects: [] },
+      normal: { totalCount: 0, topProjects: [] },
+    },
+    projectsById: {
+      [projectId]: { id: projectId, name: 'Stale detail project' },
+    },
+    readOnly: true,
   };
 }
 
@@ -247,6 +304,93 @@ test('/api/team-work-completion detail read model fallback prepares without requ
         config.precomputeEnabled = false;
         config.personnelArchitectureFile = path.join(tempDir, 'broken-personnel-architecture.json');
         await fs.writeFile(config.personnelArchitectureFile, '{', 'utf8');
+      },
+    }
+  );
+});
+
+test('/api/team-work-completion detail read model fallback does not return stale last-known-good detail', async () => {
+  await withTestServer(
+    async (port) => {
+      const payload = await getJson(
+        port,
+        `/api/team-work-completion?owner=${encodeURIComponent(
+          personnelArchitecture.teams[0].owner
+        )}&context=direct&year=2026&view=detail&fallback=readModel`
+      );
+
+      assert.equal(payload.status, 202);
+      assert.equal(payload.body.status, 'preparing');
+      assert.equal(payload.body.readModel, true);
+      assert.equal(payload.body.view, 'detail');
+      assert.doesNotMatch(JSON.stringify(payload.body), /Stale detail project|stale-project/);
+    },
+    {
+      beforeListen: async ({ config, tempDir }) => {
+        const owner = personnelArchitecture.teams[0].owner;
+        const readModelDir = path.join(tempDir, 'read-model');
+        const fileName = teamWorkCompletionReadModelFileName({ owner, dashboardContext: 'direct', year: 2026 });
+        config.readModelDir = readModelDir;
+        config.precomputeEnabled = false;
+
+        await writeJson(path.join(readModelDir, 'current', 'manifest.json'), readModelManifest('hash-current'));
+        await writeJson(path.join(readModelDir, 'last-known-good', 'manifest.json'), readModelManifest('hash-stale'));
+        await writeJson(
+          path.join(readModelDir, 'last-known-good', 'team-work-completion-detail', fileName),
+          teamWorkCompletionDetailPayload({ owner, dashboardContext: 'direct', year: 2026 })
+        );
+      },
+    }
+  );
+});
+
+test('/api/dashboard-session does not return stale last-known-good team completion detail', async () => {
+  await withTestServer(
+    async (port) => {
+      const payload = await getJson(
+        port,
+        `/api/dashboard-session?owner=${encodeURIComponent(
+          personnelArchitecture.teams[0].owner
+        )}&context=direct&year=2026`
+      );
+
+      assert.equal(payload.status, 202);
+      assert.equal(payload.body.status, 'preparing');
+      assert.equal(payload.body.readModel, true);
+      assert.doesNotMatch(JSON.stringify(payload.body), /Stale detail project|stale-project|projectsById/);
+    },
+    {
+      beforeListen: async ({ config, snapshot: sourceSnapshot }) => {
+        const owner = personnelArchitecture.teams[0].owner;
+        const readModelDir = path.join(config.precomputeDir, '..', 'read-model');
+        config.readModelDir = readModelDir;
+        config.precomputeEnabled = false;
+
+        await precomputeTeamDashboards(
+          { ...sourceSnapshot, personnelArchitecture },
+          {
+            config,
+            contexts: ['direct'],
+            years: [2026],
+            now: new Date('2026-06-11T00:00:00.000Z'),
+          }
+        );
+
+        const fileName = teamWorkCompletionReadModelFileName({ owner, dashboardContext: 'direct', year: 2026 });
+        await writeJson(
+          path.join(readModelDir, 'current', 'team-work-completion-detail', fileName),
+          teamWorkCompletionDetailPayload({ owner, dashboardContext: 'direct', year: 2026 })
+        );
+        await fs.rm(path.join(readModelDir, 'last-known-good'), { recursive: true, force: true });
+        await fs.rename(path.join(readModelDir, 'current'), path.join(readModelDir, 'last-known-good'));
+        await writeJson(path.join(readModelDir, 'current', 'manifest.json'), {
+          schemaVersion: READ_MODEL_SCHEMA_VERSION,
+          readModel: true,
+          snapshotHash: 'hash-current',
+          generatedAt: '2026-06-12T08:00:00.000Z',
+          owners: [{ owner }],
+          features: ['dashboard-session'],
+        });
       },
     }
   );

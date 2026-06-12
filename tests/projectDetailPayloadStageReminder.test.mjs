@@ -19,4 +19,8 @@ test('detail read model includes unified stage reminder beside raw display field
   assert.equal(detail.rawFields.摆场开始时间.display, '2026-06-07');
   assert.equal(detail.stageReminder.currentStage.label, '摆场中');
   assert.equal(detail.stageReminder.primaryReminder.message, '等待摆场结束');
+  assert.equal(detail.stageReminder.dataGapCount, 3);
+  assert.equal(detail.workflowFacts.displayStarted, true);
+  assert.equal(detail.workflowFacts.displayStartedAt, '2026-06-07');
+  assert.equal(detail.workflowFacts.displayEnded, false);
 });

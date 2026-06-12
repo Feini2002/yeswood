@@ -30,6 +30,22 @@ function project(id, rawFields = {}) {
   };
 }
 
+function sparseProject(id, rawFields = {}) {
+  return {
+    id,
+    name: id,
+    status: '紧急',
+    storeStatus: '常规店',
+    dueDate: '2026-07-01',
+    updatedAt: '2026-06-12T00:00:00.000Z',
+    rawFields: {
+      组别: raw('直营1组'),
+      CD设计师: raw('陈菲菲'),
+      ...rawFields,
+    },
+  };
+}
+
 const team = {
   owner: '苏佳蕾',
   groups: [{ name: '直营1组', members: ['陈菲菲'] }],
@@ -65,6 +81,9 @@ test('team work completion queue distinguishes display waiting and display closu
       软装项目进度: raw('摆场'),
       '摆场文件发出时间(项目群）': raw('2026-06-10'),
     }),
+    sparseProject('display-start-only-upstream-missing', {
+      摆场开始时间: raw('2026-06-07'),
+    }),
   ]);
 
   const byId = Object.fromEntries(review.processingQueues.urgent.topProjects.map((item) => [item.id, item.actionStage]));
@@ -72,4 +91,55 @@ test('team work completion queue distinguishes display waiting and display closu
   assert.equal(byId['display-not-started'], '待摆场');
   assert.equal(byId['display-started'], '等待摆场结束');
   assert.equal(byId['display-ended'], '项目待闭环');
+  assert.equal(byId['display-start-only-upstream-missing'], '等待摆场结束');
+});
+
+test('team work completion queue uses unified primary reminders before display stage', () => {
+  const review = reviewFor([
+    sparseProject('point-done-waits-soft', {
+      硬装项目进度: raw('施工图完成审核'),
+      点位完成情况: raw('已完成'),
+      点位完成时间: raw('2026-05-18'),
+    }),
+    sparseProject('product-list-ready', {
+      软装项目进度: raw('产品清单'),
+      产品清单接收时间: raw('2026-05-22'),
+    }),
+    sparseProject('purchase-started', {
+      软装项目进度: raw('待采购'),
+      采购情况: raw('待采购'),
+    }),
+    sparseProject('purchase-time-only', {
+      软装项目进度: raw('待采购'),
+      采购时间: raw('2026-05-30'),
+    }),
+    sparseProject('purchase-completed-stale-progress', {
+      软装项目进度: raw('待采购'),
+      采购完成情况: raw('已完成'),
+    }),
+  ]);
+
+  const byId = Object.fromEntries(review.processingQueues.urgent.topProjects.map((item) => [item.id, item.actionStage]));
+
+  assert.equal(byId['point-done-waits-soft'], '待软装方案');
+  assert.equal(byId['product-list-ready'], '待采购');
+  assert.equal(byId['purchase-started'], '待采购完成');
+  assert.equal(byId['purchase-time-only'], '待采购完成');
+  assert.equal(byId['purchase-completed-stale-progress'], '待摆场');
+});
+
+test('team work completion queue includes procurement-only projects without workflow text', () => {
+  const review = reviewFor([
+    sparseProject('purchase-time-no-progress', {
+      采购时间: raw('2026-05-30'),
+    }),
+    sparseProject('purchase-completed-no-progress', {
+      采购完成情况: raw('已完成'),
+    }),
+  ]);
+
+  const byId = Object.fromEntries(review.processingQueues.urgent.topProjects.map((item) => [item.id, item.actionStage]));
+
+  assert.equal(byId['purchase-time-no-progress'], '待采购完成');
+  assert.equal(byId['purchase-completed-no-progress'], '待摆场');
 });

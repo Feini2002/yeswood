@@ -1,6 +1,6 @@
 import { matchesDashboardContext } from './metrics/projectScopes.mjs';
-import { normalizeCell, readRawDisplay, readWorkflowStage } from './metrics/fieldSemantics.mjs';
-import { resolveProjectStageReminder } from '../../public/domain/project-stage-reminder-rules.mjs';
+import { normalizeCell, readRawDisplay } from './metrics/fieldSemantics.mjs';
+import { PROJECT_STAGE_KEYS, resolveProjectStageReminder } from '../../public/domain/project-stage-reminder-rules.mjs';
 import {
   resolveCompanyLifecycleState,
   resolveDisplayCompletionState,
@@ -24,31 +24,26 @@ const QUEUE_START_DATE_FIELDS = ['启动时间', '启动日期', '开始日期']
 const QUEUE_DELIVERY_DATE_FIELDS = ['商场交付时间', '商场交付日期', '商场交付'];
 const QUEUE_DUE_DATE_FIELDS = ['计划开业时间', '计划完成日期', '截止日期'];
 const QUEUE_AREA_FIELDS = ['面积', '门店面积'];
-const QUEUE_NODE_FIELD_ALIASES = {
-  meetingDate: ['上会时间', '上会日期'],
-  measureDate: ['复尺时间', '复尺日期'],
-  floorPlanStart: [
-    '平面开始时间（二次设计备注好，然后以第二次为准，第一次时间写备注）',
-    '平面开始时间',
-  ],
-  floorPlanFinish: ['躺平内部审核结束时间', '内部审核结束时间', '硬装方案完成时间'],
-  constructionDraft: ['施工图初稿完成时间（外包首次提供图纸的时间）', '施工图初稿完成时间'],
-  constructionReview: ['施工图完成审核时间（施工图终稿完成时间/商场审核完成时间）', '施工图完成审核时间'],
-  pointDone: ['点位完成时间'],
-  pointStatus: ['点位完成情况'],
-  softSchemeStart: ['软装方案开始时间'],
-  softDoneTime: ['软装完成时间', '软装发项目群时间', '软装发群/完成时间'],
-  softDoneStatus: ['软装完成情况'],
-  productListSent: ['产品清单发出时间', '产品清单接收时间', '流程记录：产品清单接收时间'],
-  purchaseTime: ['采购时间'],
-  purchaseStatus: ['采购完成情况', '采购情况'],
-  displayFileSent: ['摆场文件发出时间(项目群）', '摆场文件发出时间（项目群）'],
-  displayStart: ['摆场开始时间', '摆场时间', '现场摆场时间'],
-  displayTime: ['摆场时间', '现场摆场时间'],
-};
 const URGENT_TEXT_PATTERN = /紧急/;
 const NON_URGENT_TEXT_PATTERN = /不紧急|非紧急|一般/;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const PROCESSING_QUEUE_ACTION_STAGE_KEYS = new Set([
+  PROJECT_STAGE_KEYS.meeting,
+  PROJECT_STAGE_KEYS.measured,
+  PROJECT_STAGE_KEYS.floorPlanInProgress,
+  PROJECT_STAGE_KEYS.floorPlanDone,
+  PROJECT_STAGE_KEYS.constructionInProgress,
+  PROJECT_STAGE_KEYS.constructionReviewDone,
+  PROJECT_STAGE_KEYS.pointInProgress,
+  PROJECT_STAGE_KEYS.pointDone,
+  PROJECT_STAGE_KEYS.softInProgress,
+  PROJECT_STAGE_KEYS.softDone,
+  PROJECT_STAGE_KEYS.productListReady,
+  PROJECT_STAGE_KEYS.purchaseInProgress,
+  PROJECT_STAGE_KEYS.purchaseDone,
+  PROJECT_STAGE_KEYS.displayInProgress,
+  PROJECT_STAGE_KEYS.displayFinished,
+]);
 
 function createMetricAccumulator(metric) {
   return {
@@ -199,40 +194,6 @@ function isUrgentProcessingProject(project = {}) {
   return priorityTextValues(project).some((value) => URGENT_TEXT_PATTERN.test(value) && !NON_URGENT_TEXT_PATTERN.test(value));
 }
 
-function readQueueNode(project = {}, nodeKey = '') {
-  return readRawDisplay(project, QUEUE_NODE_FIELD_ALIASES[nodeKey] || []);
-}
-
-function hasQueueNode(project = {}, nodeKey = '') {
-  return Boolean(readQueueNode(project, nodeKey));
-}
-
-function normalizeQueueStage(value = '') {
-  return normalizeCell(value).replace(/\s+/g, '');
-}
-
-function isNegativeQueueStage(value = '') {
-  return /未开始|未安排|未启动|未完成|待开始|待安排|待启动|待完成|待采购/.test(normalizeQueueStage(value));
-}
-
-function positiveQueueStage(value = '') {
-  const text = normalizeQueueStage(value);
-  return text && !isNegativeQueueStage(text) ? text : '';
-}
-
-function stageMatches(stage = '', pattern) {
-  const text = positiveQueueStage(stage);
-  return Boolean(text && pattern.test(text));
-}
-
-function queueStatusDone(value = '') {
-  const text = normalizeQueueStage(value);
-  if (!text || /未完成|未开始|未安排|待|缺|暂无|无/.test(text)) {
-    return false;
-  }
-  return /已完成|完成|准时完成|延期完成|已采购|采购完成|已发|发出|通过/.test(text);
-}
-
 function formatQueueAreaLabel(project = {}) {
   const rawArea = readRawDisplay(project, QUEUE_AREA_FIELDS) || project?.area || project?.difficulty?.area || '';
   const text = String(rawArea ?? '').trim();
@@ -292,103 +253,15 @@ function buildProcessingQueueAssignment(association = {}, roster = {}) {
 }
 
 function resolveProcessingQueueActionStage(project = {}, states = {}) {
-  const hardStage = readWorkflowStage(project, { discipline: 'hard' });
-  const softStage = readWorkflowStage(project, { discipline: 'soft' });
-  const positiveHardStage = positiveQueueStage(hardStage);
-  const positiveSoftStage = positiveQueueStage(softStage);
-  const positiveStageText = [positiveHardStage, positiveSoftStage].filter(Boolean).join(' ');
-  const fulfillmentStageText = [
-    positiveSoftStage,
-    /产品清单|采购|摆场|闭环/.test(positiveHardStage) ? positiveHardStage : '',
-  ].filter(Boolean).join(' ');
-
-  const atOrAfterMeasure = /复尺|平面|施工图|点位|软装|产品清单|采购|摆场|闭环|完成/.test(positiveStageText);
-  const atOrAfterFloorPlan = /平面|施工图|点位|软装|产品清单|采购|摆场|闭环|完成/.test(positiveStageText);
-  const atOrAfterConstructionReview =
-    /施工图.*(完成审核|审核完成|审核通过)|点位|软装|产品清单|采购|摆场|闭环|完成/.test(positiveStageText);
-  const downstreamOfSoftPlan = /软装完成|产品清单|采购|摆场|闭环/.test(positiveSoftStage);
-  const downstreamOfProductList = /产品清单|采购|摆场|闭环/.test(fulfillmentStageText);
-  const downstreamOfPurchase = /采购.*(完成|已)|已采购|摆场|闭环/.test(fulfillmentStageText);
-
-  const meetingDone = hasQueueNode(project, 'meetingDate') || atOrAfterMeasure;
-  if (!meetingDone) {
-    return '待上会';
-  }
-
-  const measureDone = hasQueueNode(project, 'measureDate') || atOrAfterFloorPlan;
-  if (!measureDone) {
-    return '待复尺';
-  }
-
-  const floorPlanStarted = hasQueueNode(project, 'floorPlanStart') || atOrAfterFloorPlan;
-  if (!floorPlanStarted) {
-    return '平面方案待开始';
-  }
-
-  const constructionReviewDone = hasQueueNode(project, 'constructionReview') || atOrAfterConstructionReview;
-  const floorPlanDone =
-    hasQueueNode(project, 'floorPlanFinish') ||
-    constructionReviewDone ||
-    /施工图|点位|软装|产品清单|采购|摆场|闭环|完成/.test(positiveStageText);
-  if (!floorPlanDone) {
-    return '平面方案待完成';
-  }
-
-  const constructionDraftDone =
-    hasQueueNode(project, 'constructionDraft') ||
-    constructionReviewDone ||
-    /点位|软装|产品清单|采购|摆场|闭环|完成/.test(positiveStageText);
-  if (!constructionDraftDone) {
-    return '施工图初稿待完成';
-  }
-
-  if (!constructionReviewDone) {
-    return '施工图待审核';
-  }
-
-  const pointDone =
-    queueStatusDone(readQueueNode(project, 'pointStatus')) ||
-    hasQueueNode(project, 'pointDone') ||
-    stageMatches(hardStage, /点位.*完成|软装|产品清单|采购|摆场|闭环/) ||
-    stageMatches(softStage, /点位.*完成|软装方案|软装完成|产品清单|采购|摆场|闭环|完成/);
-  if (!pointDone) {
-    return '点位待完成';
-  }
-
-  const softPlanDone =
-    queueStatusDone(readQueueNode(project, 'softDoneStatus')) ||
-    hasQueueNode(project, 'softDoneTime') ||
-    downstreamOfSoftPlan;
-  if (!hasQueueNode(project, 'softSchemeStart') && !softPlanDone) {
-    return '软装方案待开始';
-  }
-  if (!softPlanDone) {
-    return '软装方案待完成';
-  }
-
-  const purchaseDone =
-    queueStatusDone(readQueueNode(project, 'purchaseStatus')) ||
-    hasQueueNode(project, 'purchaseTime') ||
-    downstreamOfPurchase;
-  const productListReady = hasQueueNode(project, 'productListSent') || purchaseDone || downstreamOfProductList;
-  if (!productListReady) {
-    return '产品清单待接收';
-  }
-  if (!purchaseDone) {
-    return '采购待完成';
-  }
-
   const stageReminder = resolveProjectStageReminder(project);
-  const unifiedActionStage = stageReminder.primaryReminder?.message || '';
-  if (['待摆场', '等待摆场结束', '项目待闭环'].includes(unifiedActionStage)) {
+  const unifiedActionStage = normalizeCell(stageReminder.primaryReminder?.message);
+  if (unifiedActionStage) {
     return unifiedActionStage;
   }
-
-  if (!hasQueueNode(project, 'displayFileSent') || !hasQueueNode(project, 'displayTime')) {
-    return '待摆场';
+  if (states.lifecycle?.completed || stageReminder.currentStage?.key === 'closed') {
+    return '已闭环';
   }
-
-  return states.lifecycle?.completed ? '已闭环' : '项目待闭环';
+  return stageReminder.currentStage?.label || states.lifecycle?.status || '阶段待核对';
 }
 
 function buildProcessingQueueProject(project = {}, projectId = '', states = {}, association = {}, roster = {}) {
@@ -421,6 +294,21 @@ function buildProcessingQueueProject(project = {}, projectId = '', states = {}, 
     groupNames: association.groupNames?.slice?.() || [],
     ...assignment,
   };
+}
+
+function shouldIncludeProcessingQueueProject(project = {}, states = {}) {
+  if (
+    states.lifecycle?.inProgress ||
+    states.display?.inProgress ||
+    (states.display?.completed && !states.lifecycle?.completed)
+  ) {
+    return true;
+  }
+  if (states.lifecycle?.completed) {
+    return false;
+  }
+  const stageReminder = resolveProjectStageReminder(project);
+  return PROCESSING_QUEUE_ACTION_STAGE_KEYS.has(stageReminder.currentStage?.key);
 }
 
 function compareProcessingQueueProjects(a, b) {
@@ -662,7 +550,7 @@ export function buildTeamWorkCompletionReview(allProjects = [], team = {}, optio
     projectsById[projectId] = buildProjectRef(project, projectId, association, states);
     projectDetailsById[projectId] = compactProjectForDetailReadModel({ ...project, id: projectId });
     addProjectToScope(teamScope, project, projectId, states, selectedYear);
-    if (states.lifecycle?.inProgress) {
+    if (shouldIncludeProcessingQueueProject(project, states)) {
       processingQueueProjects.push(buildProcessingQueueProject(project, projectId, states, association, roster));
     }
 

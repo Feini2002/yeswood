@@ -79,14 +79,79 @@ export function teamWorkCompletionReviewMatchesOwner(review = null, owner = '') 
     .includes(requestedOwner);
 }
 
+function teamWorkCompletionProjectsById(review = null) {
+  return review?.projectsById && typeof review.projectsById === 'object' ? review.projectsById : {};
+}
+
+function teamWorkCompletionSourceProjects(review = null) {
+  return Array.isArray(review?.sourceProjects) ? review.sourceProjects : [];
+}
+
+function addProjectIds(target, values = []) {
+  if (!Array.isArray(values)) {
+    return;
+  }
+  values.forEach((value) => {
+    const projectId = String(value || '').trim();
+    if (projectId) {
+      target.add(projectId);
+    }
+  });
+}
+
+function expectedTeamWorkCompletionProjectIds(review = null) {
+  const projectIds = new Set();
+  Object.values(review?.summary || {}).forEach((metric) => {
+    if (!metric || typeof metric !== 'object') {
+      return;
+    }
+    addProjectIds(projectIds, metric.completedProjectIds);
+    addProjectIds(projectIds, metric.inProgressProjectIds);
+  });
+  (review?.groups || []).forEach((group) => addProjectIds(projectIds, group?.projectIds));
+  (review?.members || []).forEach((member) => addProjectIds(projectIds, member?.projectIds));
+  return projectIds;
+}
+
+function teamWorkCompletionDetailProjectIds(review = null) {
+  const projectIds = new Set(Object.keys(teamWorkCompletionProjectsById(review)));
+  teamWorkCompletionSourceProjects(review).forEach((project) => {
+    const projectId = String(project?.id || project?.recordMeta?.id || '').trim();
+    if (projectId) {
+      projectIds.add(projectId);
+    }
+  });
+  return projectIds;
+}
+
+function expectedTeamWorkCompletionProjectCount(review = null) {
+  const explicitCount = Number(review?.projectCount);
+  if (Number.isFinite(explicitCount) && explicitCount >= 0) {
+    return explicitCount;
+  }
+  const projectIds = expectedTeamWorkCompletionProjectIds(review);
+  return projectIds.size;
+}
+
 export function teamWorkCompletionHasDetail(review = state.teamWorkCompletion) {
-  const hasProjectsById =
-    Object.prototype.hasOwnProperty.call(review || {}, 'projectsById') &&
-    review?.projectsById &&
-    typeof review.projectsById === 'object';
-  const hasSourceProjects =
-    Object.prototype.hasOwnProperty.call(review || {}, 'sourceProjects') && Array.isArray(review?.sourceProjects);
-  return Boolean(review?.detailReady || hasProjectsById || hasSourceProjects);
+  if (!review || review.detailReady !== true) {
+    return false;
+  }
+
+  const projectsById = teamWorkCompletionProjectsById(review);
+  const sourceProjects = teamWorkCompletionSourceProjects(review);
+  const expectedProjectIds = expectedTeamWorkCompletionProjectIds(review);
+  if (expectedProjectIds.size > 0) {
+    const detailProjectIds = teamWorkCompletionDetailProjectIds(review);
+    return Array.from(expectedProjectIds).every((projectId) => detailProjectIds.has(projectId));
+  }
+
+  const expectedProjectCount = expectedTeamWorkCompletionProjectCount(review);
+  if (expectedProjectCount <= 0) {
+    return true;
+  }
+
+  return Object.keys(projectsById).length >= expectedProjectCount || sourceProjects.length >= expectedProjectCount;
 }
 
 export function mergeTeamWorkCompletionDetail(review = state.teamWorkCompletion, detail = {}) {

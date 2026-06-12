@@ -6,7 +6,11 @@ import path from 'node:path';
 import { paths } from './config.mjs';
 import { composeDashboardMetrics } from './metrics/composeDashboard.mjs';
 import { readFranchiseScope, readWorkflowStage } from './metrics/fieldSemantics.mjs';
-import { resolveProjectStageReminder } from '../../public/domain/project-stage-reminder-rules.mjs';
+import {
+  compactProjectStageReminder,
+  compactProjectWorkflowFacts,
+  resolveProjectStageReminder,
+} from '../../public/domain/project-stage-reminder-rules.mjs';
 import { DASHBOARD_CONTEXTS, resolveCanonicalOwner } from './metrics/projectScopes.mjs';
 import { readProjectOwnerNames, splitPersonnelNames } from './personnelNames.mjs';
 import { createFilterOptions, filterProjects } from './projectData.mjs';
@@ -27,7 +31,7 @@ export const TEAM_METRICS_PRECOMPUTE_FEATURE = 'team-metrics';
 export const PROJECT_CATALOG_SUMMARY_PRECOMPUTE_FEATURE = 'project-catalog-summary';
 export const PROJECT_DETAIL_PRECOMPUTE_FEATURE = 'project-detail';
 export const PROFILE_DASHBOARD_PRECOMPUTE_FEATURE = 'profile-dashboard';
-const PRECOMPUTE_SCHEMA_VERSION = 8;
+const PRECOMPUTE_SCHEMA_VERSION = 10;
 const DEFAULT_RETAINED_PRECOMPUTE_VERSIONS = 3;
 const COMPLETE_PRECOMPUTE_FEATURES = [
   DASHBOARD_SESSION_PRECOMPUTE_FEATURE,
@@ -170,7 +174,10 @@ function readJsonFile(filePath) {
 function readManifest(config = {}, snapshotHash) {
   const cached = config.precomputeIndex?.get?.(snapshotHash);
   if (cached) {
-    return cached;
+    if (cached.schemaVersion === PRECOMPUTE_SCHEMA_VERSION && cached.snapshotHash === snapshotHash) {
+      return cached;
+    }
+    config.precomputeIndex?.delete?.(snapshotHash);
   }
   const manifest = readJsonFile(manifestPath(config, snapshotHash));
   if (!manifest || manifest.schemaVersion !== PRECOMPUTE_SCHEMA_VERSION || manifest.snapshotHash !== snapshotHash) {
@@ -451,13 +458,8 @@ function compactProjectForReadModel(project = {}) {
   summary.softProgressStage = summary.softProgressStage || readWorkflowStage(project, { discipline: 'soft' });
   summary.franchiseScope = summary.franchiseScope || project.franchiseScope || readFranchiseScope(project);
   const stageReminder = resolveProjectStageReminder(project);
-  summary.stageReminder = {
-    facts: stageReminder.facts,
-    currentStage: stageReminder.currentStage,
-    primaryReminder: stageReminder.primaryReminder,
-    dataGaps: stageReminder.dataGaps,
-    reminders: stageReminder.reminders,
-  };
+  summary.stageReminder = compactProjectStageReminder(stageReminder);
+  summary.workflowFacts = compactProjectWorkflowFacts(stageReminder.facts);
   if (project.recordMeta) {
     summary.recordMeta = {
       id: project.recordMeta.id,

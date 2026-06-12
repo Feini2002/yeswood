@@ -269,6 +269,9 @@ export function resolveProjectKeyDateReminders(project) {
   if (statusReminder.kind === 'status' && ['暂停', '取消'].includes(statusReminder.label)) {
     return [statusReminder];
   }
+  if (isEmptyProjectReminder(statusReminder)) {
+    return [statusReminder];
+  }
   const systemPrimary = normalizeSystemProjectReminder(project?.primaryReminder);
   if (systemPrimary && !isHardDeadlineKeyDateException(systemPrimary)) {
     return [systemPrimary];

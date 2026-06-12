@@ -74,7 +74,7 @@ const WORKFLOW_STAGE_DATE_RULES = {
     { pattern: /摆场/, label: '摆场', fields: PROJECT_NODE_FIELD_ALIASES.displayFileSent },
     { pattern: /待采购|采购/, label: '采购', fields: PROJECT_NODE_FIELD_ALIASES.purchaseTime },
     { pattern: /点位已完成|点位完成/, label: '点位', fields: PROJECT_NODE_FIELD_ALIASES.pointDone },
-    { pattern: /软装完成/, label: '软装完成', fields: [...PROJECT_NODE_FIELD_ALIASES.softDoneTime, ...PROJECT_NODE_FIELD_ALIASES.displayFileSent] },
+    { pattern: /软装完成/, label: '软装完成', fields: PROJECT_NODE_FIELD_ALIASES.softDoneTime },
     { pattern: /软装方案/, label: '软装方案', fields: PROJECT_NODE_FIELD_ALIASES.softSchemeStart },
   ],
 };
@@ -103,6 +103,17 @@ const PROJECT_WORKBENCH_STAGE_ORDER = new Map(
     '摆场',
   ].map((label, index) => [label, index])
 );
+const SOFT_EFFECTIVE_STAGE_KEYS = new Set([
+  PROJECT_STAGE_KEYS.displayFinished,
+  PROJECT_STAGE_KEYS.displayInProgress,
+  PROJECT_STAGE_KEYS.purchaseDone,
+  PROJECT_STAGE_KEYS.purchaseInProgress,
+  PROJECT_STAGE_KEYS.productListReady,
+  PROJECT_STAGE_KEYS.softDone,
+  PROJECT_STAGE_KEYS.softInProgress,
+  PROJECT_STAGE_KEYS.pointDone,
+  PROJECT_STAGE_KEYS.pointInProgress,
+]);
 const PROJECT_CLOSURE_DATE_FIELDS = [
   ...PROJECT_NODE_FIELD_ALIASES.softDoneTime,
   ...PROJECT_NODE_FIELD_ALIASES.displayTime,
@@ -369,6 +380,15 @@ export function readWorkflowStage(project, discipline = 'hard') {
 }
 
 
+function unifiedSoftWorkflowStage(stageReminder) {
+  const key = stageReminder?.currentStage?.key || '';
+  if (!SOFT_EFFECTIVE_STAGE_KEYS.has(key)) {
+    return '';
+  }
+  return String(stageReminder?.currentStage?.label || '').trim();
+}
+
+
 export function readEffectiveWorkflowStage(project, discipline = 'hard') {
   const stage = readWorkflowStage(project, discipline);
   if (discipline === 'hard') {
@@ -387,11 +407,9 @@ export function readEffectiveWorkflowStage(project, discipline = 'hard') {
     return stage;
   }
   const stageReminder = resolveProjectStageReminder(project);
-  if (stageReminder.currentStage.key === PROJECT_STAGE_KEYS.displayFinished) {
-    return '摆场结束';
-  }
-  if (stageReminder.currentStage.key === PROJECT_STAGE_KEYS.displayInProgress) {
-    return '摆场中';
+  const unifiedStage = unifiedSoftWorkflowStage(stageReminder);
+  if (unifiedStage) {
+    return unifiedStage;
   }
   if (isProjectNodeStatusComplete(readProjectNodeValue(project, 'pointStatus')) || hasProjectNodeValue(project, 'pointDone')) {
     if (!stage || SOFT_NOT_STARTED_STAGE_PATTERN.test(stage) || /点位/.test(stage)) {
@@ -680,9 +698,6 @@ export function projectWorkbenchStageRank(project, keyDate) {
     return PROJECT_WORKBENCH_STAGE_ORDER.get(keyDate.label);
   }
 
-  const stageText = [keyDate.stage, readWorkflowStage(project, 'hard'), readWorkflowStage(project, 'soft')]
-    .filter(Boolean)
-    .join(' ');
   const stageRules = [
     [/未开始|未安排|待启动/, '上会'],
     [/上会/, '上会'],
@@ -699,11 +714,30 @@ export function projectWorkbenchStageRank(project, keyDate) {
     [/施工整改/, '整改'],
     [/摆场|白场/, '摆场'],
   ];
-  const matched = stageRules.find(([pattern]) => pattern.test(stageText));
-  if (!matched) {
+  const rankFromText = (stageText = '') => {
+    const matched = stageRules.find(([pattern]) => pattern.test(stageText));
+    if (!matched) {
+      return null;
+    }
+    return PROJECT_WORKBENCH_STAGE_ORDER.get(matched[1]) ?? PROJECT_WORKBENCH_STAGE_ORDER.size;
+  };
+
+  const effectiveStageText = [readEffectiveWorkflowStage(project, 'hard'), readEffectiveWorkflowStage(project, 'soft')]
+    .filter(Boolean)
+    .join(' ');
+  const effectiveRank = rankFromText(effectiveStageText);
+  if (effectiveRank !== null) {
+    return effectiveRank;
+  }
+
+  const stageText = [keyDate.stage, readWorkflowStage(project, 'hard'), readWorkflowStage(project, 'soft')]
+    .filter(Boolean)
+    .join(' ');
+  const fallbackRank = rankFromText(stageText);
+  if (fallbackRank === null) {
     return PROJECT_WORKBENCH_STAGE_ORDER.size;
   }
-  return PROJECT_WORKBENCH_STAGE_ORDER.get(matched[1]) ?? PROJECT_WORKBENCH_STAGE_ORDER.size;
+  return fallbackRank;
 }
 
 

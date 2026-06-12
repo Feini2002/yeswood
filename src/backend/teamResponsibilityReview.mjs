@@ -14,20 +14,19 @@ import {
   readSchemeStatus,
   readSoftCompletionStatus,
   readWorkflowStage,
-  isHardWorkflowClosed,
-  isSoftWorkflowClosed,
 } from './metrics/fieldSemantics.mjs';
+import { resolveDisplayCompletionState } from './metrics/workCompletionSemantics.mjs';
 import { excludePausedProjects } from './metrics/pausedProjects.mjs';
 import { matchesDashboardContext, resolveOwnerMonthlyProjects } from './metrics/projectScopes.mjs';
 import { expandOwnerNames } from './responsibilityRepository.mjs';
 import { findResponsibilityIdentity } from './responsibilityIdentities.mjs';
 import { teamWithStaticGroups } from './teamStructureFallbacks.mjs';
+import { PROJECT_STAGE_KEYS, resolveProjectStageReminder } from '../../public/domain/project-stage-reminder-rules.mjs';
 
 const HARD_SCHEME_DATE_FIELDS = ['硬装方案完成时间', '躺平内部审核结束时间', '内部审核结束时间'];
 const POINT_STATUS_FIELDS = ['点位完成情况'];
 const POINT_DATE_FIELDS = ['点位完成时间'];
 const SOFT_SCHEME_DATE_FIELDS = ['软装完成时间'];
-const DISPLAY_PROGRESS_DATE_FIELDS = ['摆场文件发出时间(项目群）', '摆场文件发出时间（项目群）', '摆场时间', '现场摆场时间', '摆场开始时间'];
 
 const RESPONSIBILITY_DEFINITIONS = [
   {
@@ -178,8 +177,6 @@ const DEFAULT_EXECUTION_SCOPE = {
 const INACTIVE_TEAM_MEMBER_NAMES = new Set(['李晓倩', '席创意', '侯喆']);
 
 const HARD_EXECUTION_AFTER_FLOOR_PLAN_PATTERN = /施工图|施工整改|待采购|摆场|闭环|已完成|^完成$|点位/;
-const DISPLAY_ACTIVE_STAGE_PATTERN = /摆场|白场|进场/;
-const DISPLAY_NOT_ACTIVE_STAGE_PATTERN = /未安排摆场|未开始|未启动|暂停/;
 
 function normalizeMonth(value, now = new Date()) {
   const text = String(value || '').trim();
@@ -511,21 +508,18 @@ function buildMemberFloorPlanItem(project, memberName, teamProjectIds, selectedM
 function displayStageState(project) {
   const hardStage = readWorkflowStage(project, { discipline: 'hard' });
   const softStage = readWorkflowStage(project, { discipline: 'soft' });
-  const stageText = `${hardStage} ${softStage}`.trim();
-  const completed = isHardWorkflowClosed(project) || isSoftWorkflowClosed(project);
-  const displayDate = readMetricDate(project, DISPLAY_PROGRESS_DATE_FIELDS);
-  const active =
-    !completed &&
-    !DISPLAY_NOT_ACTIVE_STAGE_PATTERN.test(stageText) &&
-    (DISPLAY_ACTIVE_STAGE_PATTERN.test(stageText) || Boolean(displayDate));
+  const state = resolveDisplayCompletionState(project);
+  const stageReminder = resolveProjectStageReminder(project);
+  const waitingDisplay = !state.completed && stageReminder.currentStage?.key === PROJECT_STAGE_KEYS.purchaseDone;
   return {
     hardStage,
     softStage,
-    status: softStage || hardStage || '',
-    completed,
-    active,
-    completedAt: completed ? displayDate : '',
-    missingCompletionDate: completed && !displayDate,
+    status: waitingDisplay ? stageReminder.primaryReminder?.message || '待摆场' : state.status || softStage || hardStage || '',
+    completed: Boolean(state.completed),
+    active: Boolean(state.inProgress || waitingDisplay),
+    completedAt: state.completedAt || '',
+    waitingDisplay,
+    missingCompletionDate: Boolean(state.completed && !state.completedAt),
   };
 }
 

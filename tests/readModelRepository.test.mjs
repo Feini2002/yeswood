@@ -34,6 +34,7 @@ async function seedReadModel(
     projectBoard = true,
     projectBoardSplitFields = true,
     catalogWorkflowFields = true,
+    catalogStageReminderFields = true,
   } = {}
 ) {
   const currentDir = path.join(baseDir, 'current');
@@ -81,6 +82,22 @@ async function seedReadModel(
     name: 'P1',
     ...(catalogWorkflowFields
       ? { franchiseScope: 'direct', hardProgressStage: '施工图', softProgressStage: '未开始' }
+      : {}),
+    ...(catalogStageReminderFields
+      ? {
+          stageReminder: {
+            currentStage: { key: 'displayInProgress', label: '摆场中', rank: 880 },
+            primaryReminder: { label: '摆场结束', formatted: '--', message: '等待摆场结束', kind: 'stage_action' },
+            dataGapCount: 0,
+          },
+          workflowFacts: {
+            displayStarted: true,
+            displayStartedAt: '2026-06-07',
+            displayEnded: false,
+            displayEndedAt: '',
+            lifecycleClosed: false,
+          },
+        }
       : {}),
   };
   await writeJson(path.join(currentDir, 'dashboard-session', 'core.json'), {
@@ -244,6 +261,20 @@ test('readDashboardSessionReadModel rejects summary catalogs without workflow fi
   assert.match(result.reason, /project catalog/i);
 });
 
+test('readDashboardSessionReadModel rejects summary catalogs without stage reminder fields', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir, { catalogStageReminderFields: false });
+
+  const result = readDashboardSessionReadModel(
+    { readModelDir: tempDir },
+    { owner: 'Owner A', dashboardContext: 'direct', year: 2026 }
+  );
+
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.payload, null);
+  assert.match(result.reason, /project catalog/i);
+});
+
 test('readTeamWorkCompletionDetailReadModel tolerates trimmed owner input on the fast path', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
   await seedReadModel(tempDir);
@@ -364,6 +395,29 @@ test('readDashboardSessionReadModel reports missing and incomplete states explic
   assert.equal(result.status, 'incomplete');
   assert.equal(result.payload, null);
   assert.match(result.reason, /team work completion/i);
+});
+
+test('readDashboardSessionReadModel does not serve last-known-good stale team details', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir);
+  await fs.rename(path.join(tempDir, 'current'), path.join(tempDir, 'last-known-good'));
+  await writeJson(path.join(tempDir, 'current', 'manifest.json'), {
+    schemaVersion: READ_MODEL_SCHEMA_VERSION,
+    readModel: true,
+    snapshotHash: 'hash-current',
+    generatedAt: '2026-06-12T08:00:00.000Z',
+    features: ['dashboard-session'],
+    owners: [{ owner: 'Owner A', key: ownerKey('Owner A') }],
+  });
+
+  const result = readDashboardSessionReadModel(
+    { readModelDir: tempDir },
+    { owner: 'Owner A', dashboardContext: 'direct', year: 2026 }
+  );
+
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.payload, null);
+  assert.doesNotMatch(JSON.stringify(result), /projectsById|detailReady|stale/);
 });
 
 test('publishReadModelDirectory cleans stale temp directories and preserves last-known-good', async () => {

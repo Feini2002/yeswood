@@ -21,6 +21,11 @@ test('summary project carries reusable stage reminder for display start', () => 
 
   assert.equal(summary.stageReminder.currentStage.label, '摆场中');
   assert.equal(summary.stageReminder.primaryReminder.message, '等待摆场结束');
+  assert.equal(summary.stageReminder.dataGapCount, 2);
+  assert.equal(summary.workflowFacts.displayStarted, true);
+  assert.equal(summary.workflowFacts.displayStartedAt, '2026-06-07');
+  assert.equal(summary.workflowFacts.displayEnded, false);
+  assert.equal(summary.workflowFacts.displayEndedAt, '');
 
   const reused = resolveProjectStageReminder({
     id: summary.id,

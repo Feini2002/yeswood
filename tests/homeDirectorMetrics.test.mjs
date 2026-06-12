@@ -215,6 +215,89 @@ test('classifyProjectStage treats single-track workflow closure as company close
   );
 });
 
+test('classifyProjectStage uses summary stage reminder when raw fields are absent', () => {
+  assert.deepEqual(
+    classifyProjectStage({
+      id: 'summary-display-started',
+      name: '预计算摆场项目',
+      stageReminder: {
+        currentStage: { key: 'displayInProgress', label: '摆场中', rank: 880 },
+        primaryReminder: { label: '摆场结束', formatted: '--', message: '等待摆场结束', kind: 'stage_action' },
+        dataGapCount: 0,
+      },
+      workflowFacts: {
+        displayStarted: true,
+        displayStartedAt: '2026-06-07',
+        displayEnded: false,
+        displayEndedAt: '',
+        lifecycleClosed: false,
+      },
+    }),
+    { key: 'site', label: '摆场交付' }
+  );
+});
+
+test('classifyProjectStage maps summary-only unified stage chain without raw fields', () => {
+  const projectForStage = (stageKey) => ({
+    id: `summary-${stageKey}`,
+    stageReminder: {
+      currentStage: { key: stageKey, label: stageKey, rank: 0 },
+      primaryReminder: { label: '', formatted: '--', message: '', kind: 'stage_action' },
+      dataGapCount: 0,
+    },
+    workflowFacts: {},
+  });
+
+  assert.equal(classifyProjectStage(projectForStage('softDone')).key, 'purchase');
+  assert.equal(classifyProjectStage(projectForStage('softInProgress')).key, 'softEntry');
+  assert.equal(classifyProjectStage(projectForStage('pointDone')).key, 'softEntry');
+  assert.equal(classifyProjectStage(projectForStage('pointInProgress')).key, 'point');
+  assert.equal(classifyProjectStage(projectForStage('constructionReviewDone')).key, 'point');
+  assert.equal(classifyProjectStage(projectForStage('constructionInProgress')).key, 'point');
+  assert.equal(classifyProjectStage(projectForStage('floorPlanDone')).key, 'drawing');
+  assert.equal(classifyProjectStage(projectForStage('floorPlanInProgress')).key, 'plan');
+  assert.equal(classifyProjectStage(projectForStage('measured')).key, 'plan');
+  assert.equal(classifyProjectStage(projectForStage('meeting')).key, 'meeting');
+  assert.equal(classifyProjectStage(projectForStage('notStarted')).key, 'notStarted');
+});
+
+test('classifyProjectStage uses unified raw downstream facts when workflow text is missing or stale', () => {
+  assert.deepEqual(
+    classifyProjectStage({
+      rawFields: {
+        '流程记录：产品清单接收时间': raw('2026-05-22'),
+      },
+    }),
+    { key: 'purchase', label: '采购推进' }
+  );
+  assert.deepEqual(
+    classifyProjectStage({
+      rawFields: {
+        软装发项目群时间: raw('2026-05-25'),
+      },
+    }),
+    { key: 'purchase', label: '采购推进' }
+  );
+  assert.deepEqual(
+    classifyProjectStage({
+      rawFields: {
+        软装项目进度: raw('待采购'),
+        采购完成情况: raw('已完成'),
+      },
+    }),
+    { key: 'purchase', label: '采购推进' }
+  );
+  assert.deepEqual(
+    classifyProjectStage({
+      rawFields: {
+        软装项目进度: raw('待采购'),
+        摆场开始时间: raw('2026-06-07'),
+      },
+    }),
+    { key: 'site', label: '摆场交付' }
+  );
+});
+
 test('classifyProjectStage closes hard-closed projects even when soft track is stale', () => {
   const project = {
     id: 'hard-closed-stale-soft',

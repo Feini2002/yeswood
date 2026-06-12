@@ -57,3 +57,19 @@ test('lifecycle stage follows display start downstream fact even when workflow t
 
   assert.deepEqual(classifyProjectLifecycleStage(displayStartedFromDate), { key: 'site', label: '摆场交付' });
 });
+
+test('frontend reminders distinguish purchase start from purchase completion when progress text is stale', () => {
+  const purchasing = project({
+    软装项目进度: raw('待采购'),
+    采购时间: raw('2026-05-22'),
+  });
+  const purchaseDone = project({
+    软装项目进度: raw('待采购'),
+    采购完成情况: raw('已完成'),
+  });
+
+  assert.equal(resolveProjectKeyDateReminders(purchasing)[0].message, '待采购完成');
+  assert.equal(resolveProjectKeyDateReminders(purchaseDone)[0].message, '待摆场');
+  assert.deepEqual(classifyProjectLifecycleStage(purchasing), { key: 'purchase', label: '采购推进' });
+  assert.deepEqual(classifyProjectLifecycleStage(purchaseDone), { key: 'purchase', label: '采购推进' });
+});

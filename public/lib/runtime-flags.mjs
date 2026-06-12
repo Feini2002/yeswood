@@ -6,6 +6,7 @@ export const runtimeStore = {
   drillModalRequestId: 0,
   projectDetailRequestId: 0,
   teamMetricsRequestId: 0,
+  teamDashboardScopeRequestId: 0,
   teamWorkCompletionRequestId: 0,
   teamWorkCompletionRequestPromises: new Map(),
   teamWorkCompletionDetailPromises: new Map(),

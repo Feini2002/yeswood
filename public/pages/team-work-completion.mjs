@@ -261,7 +261,12 @@ function processingQueueText(value, fallback = '') {
 function processingQueueMetaParts(project = {}) {
   const storeStatus = processingQueueText(project.storeStatus, '店态待核对');
   const area = processingQueueText(project.areaLabel);
-  const stage = processingQueueText(project.actionStage || project.stage || project.status, '阶段待核对');
+  const stage = processingQueueText(
+    project.actionStage ||
+      project.stageReminder?.primaryReminder?.message ||
+      project.stageReminder?.currentStage?.label,
+    '阶段待核对'
+  );
   return {
     storeStatus,
     area,
@@ -486,9 +491,9 @@ function rerenderOpenTeamCompletionModalIfStillCurrent(requestKey = '') {
 
 export function preloadTeamWorkCompletionDetail(
   review = state.teamWorkCompletion,
-  { allowCompute = false, reason = 'background' } = {}
+  { allowCompute = false, force = false, reason = 'background' } = {}
 ) {
-  if (!review || teamWorkCompletionHasDetail(review)) {
+  if (!review || (!force && teamWorkCompletionHasDetail(review))) {
     return Promise.resolve(review);
   }
   const owner = review.owner || state.selectedTeamOwner || '';
@@ -516,7 +521,7 @@ export function preloadTeamWorkCompletionDetail(
   params.set('fallback', allowCompute ? 'compute' : 'readModel');
 
   markTeamWorkCompletionDetailStatus(requestKey, 'loading', reason);
-  const promise = fetchJson(`${TEAM_WORK_COMPLETION_ENDPOINT}?${params}`, { timeoutMs: allowCompute ? 30_000 : 8_000 })
+  const promise = fetchJson(`${TEAM_WORK_COMPLETION_ENDPOINT}?${params}`, { timeoutMs: allowCompute ? 30_000 : 2_000 })
     .then((detail) => {
       if (detail?.status === 'preparing') {
         markTeamWorkCompletionDetailStatus(requestKey, 'preparing', detail.reason || reason);
@@ -525,8 +530,13 @@ export function preloadTeamWorkCompletionDetail(
       }
 
       const merged = mergeTeamWorkCompletionDetail(review, detail);
+      const mergedHasDetail = teamWorkCompletionHasDetail(merged);
       rememberTeamWorkCompletion(merged, owner, dashboardContext, year);
-      markTeamWorkCompletionDetailStatus(requestKey, 'ready', reason);
+      markTeamWorkCompletionDetailStatus(
+        requestKey,
+        mergedHasDetail ? 'ready' : 'error',
+        mergedHasDetail ? reason : '当前负责人项目明细仍不完整，请稍后重试明细读取。'
+      );
       if (isCurrentTeamWorkCompletionKey(requestKey)) {
         state.teamWorkCompletion = merged;
         state.teamWorkCompletionRefreshStatus = '';
@@ -550,7 +560,7 @@ export function preloadTeamWorkCompletionDetail(
 }
 
 export function queueTeamWorkCompletionDetailPreload(review = state.teamWorkCompletion, options = {}) {
-  if (!review || teamWorkCompletionHasDetail(review)) {
+  if (!review || (!options.force && teamWorkCompletionHasDetail(review))) {
     return null;
   }
   const schedule = typeof queueMicrotask === 'function' ? queueMicrotask : (callback) => setTimeout(callback, 0);
@@ -1483,6 +1493,72 @@ function projectRowsForCompletionScope(review = state.teamWorkCompletion, scope 
     .sort((a, b) => String(a.name || a.id || '').localeCompare(String(b.name || b.id || ''), 'zh-Hans-CN'));
 }
 
+function completionScopeMissingDetailRows(review = state.teamWorkCompletion, scope = {}, activeFilter = TEAM_COMPLETION_FILTERS[0]) {
+  if (!teamWorkCompletionHasDetail(review)) {
+    return false;
+  }
+  const expectedCount = teamCompletionFilterValue(scope, activeFilter);
+  if (expectedCount <= 0) {
+    return false;
+  }
+  const projectIds = projectIdsForCompletionScope(scope, activeFilter);
+  if (!projectIds.length) {
+    return true;
+  }
+  const projectsById = teamCompletionProjectsById(review);
+  const matchedCount = projectIds.filter((projectId) => projectsById[projectId]).length;
+  return matchedCount < Math.min(expectedCount, projectIds.length);
+}
+
+function teamCompletionDetailStatusEntry(review = state.teamWorkCompletion) {
+  const requestKey = teamWorkCompletionDetailCacheKey(review);
+  const entry = requestKey ? runtimeStore.teamWorkCompletionDetailStatuses?.get(requestKey) : null;
+  if (!entry) {
+    return { status: 'idle', detail: '', elapsedMs: 0 };
+  }
+  return {
+    ...entry,
+    elapsedMs: Math.max(0, Date.now() - Number(entry.startedAt || Date.now())),
+  };
+}
+
+function queueIncompleteCompletionDetailPreload(review = state.teamWorkCompletion) {
+  const requestKey = teamWorkCompletionDetailCacheKey(review);
+  const detailStatus = teamCompletionDetailStatusEntry(review);
+  if (
+    !requestKey ||
+    runtimeStore.teamWorkCompletionDetailPromises?.has(requestKey) ||
+    ['loading', 'preparing', 'ready', 'error'].includes(detailStatus.status)
+  ) {
+    return;
+  }
+  queueTeamWorkCompletionDetailPreload(review, {
+    reason: 'modal-incomplete-project-rows',
+    allowCompute: false,
+    force: true,
+  });
+}
+
+function incompleteCompletionDetailStatus(review = state.teamWorkCompletion) {
+  const detailStatus = teamCompletionDetailStatusEntry(review);
+  if (detailStatus.status === 'error') {
+    return detailStatus;
+  }
+  if (detailStatus.status === 'ready') {
+    return {
+      ...detailStatus,
+      status: 'error',
+      detail: '当前筛选的项目行仍未完整命中，请稍后重试明细读取。',
+    };
+  }
+  return {
+    ...detailStatus,
+    status: detailStatus.status === 'idle' ? 'preparing' : detailStatus.status,
+    detail: detailStatus.detail || '当前筛选的项目行未完整命中，正在重新读取项目明细。',
+    elapsedMs: Math.max(detailStatus.elapsedMs || 0, 801),
+  };
+}
+
 function uniqueTextValues(values = []) {
   return Array.from(new Set((values || []).map((value) => String(value || '').trim()).filter(Boolean)));
 }
@@ -1609,6 +1685,14 @@ function renderTeamCompletionProjectRows(review = state.teamWorkCompletion, scop
   }
 
   const projects = projectRowsForCompletionScope(review, scope, activeFilter);
+  if (completionScopeMissingDetailRows(review, scope, activeFilter)) {
+    queueIncompleteCompletionDetailPreload(review);
+    const detailStatus = incompleteCompletionDetailStatus(review);
+    if (detailStatus.status === 'error') {
+      return renderTeamCompletionProjectRowsError(expectedCount, detailStatus);
+    }
+    return renderTeamCompletionProjectRowsPending(expectedCount, detailStatus);
+  }
   if (!projects.length) {
     return renderTeamCompletionProjectRowsEmpty(activeFilter);
   }
@@ -1746,10 +1830,13 @@ function renderTeamCompletionModal() {
   renderTeamCompletionMemberModal(review);
   elements.teamCompletionMemberModal.hidden = false;
   if (!teamWorkCompletionHasDetail(review)) {
-    preloadTeamWorkCompletionDetail(review, {
-      reason: 'modal-cold-click',
-      allowCompute: false,
-    });
+    const detailStatus = getTeamWorkCompletionDetailStatus(review);
+    if (!['loading', 'preparing'].includes(detailStatus.status)) {
+      preloadTeamWorkCompletionDetail(review, {
+        reason: 'modal-cold-click',
+        allowCompute: false,
+      });
+    }
   }
 }
 
@@ -1893,6 +1980,20 @@ export function handleTeamCompletionFilterClick(event) {
   return true;
 }
 
+function teamCompletionProjectDetailMeta(activeFilter = TEAM_COMPLETION_FILTERS[0]) {
+  if (state.teamCompletionModalScopeType === 'team') {
+    return `团队整体 · ${activeFilter.label}`;
+  }
+  if (state.teamCompletionModalScopeType === 'group') {
+    return `${state.selectedTeamCompletionGroup || ''} · ${activeFilter.label}`;
+  }
+  if (state.teamCompletionModalScopeType === 'month') {
+    const year = state.teamWorkCompletion?.year || state.teamWorkCompletionYear;
+    return `${year}年${state.selectedTeamCompletionMonth}月 · ${activeFilter.label}`;
+  }
+  return `${state.selectedTeamCompletionMember || ''} · ${activeFilter.label}`;
+}
+
 export function handleTeamCompletionGroupGridClick(event) {
   const metricButton = event.target.closest('[data-team-completion-group-metric]');
   if (metricButton) {
@@ -1926,6 +2027,7 @@ export function handleTeamCompletionMemberModalClick(event) {
     preloadTeamWorkCompletionDetail(state.teamWorkCompletion, {
       reason: 'modal-retry',
       allowCompute: false,
+      force: true,
     });
     renderTeamCompletionMemberModal();
     return;
@@ -1951,12 +2053,7 @@ export function handleTeamCompletionMemberModalClick(event) {
       {
         action: activeFilter.label,
         reason: '团队工作完成情况',
-        meta:
-          state.teamCompletionModalScopeType === 'team'
-            ? `团队整体 · ${activeFilter.label}`
-            : state.teamCompletionModalScopeType === 'group'
-              ? `${state.selectedTeamCompletionGroup || ''} · ${activeFilter.label}`
-              : `${state.selectedTeamCompletionMember || ''} · ${activeFilter.label}`,
+        meta: teamCompletionProjectDetailMeta(activeFilter),
       }
     );
   }

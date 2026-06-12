@@ -231,12 +231,6 @@ function cachedTeamDashboardSessionPayload({ owner = '', dashboardContext = 'all
   state.ownerReviewLoading = false;
   state.ownerReviewError = '';
   state.selectedTeamOwner = owner;
-  if (!teamWorkCompletionHasDetail(workCompletion)) {
-    queueTeamWorkCompletionDetailPreload(workCompletion, {
-      reason: 'team-session-cache-missing-detail',
-      allowCompute: false,
-    });
-  }
   return {
     schemaVersion: 1,
     readOnly: true,
@@ -371,9 +365,11 @@ function hasLoadedTeamSessionBundle(owner, dashboardContext, year) {
   if (!owner) {
     return false;
   }
+  const workCompletion = cachedTeamWorkCompletion(owner, dashboardContext, year);
   return Boolean(
     state.teamMetricsByOwner?.[owner] &&
-      cachedTeamWorkCompletion(owner, dashboardContext, year) &&
+      teamWorkCompletionHasDetail(workCompletion) &&
+      workCompletion?.detailStatus === 'ready' &&
       cachedOwnerReview(owner, dashboardContext)
   );
 }

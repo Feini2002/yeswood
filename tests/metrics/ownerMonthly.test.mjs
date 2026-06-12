@@ -76,6 +76,24 @@ test('ownerMonthly monthlyOps perspective uses company-stage groups for every ow
         软装方案开始时间: { display: '2026-05-11' },
       },
     },
+    {
+      id: 'product-list-received-alias',
+      owner: '张嫚炳',
+      storeStatus: '常规店',
+      rawFields: {
+        店态: { display: '常规店' },
+        产品清单接收时间: { display: '2026-05-13' },
+      },
+    },
+    {
+      id: 'product-list-flow-alias',
+      owner: '张嫚炳',
+      storeStatus: '常规店',
+      rawFields: {
+        店态: { display: '常规店' },
+        '流程记录：产品清单接收时间': { display: '2026-05-14' },
+      },
+    },
   ];
 
   const softMetrics = composeDashboardMetrics(projects, 'ownerMonthly', {
@@ -87,7 +105,7 @@ test('ownerMonthly monthlyOps perspective uses company-stage groups for every ow
   assert.equal(softMetrics.monthlyOps.regular.hardPlanVolume, 1);
   assert.equal(softMetrics.monthlyOps.regular.hardConstructionVolume, 1);
   assert.equal(softMetrics.monthlyOps.regular.pointVolume, 1);
-  assert.equal(softMetrics.monthlyOps.regular.productListVolume, 1);
+  assert.equal(softMetrics.monthlyOps.regular.productListVolume, 3);
   assert.equal(softMetrics.monthlyOpsPerspective.title, '本月公司阶段运转概览');
   assert.equal(softMetrics.monthlyOpsPerspective.metricGroups.hardPlanVolume, 'primary');
   assert.equal(softMetrics.monthlyOpsPerspective.metricGroups.hardConstructionVolume, 'company');
@@ -141,9 +159,18 @@ test('site volume only counts projects that have actually entered the site stage
         软装发项目群时间: { display: '2026-05-10' },
       },
     },
+    {
+      id: 'display-file-fullwidth-alias',
+      storeStatus: '常规店',
+      rawFields: {
+        店态: { display: '常规店' },
+        软装项目进度: { display: '摆场' },
+        '摆场文件发出时间（项目群）': { display: '2026-05-12' },
+      },
+    },
   ];
 
-  assert.equal(countSiteVolume(projects, 'regular', { now }), 1);
+  assert.equal(countSiteVolume(projects, 'regular', { now }), 2);
 });
 
 test('hard active delay is not hidden by soft workflow closure', () => {

@@ -67,6 +67,21 @@ test('project catalog owns summary cache, drill ids path, and invalidation', asy
   assert.doesNotMatch(source, /fetchJson\(`\/api\/projects\$\{toQuery\(filters\)\}`\)/);
 });
 
+test('team completion session cache requires ready detail and quick read-model fallback', async () => {
+  const [loader, completionPage, completionStore] = await Promise.all([
+    readSource('public', 'lib', 'dashboard-loader.mjs'),
+    readSource('public', 'pages', 'team-work-completion.mjs'),
+    readSource('public', 'domain', 'team-work-completion-store.mjs'),
+  ]);
+
+  assert.match(loader, /teamWorkCompletionHasDetail\(workCompletion\)[\s\S]*workCompletion\?\.detailStatus === 'ready'/);
+  assert.match(completionPage, /timeoutMs: allowCompute \? 30_000 : 2_000/);
+  assert.match(completionPage, /const mergedHasDetail = teamWorkCompletionHasDetail\(merged\)/);
+  assert.match(completionPage, /reason: 'modal-retry'[\s\S]*force: true/);
+  assert.match(completionStore, /review\.detailReady !== true/);
+  assert.doesNotMatch(completionStore, /review\?\.detailReady \|\| hasProjectsById \|\| hasSourceProjects/);
+});
+
 test('drill modal uses cached drill projects before network resolve', async () => {
   const source = await readSource('public', 'components', 'drill-modal.mjs');
   assert.match(source, /peekDrillProjectsCache/);

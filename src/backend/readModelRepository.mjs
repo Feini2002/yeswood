@@ -6,7 +6,7 @@ import path from 'node:path';
 import { paths } from './config.mjs';
 import { mergeTeamWorkCompletionDetailPayload } from './teamWorkCompletionPayload.mjs';
 
-export const READ_MODEL_SCHEMA_VERSION = 8;
+export const READ_MODEL_SCHEMA_VERSION = 10;
 const CURRENT_READ_MODEL_SCHEMA_VERSIONS = new Set([READ_MODEL_SCHEMA_VERSION]);
 export const DASHBOARD_SESSION_READ_MODEL_FEATURE = 'dashboard-session';
 export const PROJECT_CATALOG_SUMMARY_READ_MODEL_FEATURE = 'project-catalog-summary';
@@ -215,7 +215,13 @@ const PROJECT_BOARD_REQUIRED_FIELDS = [
   'previousYearUnclosedFranchise',
 ];
 
-const PROJECT_CATALOG_REQUIRED_SUMMARY_FIELDS = ['franchiseScope', 'hardProgressStage', 'softProgressStage'];
+const PROJECT_CATALOG_REQUIRED_SUMMARY_FIELDS = [
+  'franchiseScope',
+  'hardProgressStage',
+  'softProgressStage',
+  'stageReminder',
+  'workflowFacts',
+];
 
 function hasProjectBoardMetrics(metrics = null) {
   const board = metrics?.projectBoard;
@@ -240,9 +246,17 @@ function hasRequiredProjectCatalogSummaryFields(projectCatalog = null) {
   if (projectCatalog.items.length === 0) {
     return true;
   }
-  return projectCatalog.items.every((project) =>
-    PROJECT_CATALOG_REQUIRED_SUMMARY_FIELDS.every((field) => Object.hasOwn(project || {}, field))
-  );
+  return projectCatalog.items.every((project) => {
+    if (!PROJECT_CATALOG_REQUIRED_SUMMARY_FIELDS.every((field) => Object.hasOwn(project || {}, field))) {
+      return false;
+    }
+    return Boolean(
+      project?.stageReminder?.currentStage?.key &&
+        project?.stageReminder?.primaryReminder &&
+        Number.isFinite(Number(project?.stageReminder?.dataGapCount)) &&
+        typeof project?.workflowFacts?.lifecycleClosed === 'boolean'
+    );
+  });
 }
 
 function readProjectDetailIndex(dir) {
@@ -465,19 +479,7 @@ function buildProjectDetailReadModelResult(
 
 export function readDashboardSessionReadModel(config = {}, params = {}) {
   const readParams = { ...params, config };
-  const current = buildReadModelResult(currentReadModelDir(config), readParams);
-  if (current.status === 'ready') {
-    return current;
-  }
-
-  const stale = buildReadModelResult(lastKnownGoodReadModelDir(config), readParams, {
-    stale: true,
-    currentUnavailableReason: current.reason || current.status,
-  });
-  if (stale.status === 'stale') {
-    return stale;
-  }
-  return current;
+  return buildReadModelResult(currentReadModelDir(config), readParams);
 }
 
 export function readTeamWorkCompletionDetailReadModel(config = {}, params = {}) {

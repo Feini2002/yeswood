@@ -1,5 +1,9 @@
 import { summarizeRawFields } from './projectPresentation.mjs';
-import { resolveProjectStageReminder } from '../../public/domain/project-stage-reminder-rules.mjs';
+import {
+  compactProjectStageReminder,
+  compactProjectWorkflowFacts,
+  resolveProjectStageReminder,
+} from '../../public/domain/project-stage-reminder-rules.mjs';
 
 const DETAIL_PROJECT_FIELDS = [
   'id',
@@ -68,13 +72,8 @@ export function compactProjectForDetailReadModel(project = {}) {
   }
   const rawFields = summarizeDetailRawFields(project.rawFields);
   const stageReminder = resolveProjectStageReminder(project);
-  detail.stageReminder = {
-    facts: stageReminder.facts,
-    currentStage: stageReminder.currentStage,
-    primaryReminder: stageReminder.primaryReminder,
-    dataGaps: stageReminder.dataGaps,
-    reminders: stageReminder.reminders,
-  };
+  detail.stageReminder = compactProjectStageReminder(stageReminder, { includeFacts: true });
+  detail.workflowFacts = compactProjectWorkflowFacts(stageReminder.facts);
   if (Object.keys(rawFields).length) {
     detail.rawFields = rawFields;
   }
@@ -86,4 +85,16 @@ export function compactProjectForDetailReadModel(project = {}) {
   }
   detail.detailLite = true;
   return detail;
+}
+
+export function decorateProjectForFullDetailResponse(project = {}) {
+  if (!project || typeof project !== 'object') {
+    return project;
+  }
+  const stageReminder = resolveProjectStageReminder(project);
+  return {
+    ...project,
+    stageReminder: compactProjectStageReminder(stageReminder, { includeFacts: true }),
+    workflowFacts: compactProjectWorkflowFacts(stageReminder.facts),
+  };
 }

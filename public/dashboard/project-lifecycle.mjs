@@ -1,3 +1,5 @@
+import { PROJECT_STAGE_KEYS, resolveProjectStageReminder } from '../domain/project-stage-reminder-rules.mjs';
+
 export const LIFECYCLE_STAGE_ORDER = [
   { key: 'notStarted', label: '待上会' },
   { key: 'meeting', label: '待复尺' },
@@ -12,6 +14,52 @@ export const LIFECYCLE_STAGE_ORDER = [
 ];
 
 const LIFECYCLE_STAGE_LABELS = Object.fromEntries(LIFECYCLE_STAGE_ORDER.map((stage) => [stage.key, stage.label]));
+
+const UNIFIED_STAGE_LIFECYCLE_MAP = {
+  [PROJECT_STAGE_KEYS.canceled]: 'paused',
+  [PROJECT_STAGE_KEYS.paused]: 'paused',
+  [PROJECT_STAGE_KEYS.closed]: 'closed',
+  [PROJECT_STAGE_KEYS.displayFinished]: 'site',
+  [PROJECT_STAGE_KEYS.displayInProgress]: 'site',
+  [PROJECT_STAGE_KEYS.purchaseDone]: 'purchase',
+  [PROJECT_STAGE_KEYS.purchaseInProgress]: 'purchase',
+  [PROJECT_STAGE_KEYS.productListReady]: 'purchase',
+  [PROJECT_STAGE_KEYS.softDone]: 'purchase',
+  [PROJECT_STAGE_KEYS.softInProgress]: 'softEntry',
+  [PROJECT_STAGE_KEYS.pointDone]: 'softEntry',
+  [PROJECT_STAGE_KEYS.pointInProgress]: 'point',
+  [PROJECT_STAGE_KEYS.constructionReviewDone]: 'point',
+  [PROJECT_STAGE_KEYS.constructionInProgress]: 'point',
+  [PROJECT_STAGE_KEYS.floorPlanDone]: 'drawing',
+  [PROJECT_STAGE_KEYS.floorPlanInProgress]: 'plan',
+  [PROJECT_STAGE_KEYS.measured]: 'plan',
+  [PROJECT_STAGE_KEYS.meeting]: 'meeting',
+  [PROJECT_STAGE_KEYS.notStarted]: 'notStarted',
+};
+
+const DOWNSTREAM_UNIFIED_STAGE_KEYS = new Set([
+  PROJECT_STAGE_KEYS.displayFinished,
+  PROJECT_STAGE_KEYS.displayInProgress,
+  PROJECT_STAGE_KEYS.purchaseDone,
+  PROJECT_STAGE_KEYS.purchaseInProgress,
+  PROJECT_STAGE_KEYS.productListReady,
+  PROJECT_STAGE_KEYS.softDone,
+]);
+
+function lifecycleStageFromUnifiedSummary(project = {}) {
+  const stageKey = project?.stageReminder?.currentStage?.key || '';
+  const lifecycleKey = UNIFIED_STAGE_LIFECYCLE_MAP[stageKey];
+  return lifecycleKey ? { key: lifecycleKey, label: lifecycleStageLabel(lifecycleKey) } : null;
+}
+
+function lifecycleStageFromDownstreamUnifiedFacts(project = {}) {
+  const stageKey = resolveProjectStageReminder(project)?.currentStage?.key || '';
+  if (!DOWNSTREAM_UNIFIED_STAGE_KEYS.has(stageKey)) {
+    return null;
+  }
+  const lifecycleKey = UNIFIED_STAGE_LIFECYCLE_MAP[stageKey];
+  return lifecycleKey ? { key: lifecycleKey, label: lifecycleStageLabel(lifecycleKey) } : null;
+}
 
 const FIELD_ALIASES = {
   hardStage: ['硬装项目进度', '硬装进度'],
@@ -333,6 +381,11 @@ export function lifecycleStageLabel(key = '') {
 }
 
 export function classifyProjectLifecycleStage(project) {
+  const unifiedStage = lifecycleStageFromUnifiedSummary(project);
+  if (unifiedStage) {
+    return unifiedStage;
+  }
+
   const facts = deriveProjectWorkflowFacts(project);
   const { hardStage, softStage } = facts;
 
@@ -352,6 +405,11 @@ export function classifyProjectLifecycleStage(project) {
 
   if (isCompanyClosedStage(hardStage) || isCompanyClosedStage(softStage)) {
     return { key: 'closed', label: lifecycleStageLabel('closed') };
+  }
+
+  const downstreamUnifiedStage = lifecycleStageFromDownstreamUnifiedFacts(project);
+  if (downstreamUnifiedStage) {
+    return downstreamUnifiedStage;
   }
 
   if (isNotStartedStage(hardStage) && isNotStartedStage(softStage) && !hasHardLifecycleEvidence(project)) {

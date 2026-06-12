@@ -200,7 +200,7 @@ test('buildTeamWorkCompletionReview exposes next-action reminders for processing
   assert.equal(displayReady.teamGroupText, '直营1组 · 组长：陈菲菲');
   assert.equal(displayReady.teamDesignerText, '设计师：陈菲菲（硬装）');
 
-  assert.equal(softNotStarted.actionStage, '软装方案待开始');
+  assert.equal(softNotStarted.actionStage, '待软装方案');
   assert.equal(softNotStarted.areaLabel, '680㎡');
 });
 

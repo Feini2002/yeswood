@@ -98,6 +98,7 @@ export async function loadPublicAppHarness({ fetchImpl } = {}) {
   runtimeStore.drillModalRequestId = 0;
   runtimeStore.projectDetailRequestId = 0;
   runtimeStore.teamMetricsRequestId = 0;
+  runtimeStore.teamDashboardScopeRequestId = 0;
   runtimeStore.teamWorkCompletionRequestId = 0;
   runtimeStore.teamWorkCompletionRequestPromises = new Map();
   runtimeStore.teamWorkCompletionDetailPromises = new Map();
