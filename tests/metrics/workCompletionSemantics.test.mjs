@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   isCompanyLifecycleClosed,
+  isReliableCompletionDate,
   resolveCompanyLifecycleState,
   resolveDisplayCompletionState,
   resolveFloorPlanCompletionState,
@@ -22,6 +23,19 @@ function project(overrides = {}) {
     updatedAt: overrides.updatedAt || '2026-06-30T00:00:00.000Z',
     rawFields: overrides.rawFields || {},
     ...overrides,
+  };
+}
+
+const HARD_PROGRESS_FIELD = '\u786c\u88c5\u9879\u76ee\u8fdb\u5ea6';
+const SOFT_PROGRESS_FIELD = '\u8f6f\u88c5\u9879\u76ee\u8fdb\u5ea6';
+const LIFECYCLE_CLOSED_TEXT = '\u95ed\u73af';
+const LIFECYCLE_CLOSED_DATE_FIELD = '\u9879\u76ee\u95ed\u73af\u65f6\u95f4';
+
+function closedLifecycleFields(extraFields = {}) {
+  return {
+    [HARD_PROGRESS_FIELD]: raw(LIFECYCLE_CLOSED_TEXT),
+    [SOFT_PROGRESS_FIELD]: raw(LIFECYCLE_CLOSED_TEXT),
+    ...extraFields,
   };
 }
 
@@ -230,6 +244,7 @@ test('company lifecycle completion date is meeting date plus closure cycle', () 
     },
   });
   const closedWithoutCycle = project({
+    dueDate: '',
     rawFields: {
       硬装项目进度: raw('摆场'),
       软装项目进度: raw('闭环'),
@@ -246,7 +261,87 @@ test('company lifecycle completion date is meeting date plus closure cycle', () 
   assert.equal(state.missingDate, false);
   assert.equal(missingDateState.completed, true);
   assert.equal(missingDateState.completedAt, '');
-  assert.equal(missingDateState.missingDate, true);
+  assert.equal(missingDateState.missingDate, false);
+});
+
+test('company lifecycle completion date falls back to project deadline when business date is missing', () => {
+  const state = resolveCompanyLifecycleState(
+    project({
+      dueDate: '2026/04/10',
+      rawFields: {
+        硬装项目进度: raw('闭环'),
+        软装项目进度: raw('闭环'),
+      },
+    })
+  );
+
+  assert.equal(state.completed, true);
+  assert.equal(state.completedAt, '2026-04-10');
+  assert.equal(state.missingDate, false);
+  assert.ok(state.evidence.includes('项目 Deadline'));
+});
+
+test('company lifecycle completion date prefers explicit closed date over deadline and normalizes it', () => {
+  const state = resolveCompanyLifecycleState(
+    project({
+      dueDate: '2026-04-10',
+      rawFields: {
+        硬装项目进度: raw('闭环'),
+        软装项目进度: raw('闭环'),
+        项目闭环时间: raw('2026年4月8日'),
+      },
+    })
+  );
+
+  assert.equal(state.completed, true);
+  assert.equal(state.completedAt, '2026-04-08');
+  assert.equal(state.missingDate, false);
+  assert.ok(state.evidence.includes('项目闭环时间'));
+});
+
+test('company lifecycle completion date accepts DingTalk meeting time field', () => {
+  const state = resolveCompanyLifecycleState(
+    project({
+      rawFields: {
+        硬装项目进度: raw('闭环'),
+        软装项目进度: raw('待采购'),
+        上会时间: raw('2026-05-20'),
+        闭环周期: raw('12'),
+      },
+    })
+  );
+
+  assert.equal(state.completed, true);
+  assert.equal(state.completedAt, '2026-06-01');
+  assert.equal(state.missingDate, false);
+});
+
+test('completion date parsing rejects partial and numeric-only values', () => {
+  assert.equal(isReliableCompletionDate('2026-05'), false);
+  assert.equal(isReliableCompletionDate('2026'), false);
+  assert.equal(isReliableCompletionDate('45000'), false);
+
+  const deadlineState = resolveCompanyLifecycleState(
+    project({
+      dueDate: '2026-05',
+      rawFields: closedLifecycleFields(),
+    })
+  );
+  const explicitState = resolveCompanyLifecycleState(
+    project({
+      dueDate: '',
+      rawFields: closedLifecycleFields({
+        [LIFECYCLE_CLOSED_DATE_FIELD]: raw('2026-05'),
+      }),
+    })
+  );
+
+  assert.equal(deadlineState.completed, true);
+  assert.equal(deadlineState.completedAt, '');
+  assert.equal(deadlineState.missingDate, false);
+  assert.equal(explicitState.completed, true);
+  assert.equal(explicitState.completedAt, '');
+  assert.equal(explicitState.missingDate, false);
 });
 
 test('not-started stopped and discarded projects are not counted as in progress', () => {

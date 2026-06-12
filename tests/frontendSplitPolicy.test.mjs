@@ -142,7 +142,7 @@ test('annual entry structure renders V3 status strip and scope switch instead of
 
 test('annual entry structure main chart keeps direct and franchise as two monthly bar groups', async () => {
   const source = await readFile(path.join(rootDir, 'public', 'dashboard', 'annual-entry-structure.mjs'), 'utf8');
-  const mainChartBlock = source.match(/function buildMainChartOption[\s\S]*?\nfunction buildStatusChartOption/)?.[0] || '';
+  const mainChartBlock = source.match(/function buildMainChartOption[\s\S]*?\nfunction getStoreStatusRows/)?.[0] || '';
 
   assert.match(mainChartBlock, /stack:\s*'direct'/);
   assert.match(mainChartBlock, /stack:\s*'franchise'/);
@@ -153,7 +153,7 @@ test('annual entry structure main chart keeps direct and franchise as two monthl
 
 test('annual entry structure main chart overlays low-emphasis store-age trend lines with point detail', async () => {
   const source = await readFile(path.join(rootDir, 'public', 'dashboard', 'annual-entry-structure.mjs'), 'utf8');
-  const mainChartBlock = source.match(/function buildMainChartOption[\s\S]*?\nfunction buildStatusChartOption/)?.[0] || '';
+  const mainChartBlock = source.match(/function buildMainChartOption[\s\S]*?\nfunction getStoreStatusRows/)?.[0] || '';
 
   assert.match(mainChartBlock, /trendSeriesConfig/);
   assert.match(mainChartBlock, /label:\s*'新店趋势'/);
@@ -185,8 +185,7 @@ test('annual entry structure main chart overlays low-emphasis store-age trend li
 
 test('annual entry structure main chart exposes a horizontal month data zoom viewport', async () => {
   const source = await readFile(path.join(rootDir, 'public', 'dashboard', 'annual-entry-structure.mjs'), 'utf8');
-  const mainChartBlock = source.match(/function buildMainChartOption[\s\S]*?\nfunction buildStatusChartOption/)?.[0] || '';
-  const insideZoomBlock = mainChartBlock.match(/type:\s*'inside'[\s\S]*?\n\s*\},\n\s*\]/)?.[0] || '';
+  const mainChartBlock = source.match(/function buildMainChartOption[\s\S]*?\nfunction getStoreStatusRows/)?.[0] || '';
 
   assert.match(mainChartBlock, /mainChartViewportRange/);
   assert.match(mainChartBlock, /dataZoom:\s*\[/);
@@ -196,17 +195,16 @@ test('annual entry structure main chart exposes a horizontal month data zoom vie
   assert.match(mainChartBlock, /startValue:\s*viewport\.startLabel/);
   assert.match(mainChartBlock, /endValue:\s*viewport\.endLabel/);
   assert.match(mainChartBlock, /labelFormatter\(value,\s*valueLabel\)/);
-  assert.match(insideZoomBlock, /zoomOnMouseWheel:\s*false/);
-  assert.match(insideZoomBlock, /zoomLock:\s*true/);
-  assert.match(insideZoomBlock, /moveOnMouseWheel:\s*true/);
+  assert.match(mainChartBlock, /type:\s*'inside'[\s\S]*?zoomOnMouseWheel:\s*false/);
+  assert.match(mainChartBlock, /type:\s*'inside'[\s\S]*?zoomLock:\s*true/);
+  assert.match(mainChartBlock, /type:\s*'inside'[\s\S]*?moveOnMouseWheel:\s*true/);
 });
 
 test('annual entry structure scope buttons drive the main chart viewport without month mode', async () => {
   const source = await readFile(path.join(rootDir, 'public', 'dashboard', 'annual-entry-structure.mjs'), 'utf8');
-  const scopeClickStart = source.indexOf("container.querySelectorAll('[data-entry-range]').forEach((button) => {\n    button.addEventListener('click'");
-  const scopeClickEnd = scopeClickStart >= 0 ? source.indexOf('\n\n  renderCharts', scopeClickStart) : -1;
-  const scopeClickBlock = scopeClickStart >= 0 && scopeClickEnd > scopeClickStart ? source.slice(scopeClickStart, scopeClickEnd) : '';
-  const updateBlock = source.match(/update\(payload\)\s*{[\s\S]*?\n\s*\},\n\s*destroy\(\)/)?.[0] || '';
+  const scopeClickBlock =
+    source.match(/container\.querySelectorAll\('\[data-entry-range\]'\)\.forEach\(\(button\) => \{[\s\S]*?\n\s*renderCharts/)?.[0] || '';
+  const updateBlock = source.match(/update\(payload\)\s*{[\s\S]*?destroy\(\)/)?.[0] || '';
   const viewportRangeBlock = source.match(/function mainChartViewportRange[\s\S]*?\n}\n\nexport function dataZoomMonthLabel/)?.[0] || '';
 
   assert.match(source, /function mainChartViewportRange/);
@@ -222,7 +220,7 @@ test('annual entry structure scope buttons drive the main chart viewport without
 test('annual entry structure data zoom range drives ranking context', async () => {
   const source = await readFile(path.join(rootDir, 'public', 'dashboard', 'annual-entry-structure.mjs'), 'utf8');
   const chartRuntimeBlock = source.match(/async function renderCharts[\s\S]*?\nfunction paintAnnualEntryStructure/)?.[0] || '';
-  const viewportContextBlock = source.match(/export function applyChartViewportContext[\s\S]*?\n}\n\nfunction monthRangeLabel/)?.[0] || '';
+  const viewportContextBlock = source.match(/export function applyChartViewportContext[\s\S]*?\nfunction monthRangeLabel/)?.[0] || '';
   const buildContextBlock = source.match(/export function buildContext[\s\S]*?\n}\n\nexport function getProjectModalContext/)?.[0] || '';
   const dataZoomBlock = chartRuntimeBlock.match(/chart\.on\('dataZoom'[\s\S]*?\n\s*\}\);/)?.[0] || '';
 
@@ -244,7 +242,7 @@ test('annual entry structure main chart uses V3 full-width dense rhythm', async 
     readFile(path.join(rootDir, 'public', 'dashboard', 'annual-entry-structure.mjs'), 'utf8'),
     readFile(path.join(rootDir, 'public', 'styles', 'pages', 'details.css'), 'utf8'),
   ]);
-  const mainChartBlock = source.match(/function buildMainChartOption[\s\S]*?\nfunction buildStatusChartOption/)?.[0] || '';
+  const mainChartBlock = source.match(/function buildMainChartOption[\s\S]*?\nfunction getStoreStatusRows/)?.[0] || '';
   const analysisRule = css.match(/\.entry-structure-analysis-grid\s*{(?<body>[^}]*)}/s)?.groups?.body || '';
   const panelRule = css.match(/\.entry-structure-chart-panel\.is-main\s*{(?<body>[^}]*)}/s)?.groups?.body || '';
   const hostRule = css.match(/\.entry-structure-chart-host\s*{(?<body>[^}]*)}/s)?.groups?.body || '';
@@ -291,7 +289,7 @@ test('annual entry structure mount carries optional trend label settings into ch
 
 test('annual entry structure uses clickable x-axis month labels instead of a duplicate month rail', async () => {
   const source = await readFile(path.join(rootDir, 'public', 'dashboard', 'annual-entry-structure.mjs'), 'utf8');
-  const mainChartBlock = source.match(/function buildMainChartOption[\s\S]*?\nfunction buildStatusChartOption/)?.[0] || '';
+  const mainChartBlock = source.match(/function buildMainChartOption[\s\S]*?\nfunction getStoreStatusRows/)?.[0] || '';
   const mainChartRuntimeBlock = source.match(/chart\.setOption\(buildMainChartOption[\s\S]*?registerChart\(state,\s*chart\);/)?.[0] || '';
   const chartClickBlock = mainChartRuntimeBlock.match(/chart\.on\('click'[\s\S]*?\n\s*\}\);/)?.[0] || '';
 
@@ -308,7 +306,7 @@ test('annual entry structure opens month modal and filters lower modules without
   const source = await readFile(path.join(rootDir, 'public', 'dashboard', 'annual-entry-structure.mjs'), 'utf8');
   const mainChartRuntimeBlock = source.match(/chart\.setOption\(buildMainChartOption[\s\S]*?registerChart\(state,\s*chart\);/)?.[0] || '';
   const chartClickBlock = mainChartRuntimeBlock.match(/chart\.on\('click'[\s\S]*?\n\s*\}\);/)?.[0] || '';
-  const focusMonthBlock = source.match(/export function focusEntryStructureMonth[\s\S]*?\n}\n\nexport function applyChartViewportContext/)?.[0] || '';
+  const focusMonthBlock = source.match(/export function focusEntryStructureMonth[\s\S]*?export function applyChartViewportContext/)?.[0] || '';
 
   assert.match(source, /export function focusEntryStructureMonth/);
   assert.match(chartClickBlock, /focusEntryStructureMonth\(state,\s*month\)/);
@@ -360,7 +358,7 @@ test('annual entry structure plot-area clicks use the same month modal path', as
 test('annual entry structure lower charts show the active month or range context', async () => {
   const source = await readFile(path.join(rootDir, 'public', 'dashboard', 'annual-entry-structure.mjs'), 'utf8');
   const css = await readFile(path.join(rootDir, 'public', 'styles', 'pages', 'details.css'), 'utf8');
-  const rankingShellBlock = source.match(/function renderRankingShell[\s\S]*?\n}\n\nfunction getQuadrantConfig/)?.[0] || '';
+  const rankingShellBlock = source.match(/function renderRankingShell[\s\S]*?function getQuadrantConfig/)?.[0] || '';
 
   assert.match(rankingShellBlock, /function renderRankingContextMeta/);
   assert.match(rankingShellBlock, /data-entry-context-meta/);
@@ -397,7 +395,7 @@ test('annual entry structure store status distribution opens project details wit
 test('annual entry structure province contribution opens project details for the whole province row', async () => {
   const source = await readFile(path.join(rootDir, 'public', 'dashboard', 'annual-entry-structure.mjs'), 'utf8');
   const provinceChartBlock =
-    source.match(/if \(provinceHost\) \{[\s\S]*?registerChart\(state,\s*chart,\s*'context'\);[\s\S]*?\n\s*\}\n\s*\}/)?.[0] || '';
+    source.match(/if \(provinceHost\) \{[\s\S]*?function refreshEntryStructureContext/)?.[0] || '';
   const provinceOptionBlock = source.match(/function getProvinceRows[\s\S]*?\nfunction renderNoDataChart/)?.[0] || '';
 
   assert.match(source, /<h3>省份贡献<\/h3>/);
@@ -416,7 +414,7 @@ test('annual entry structure modal filters update only modal content', async () 
     readFile(path.join(rootDir, 'public', 'styles', 'pages', 'details.css'), 'utf8'),
   ]);
   const modalFilterBlock =
-    source.match(/function bindProjectModalFilterEvents[\s\S]*?\n}\n\nfunction shouldSkipChartRuntime/)?.[0] || '';
+    source.match(/function bindProjectModalFilterEvents[\s\S]*?\nfunction renderNoDataChart/)?.[0] || '';
   const modalRule = css.match(/\.entry-structure-project-modal\s*{(?<body>[^}]*)}/s)?.groups?.body || '';
 
   assert.match(source, /function updateProjectModalContent/);

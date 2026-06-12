@@ -4,17 +4,17 @@ import { currentPageId } from '../lib/router.mjs';
 
 import {
   runtimeStore,
-  setAnalysisAgentInFlight as setAnalysisAgentInFlightFlag,
+  setPageRefreshInFlight as setPageRefreshInFlightFlag,
   clearSyncMessageTimer,
   scheduleSyncMessageClear,
 } from '../lib/runtime-flags.mjs';
 
-export function isAnalysisAgentInFlight() {
-  return runtimeStore.analysisAgentInFlight;
+export function isPageRefreshInFlight() {
+  return runtimeStore.pageRefreshInFlight;
 }
 
-export function setAnalysisAgentInFlight(value) {
-  setAnalysisAgentInFlightFlag(value);
+export function setPageRefreshInFlight(value) {
+  setPageRefreshInFlightFlag(value);
 }
 
 export function isDashboardSyncEnabled() {
@@ -53,28 +53,35 @@ export function updateSyncControl() {
 }
 
 
-export function currentAnalysisAgentLabel(pageId = currentPageId()) {
-  return (
+export function currentPageRefreshCopy(pageId = currentPageId()) {
+  const target =
     {
-      overview: '分析总览',
-      franchise: '分析加盟',
-      direct: '分析直营',
-      teams: '分析小组',
-      'owner-review': '分析复盘',
-      details: '分析项目',
-      rules: '分析规则',
-    }[pageId] || '分析 Agent'
-  );
+      overview: '总览',
+      franchise: '加盟看板',
+      direct: '直营看板',
+      teams: '小组页面',
+      'owner-review': '小组页面',
+      details: '项目页面',
+      rules: '规则页面',
+      'developer-docs': '开发文档',
+    }[pageId] || '当前页面';
+  return {
+    label: '刷新',
+    busyLabel: '刷新中',
+    title: `刷新${target}`,
+    ariaLabel: `刷新${target}`,
+  };
 }
 
 
-export function updateAnalysisAgentControl() {
-  if (!elements.analysisAgentButton) {
+export function updatePageRefreshControl() {
+  if (!elements.pageRefreshButton) {
     return;
   }
-  const label = currentAnalysisAgentLabel();
-  elements.analysisAgentButton.disabled = runtimeStore.analysisAgentInFlight;
-  elements.analysisAgentButton.textContent = runtimeStore.analysisAgentInFlight ? '分析中' : label;
-  elements.analysisAgentButton.title = `${label} Agent`;
+  const copy = currentPageRefreshCopy();
+  elements.pageRefreshButton.disabled = runtimeStore.pageRefreshInFlight;
+  elements.pageRefreshButton.textContent = runtimeStore.pageRefreshInFlight ? copy.busyLabel : copy.label;
+  elements.pageRefreshButton.title = copy.title;
+  elements.pageRefreshButton.setAttribute('aria-label', copy.ariaLabel);
 }
 

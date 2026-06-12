@@ -40,6 +40,10 @@ const HARD_DEADLINE_REMINDER_TYPES = new Set(['missing_field', 'manual_review', 
 const HARD_DEADLINE_REMINDER_SOURCES = new Set(['system_deadline', 'missing_field', 'manual_review', 'form_conflict']);
 
 export function projectFieldGapReminders(project) {
+  if (isProjectWorkflowClosed(project)) {
+    return [];
+  }
+
   const reminders = [];
   const hardSchemeStatus = readProjectNodeValue(project, 'hardSchemeStatus');
   if (isProjectNodeStatusComplete(hardSchemeStatus) && !readFirstFilledProjectField(project, HARD_SCHEME_COMPLETION_DATE_FIELDS)) {
@@ -522,6 +526,10 @@ export function formatProjectReminderText(keyDate) {
 
 
 export function readProjectKeyDate(project) {
+  if (isProjectWorkflowClosed(project)) {
+    return '--';
+  }
+
   const reminders = resolveProjectKeyDateReminders(project).filter((item) => !isEmptyProjectReminder(item));
   if (!reminders.length) {
     return '--';

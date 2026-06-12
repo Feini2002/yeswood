@@ -1139,7 +1139,7 @@ h2 {
 }
 
 .sync-button,
-.agent-button {
+.page-refresh-button {
   min-width: 48px;
   height: 32px;
   padding: 0 10px;
@@ -1152,7 +1152,7 @@ h2 {
   font-weight: 700;
 }
 
-.agent-button {
+.page-refresh-button {
   min-width: 76px;
   border-color: rgba(20, 83, 45, 0.28);
   background: var(--brand-green);
@@ -1163,12 +1163,12 @@ h2 {
   background: var(--green-soft);
 }
 
-.agent-button:hover {
+.page-refresh-button:hover {
   background: var(--action-green);
 }
 
 .sync-button:disabled,
-.agent-button:disabled {
+.page-refresh-button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }

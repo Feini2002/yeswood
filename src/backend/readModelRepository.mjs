@@ -5,13 +5,15 @@ import path from 'node:path';
 
 import { paths } from './config.mjs';
 
-export const READ_MODEL_SCHEMA_VERSION = 2;
-const COMPATIBLE_READ_MODEL_SCHEMA_VERSIONS = new Set([1, READ_MODEL_SCHEMA_VERSION]);
+export const READ_MODEL_SCHEMA_VERSION = 5;
+const CURRENT_READ_MODEL_SCHEMA_VERSIONS = new Set([READ_MODEL_SCHEMA_VERSION]);
 export const DASHBOARD_SESSION_READ_MODEL_FEATURE = 'dashboard-session';
 export const PROJECT_CATALOG_SUMMARY_READ_MODEL_FEATURE = 'project-catalog-summary';
 export const PROFILE_DASHBOARD_READ_MODEL_FEATURE = 'profile-dashboard';
 export const TEAM_METRICS_READ_MODEL_FEATURE = 'team-metrics';
 export const TEAM_WORK_COMPLETION_READ_MODEL_FEATURE = 'team-work-completion';
+export const TEAM_WORK_COMPLETION_SUMMARY_READ_MODEL_FEATURE = 'team-work-completion-summary';
+export const TEAM_WORK_COMPLETION_DETAIL_READ_MODEL_FEATURE = 'team-work-completion-detail';
 export const TEAM_RESPONSIBILITY_REVIEW_READ_MODEL_FEATURE = 'team-responsibility-review';
 
 export const REQUIRED_READ_MODEL_FEATURES = [
@@ -20,6 +22,8 @@ export const REQUIRED_READ_MODEL_FEATURES = [
   PROFILE_DASHBOARD_READ_MODEL_FEATURE,
   TEAM_METRICS_READ_MODEL_FEATURE,
   TEAM_WORK_COMPLETION_READ_MODEL_FEATURE,
+  TEAM_WORK_COMPLETION_SUMMARY_READ_MODEL_FEATURE,
+  TEAM_WORK_COMPLETION_DETAIL_READ_MODEL_FEATURE,
   TEAM_RESPONSIBILITY_REVIEW_READ_MODEL_FEATURE,
 ];
 
@@ -137,7 +141,7 @@ async function cleanupReadModelTempDirs(baseDir, { maxAgeMs = 60 * 60 * 1000, no
 
 function manifestIsComplete(manifest) {
   return (
-    COMPATIBLE_READ_MODEL_SCHEMA_VERSIONS.has(manifest?.schemaVersion) &&
+    CURRENT_READ_MODEL_SCHEMA_VERSIONS.has(manifest?.schemaVersion) &&
     manifest.readModel === true &&
     REQUIRED_READ_MODEL_FEATURES.every((feature) => manifest.features?.includes(feature))
   );
@@ -176,12 +180,15 @@ function readTeamPayloads(dir, { owner, dashboardContext, year }) {
   const metricsPayload = readJsonFile(path.join(dir, 'team-metrics', teamMetricsFileName(dashboardContext)));
   const metrics = metricsPayload?.metricsByOwner?.[owner] || null;
   const workCompletion = readJsonFile(
-    path.join(dir, 'team-work-completion', teamWorkCompletionFileName({ owner, dashboardContext, year }))
+    path.join(dir, 'team-work-completion-summary', teamWorkCompletionFileName({ owner, dashboardContext, year }))
+  );
+  const workCompletionDetail = readJsonFile(
+    path.join(dir, 'team-work-completion-detail', teamWorkCompletionFileName({ owner, dashboardContext, year }))
   );
   const responsibilityReview = readJsonFile(
     path.join(dir, 'team-responsibility-review', teamResponsibilityReviewFileName({ owner, dashboardContext }))
   );
-  return { metrics, workCompletion, responsibilityReview };
+  return { metrics, workCompletion, workCompletionDetail, responsibilityReview };
 }
 
 function ownerFromManifest(manifest, owner) {
@@ -214,7 +221,7 @@ function buildReadModelResult(dir, params = {}, { stale = false, currentUnavaila
   const payload = readJsonFile(path.join(dir, 'dashboard-session', 'core.json'));
   if (
     !payload ||
-    !COMPATIBLE_READ_MODEL_SCHEMA_VERSIONS.has(payload.schemaVersion) ||
+    !CURRENT_READ_MODEL_SCHEMA_VERSIONS.has(payload.schemaVersion) ||
     payload.snapshotHash !== manifest.snapshotHash
   ) {
     return { status: 'incomplete', payload: null, reason: 'dashboard session read model is missing' };
@@ -238,6 +245,9 @@ function buildReadModelResult(dir, params = {}, { stale = false, currentUnavaila
   }
   if (owner && !team.workCompletion) {
     return { status: 'incomplete', payload: null, reason: 'team work completion read model is missing' };
+  }
+  if (owner && !team.workCompletionDetail) {
+    return { status: 'incomplete', payload: null, reason: 'team work completion detail read model is missing' };
   }
   if (owner && !team.responsibilityReview) {
     return { status: 'incomplete', payload: null, reason: 'team responsibility review read model is missing' };

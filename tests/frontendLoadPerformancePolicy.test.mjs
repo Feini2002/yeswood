@@ -122,6 +122,7 @@ test('dashboard launch schedules warmup without blocking development browser ope
   assert.doesNotMatch(devLauncher, /opening browser anyway/);
   assert.match(intranetLauncher, /api\/dashboard-warmup/);
   assert.match(intranetLauncher, /\$env:DATA_DIR=\$SNAPSHOT_DATA/);
+  assert.match(intranetLauncher, /\$env:PRECOMPUTE_DIR=\(Join-Path \$SNAPSHOT_DATA 'precomputed'\)/);
   assert.match(intranetLauncher, /\$snapshot\.warmed -ne \$true/);
   assert.ok(devLauncher.indexOf('Start-DashboardWarmup') < devLauncher.indexOf('Start-Process "http://localhost:$Port/"'));
 });

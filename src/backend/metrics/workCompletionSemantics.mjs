@@ -11,8 +11,10 @@ const DISPLAY_COMPLETION_DATE_FIELDS = [
   '摆场文件发出时间(项目群）',
   '摆场文件发出时间（项目群）',
 ];
-const MEETING_DATE_FIELDS = ['上会日期'];
+const MEETING_DATE_FIELDS = ['上会时间', '上会日期'];
 const CLOSURE_CYCLE_FIELDS = ['闭环周期', '闭环期', '项目闭环周期'];
+const LIFECYCLE_COMPLETION_DATE_FIELDS = ['项目闭环时间', '项目闭环日期', '闭环时间', '闭环日期', '闭环完成时间'];
+const PROJECT_DEADLINE_DATE_FIELDS = ['项目 Deadline', '项目Deadline', '计划开业时间'];
 const DISPLAY_ACTIVE_STAGE_PATTERN = /摆场/;
 const NOT_STARTED_PATTERN = /未完成|未开始|未启动|未安排/;
 const STOPPED_PATTERN = /暂停|停止|取消|撤销|作废|废弃|终止/;
@@ -21,18 +23,62 @@ function firstRawDisplay(project, fields) {
   return readRawDisplay(project, fields);
 }
 
-export function isReliableCompletionDate(value) {
-  const text = normalizeCell(value);
-  if (!text) {
-    return false;
+function formatDateParts(year, month, day) {
+  if (!year || month < 1 || month > 12 || day < 1 || day > 31) {
+    return '';
   }
-  const date = new Date(text);
-  return !Number.isNaN(date.getTime());
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    return '';
+  }
+  return date.toISOString().slice(0, 10);
+}
+
+function normalizeReliableCompletionDate(value) {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      return '';
+    }
+    return formatDateParts(value.getFullYear(), value.getMonth() + 1, value.getDate());
+  }
+  const text = normalizeCell(value).replace(/,/g, '');
+  if (!text) {
+    return '';
+  }
+  const explicit = text.match(/(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
+  if (explicit) {
+    return formatDateParts(Number(explicit[1]), Number(explicit[2]), Number(explicit[3]));
+  }
+  return '';
+}
+
+export function isReliableCompletionDate(value) {
+  return Boolean(normalizeReliableCompletionDate(value));
 }
 
 function readReliableDate(project, fields) {
   const value = firstRawDisplay(project, fields);
-  return isReliableCompletionDate(value) ? value : '';
+  return normalizeReliableCompletionDate(value);
+}
+
+function readReliableRawDateWithEvidence(project, fields, evidenceLabel = '') {
+  for (const field of fields) {
+    const value = firstRawDisplay(project, [field]);
+    const date = normalizeReliableCompletionDate(value);
+    if (date) {
+      return { date, evidence: evidenceLabel || field };
+    }
+  }
+  return { date: '', evidence: '' };
+}
+
+function readProjectDeadlineDate(project) {
+  const rawDeadline = readReliableRawDateWithEvidence(project, PROJECT_DEADLINE_DATE_FIELDS, '项目 Deadline');
+  if (rawDeadline.date) {
+    return rawDeadline;
+  }
+  const dueDate = normalizeReliableCompletionDate(project?.dueDate);
+  return dueDate ? { date: dueDate, evidence: '项目 Deadline' } : { date: '', evidence: '' };
 }
 
 function parseClosureCycleDays(value) {
@@ -52,11 +98,9 @@ function parseClosureCycleDays(value) {
 }
 
 function addCalendarDays(dateValue, days) {
-  const text = normalizeCell(dateValue);
-  const match = text.match(/^(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})/);
-  const date = match
-    ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])))
-    : new Date(text);
+  const normalizedDate = normalizeReliableCompletionDate(dateValue);
+  const match = normalizedDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const date = match ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))) : new Date('');
   if (Number.isNaN(date.getTime())) {
     return '';
   }
@@ -66,12 +110,19 @@ function addCalendarDays(dateValue, days) {
 }
 
 function readLifecycleCompletedAt(project) {
+  const explicitDate = readReliableRawDateWithEvidence(project, LIFECYCLE_COMPLETION_DATE_FIELDS);
+  if (explicitDate.date) {
+    return explicitDate;
+  }
   const meetingDate = readReliableDate(project, MEETING_DATE_FIELDS);
   const cycleDays = parseClosureCycleDays(firstRawDisplay(project, CLOSURE_CYCLE_FIELDS));
-  if (!meetingDate || cycleDays === null) {
-    return '';
+  if (meetingDate && cycleDays !== null) {
+    return {
+      date: addCalendarDays(meetingDate, cycleDays),
+      evidence: '上会时间/上会日期 + 闭环周期',
+    };
   }
-  return addCalendarDays(meetingDate, cycleDays);
+  return readProjectDeadlineDate(project);
 }
 
 export function isProjectStoppedForCompletion(project) {
@@ -95,8 +146,9 @@ function hasStartedProgress(value, activePattern = null) {
   return activePattern ? activePattern.test(text) : true;
 }
 
-function stateResult(key, { completed, inProgress, status = '', completedAt = '', evidence = [] }) {
-  const safeCompletedAt = isReliableCompletionDate(completedAt) ? completedAt : '';
+function stateResult(key, { completed, inProgress, status = '', completedAt = '', evidence = [], missingDate = null }) {
+  const safeCompletedAt = normalizeReliableCompletionDate(completedAt);
+  const resolvedMissingDate = missingDate === null ? Boolean(completed && !safeCompletedAt) : Boolean(missingDate);
   return {
     key,
     state: completed ? 'completed' : inProgress ? 'inProgress' : 'none',
@@ -104,7 +156,7 @@ function stateResult(key, { completed, inProgress, status = '', completedAt = ''
     inProgress: Boolean(inProgress),
     status,
     completedAt: safeCompletedAt,
-    missingDate: Boolean(completed && !safeCompletedAt),
+    missingDate: resolvedMissingDate,
     evidence,
   };
 }
@@ -169,7 +221,8 @@ export function resolveCompanyLifecycleState(project) {
   const completed = isCompanyLifecycleClosed(project);
   const hardStage = readWorkflowStage(project, { discipline: 'hard' });
   const softStage = readWorkflowStage(project, { discipline: 'soft' });
-  const completedAt = completed ? readLifecycleCompletedAt(project) : '';
+  const completionDate = completed ? readLifecycleCompletedAt(project) : { date: '', evidence: '' };
+  const completedAt = completionDate.date;
   return stateResult('lifecycle', {
     completed,
     inProgress:
@@ -178,10 +231,11 @@ export function resolveCompanyLifecycleState(project) {
       (hasStartedProgress(hardStage) || hasStartedProgress(softStage)),
     status: [hardStage, softStage].filter(Boolean).join(' / '),
     completedAt,
+    missingDate: false,
     evidence: [
       '硬装项目进度',
       isSleepStoreProject(project) ? '' : '软装项目进度',
-      completedAt ? '上会日期 + 闭环周期' : '',
+      completionDate.evidence,
     ].filter(Boolean),
   });
 }

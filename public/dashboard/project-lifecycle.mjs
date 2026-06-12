@@ -20,7 +20,7 @@ const FIELD_ALIASES = {
   businessType: ['业态'],
   businessGroup: ['组别'],
   projectName: ['项目名称', '门店名称'],
-  meetingDate: ['上会日期'],
+  meetingDate: ['上会时间', '上会日期'],
   measureDate: ['复尺时间', '复尺日期'],
   floorPlanStart: ['平面开始时间'],
   floorPlanFinish: ['躺平内部审核结束时间', '内部审核结束时间'],

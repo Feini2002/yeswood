@@ -4,7 +4,9 @@ import { contextLabel, normalizeDashboardContext } from '../lib/constants.mjs';
 import { bindDashboardTooltips, elements } from '../lib/dom.mjs';
 import { escapeHtml } from '../lib/format.mjs';
 import { currentPageId } from '../lib/router.mjs';
+import { runtimeStore } from '../lib/runtime-flags.mjs';
 import { state } from '../lib/state.mjs';
+import { TEAM_WORK_COMPLETION_ENDPOINT, fetchJson } from '../lib/api.mjs';
 import { openProjectDetailByReference } from '../components/project-workbench.mjs';
 
 const TEAM_COMPLETION_ECHARTS_ASSET_URL = '../assets/echarts/echarts.esm.min.mjs';
@@ -142,6 +144,9 @@ function metricInProgress(source = {}, key) {
 }
 
 function metricMissingDate(source = {}, key) {
+  if (key === 'lifecycle') {
+    return 0;
+  }
   return safeNumber(metricSummary(source, key).missingDateCount);
 }
 
@@ -195,6 +200,92 @@ function teamCompletionSourceProjects(review = state.teamWorkCompletion) {
   return Object.values(teamCompletionProjectsById(review));
 }
 
+function teamWorkCompletionHasDetail(review = state.teamWorkCompletion) {
+  return Boolean(review?.projectsById && Object.keys(review.projectsById).length);
+}
+
+function teamWorkCompletionDetailRequestKey(review = state.teamWorkCompletion) {
+  if (!review) {
+    return '';
+  }
+  const owner = String(review.owner || state.selectedTeamOwner || '').trim();
+  if (!owner) {
+    return '';
+  }
+  const dashboardContext = normalizeDashboardContext(review.dashboardContext || resolveTeamDashboardContext() || 'all');
+  const year = Number(review.year || state.teamWorkCompletionYear || new Date().getFullYear());
+  return `${owner}::${dashboardContext}::${Number.isFinite(year) ? year : ''}`;
+}
+
+function ensureTeamWorkCompletionDetail(review = state.teamWorkCompletion) {
+  if (!review || teamWorkCompletionHasDetail(review)) {
+    return review;
+  }
+  const owner = review.owner || state.selectedTeamOwner || '';
+  if (!owner) {
+    return review;
+  }
+  const requestKey = teamWorkCompletionDetailRequestKey(review);
+  if (!requestKey) {
+    return review;
+  }
+  const existingRequest = runtimeStore.teamWorkCompletionDetailPromises.get(requestKey);
+  if (existingRequest) {
+    return existingRequest;
+  }
+  const params = new URLSearchParams();
+  params.set('owner', owner);
+  params.set('context', review.dashboardContext || resolveTeamDashboardContext() || 'all');
+  params.set('year', String(review.year || state.teamWorkCompletionYear || new Date().getFullYear()));
+  params.set('view', 'detail');
+  params.set('fallback', 'compute');
+  const promise = fetchJson(`${TEAM_WORK_COMPLETION_ENDPOINT}?${params}`, { timeoutMs: 30_000 })
+    .then((detail) => {
+      if (teamWorkCompletionDetailRequestKey(state.teamWorkCompletion) !== requestKey) {
+        return state.teamWorkCompletion || review;
+      }
+      if (detail?.status === 'preparing') {
+        state.teamWorkCompletionRefreshStatus = 'preparing';
+        state.teamWorkCompletionRefreshError = detail.reason || '';
+        return {
+          ...review,
+          detailStatus: 'preparing',
+          detailReason: detail.reason || '',
+        };
+      }
+      state.teamWorkCompletion = {
+        ...review,
+        ...detail,
+      };
+      return state.teamWorkCompletion;
+    })
+    .catch((error) => {
+      if (teamWorkCompletionDetailRequestKey(state.teamWorkCompletion) !== requestKey) {
+        return state.teamWorkCompletion || review;
+      }
+      throw error;
+    })
+    .finally(() => {
+      if (runtimeStore.teamWorkCompletionDetailPromises.get(requestKey) === promise) {
+        runtimeStore.teamWorkCompletionDetailPromises.delete(requestKey);
+      }
+    });
+  runtimeStore.teamWorkCompletionDetailPromises.set(requestKey, promise);
+  return promise;
+}
+
+function renderTeamCompletionMemberModalPreparing(message = '项目明细准备中') {
+  if (!elements.teamCompletionMemberModal || !elements.teamCompletionMemberModalBody) {
+    return;
+  }
+  elements.teamCompletionMemberModalBody.innerHTML = renderEmptyState({
+    title: message,
+    description: '明细读模型正在生成，稍后再次打开即可查看项目行。',
+    compact: true,
+  });
+  elements.teamCompletionMemberModal.hidden = false;
+}
+
 function teamCompletionScopeProjectCount(scope = {}, review = state.teamWorkCompletion) {
   const explicitCount = Number(scope?.projectCount);
   if (Number.isFinite(explicitCount) && explicitCount > 0) {
@@ -230,18 +321,22 @@ function membersByName(review = state.teamWorkCompletion) {
   return new Map((review?.members || []).map((member) => [member.name, member]));
 }
 
-function metricStateLabel(metricState = {}) {
+function metricStateHasMissingDate(metricState = {}, metricKey = '') {
+  return metricKey !== 'lifecycle' && Boolean(metricState.missingDate);
+}
+
+function metricStateLabel(metricState = {}, metricKey = '') {
   if (metricState.completed) {
-    return metricState.missingDate ? '完成 · 缺日期' : '已完成';
+    return metricStateHasMissingDate(metricState, metricKey) ? '完成 · 缺日期' : '已完成';
   }
   if (metricState.inProgress) {
     return '进行中';
   }
-  return '未命中';
+  return '未到阶段';
 }
 
-function metricStateTone(metricState = {}) {
-  if (metricState.missingDate) {
+function metricStateTone(metricState = {}, metricKey = '') {
+  if (metricStateHasMissingDate(metricState, metricKey)) {
     return 'missing';
   }
   if (metricState.completed) {
@@ -266,8 +361,8 @@ function projectRowsForMember(review = state.teamWorkCompletion, member = {}) {
     .map((projectId) => projectsById[projectId] || null)
     .filter(Boolean)
     .sort((a, b) => {
-      const bMissing = TEAM_COMPLETION_METRICS.some((metric) => b.metrics?.[metric.key]?.missingDate) ? 1 : 0;
-      const aMissing = TEAM_COMPLETION_METRICS.some((metric) => a.metrics?.[metric.key]?.missingDate) ? 1 : 0;
+      const bMissing = TEAM_COMPLETION_METRICS.some((metric) => metricStateHasMissingDate(b.metrics?.[metric.key], metric.key)) ? 1 : 0;
+      const aMissing = TEAM_COMPLETION_METRICS.some((metric) => metricStateHasMissingDate(a.metrics?.[metric.key], metric.key)) ? 1 : 0;
       return bMissing - aMissing || String(a.name || a.id || '').localeCompare(String(b.name || b.id || ''), 'zh-Hans-CN');
     });
 }
@@ -1039,7 +1134,6 @@ export function renderTeamCompletionGroups(review = state.teamWorkCompletion) {
             <span>${safeNumber(group.projectCount)} 项</span>
           </header>
           ${renderScopeMetricStrip(group, { groupName: group.name || '' })}
-          ${renderMiniMonthlyChart(group.monthly?.months || [])}
           ${renderTeamCompletionGroupMembers(group, review)}
         </article>
       `
@@ -1078,8 +1172,8 @@ function renderTeamCompletionModalFilterCards(scope = {}, activeFilter = TEAM_CO
 function renderTeamCompletionProjectMetric(project = {}, metric) {
   const metricState = project.metrics?.[metric.key] || {};
   return `
-    <span class="team-completion-member-project-state is-${escapeHtml(metric.tone)} is-${escapeHtml(metricStateTone(metricState))}">
-      <strong>${escapeHtml(metricStateLabel(metricState))}</strong>
+    <span class="team-completion-member-project-state is-${escapeHtml(metric.tone)} is-${escapeHtml(metricStateTone(metricState, metric.key))}">
+      <strong>${escapeHtml(metricStateLabel(metricState, metric.key))}</strong>
       <small>${escapeHtml(metricStateMeta(metricState))}</small>
     </span>
   `;
@@ -1296,6 +1390,31 @@ export function renderTeamCompletionMemberModal(review = state.teamWorkCompletio
   `;
 }
 
+function renderTeamCompletionModalWithDetail() {
+  const detailOrPromise = ensureTeamWorkCompletionDetail();
+  if (!detailOrPromise?.then) {
+    renderTeamCompletionMemberModal(detailOrPromise || state.teamWorkCompletion);
+    elements.teamCompletionMemberModal.hidden = false;
+    return;
+  }
+  renderTeamCompletionMemberModalPreparing();
+  detailOrPromise
+    .then((review) => {
+      if (review?.detailStatus === 'preparing' || review?.status === 'preparing') {
+        renderTeamCompletionMemberModalPreparing();
+        return;
+      }
+      renderTeamCompletionMemberModal(review || state.teamWorkCompletion);
+      elements.teamCompletionMemberModal.hidden = false;
+    })
+    .catch((error) => {
+      state.teamWorkCompletionRefreshStatus = 'stale';
+      state.teamWorkCompletionRefreshError = error?.message || 'Team work completion detail load failed';
+      renderTeamCompletionMemberModal(state.teamWorkCompletion);
+      elements.teamCompletionMemberModal.hidden = false;
+    });
+}
+
 export function openTeamCompletionGroupModal(groupName, metricKey = '') {
   const nextGroupName = String(groupName || '').trim();
   if (!nextGroupName || !elements.teamCompletionMemberModal) {
@@ -1310,8 +1429,7 @@ export function openTeamCompletionGroupModal(groupName, metricKey = '') {
   state.selectedTeamCompletionMonth = 0;
   state.teamCompletionModalScopeType = 'group';
   state.teamCompletionModalFilter = firstAvailableGroupCompletionFilter(group, metricKey).key;
-  renderTeamCompletionMemberModal();
-  elements.teamCompletionMemberModal.hidden = false;
+  renderTeamCompletionModalWithDetail();
 }
 
 export function openTeamCompletionMemberModal(name) {
@@ -1325,8 +1443,7 @@ export function openTeamCompletionMemberModal(name) {
   state.teamCompletionModalScopeType = 'member';
   const member = memberByName(nextName);
   state.teamCompletionModalFilter = firstAvailableTeamCompletionFilter(member || {}).key;
-  renderTeamCompletionMemberModal();
-  elements.teamCompletionMemberModal.hidden = false;
+  renderTeamCompletionModalWithDetail();
 }
 
 export function openTeamCompletionScopeModal(filterKey = '') {
@@ -1338,8 +1455,7 @@ export function openTeamCompletionScopeModal(filterKey = '') {
   state.selectedTeamCompletionMonth = 0;
   state.teamCompletionModalScopeType = 'team';
   state.teamCompletionModalFilter = teamCompletionFilterByKey(filterKey).key;
-  renderTeamCompletionMemberModal();
-  elements.teamCompletionMemberModal.hidden = false;
+  renderTeamCompletionModalWithDetail();
 }
 
 export function openTeamCompletionMonthModal(monthNumber, metricKey = '') {
@@ -1356,8 +1472,7 @@ export function openTeamCompletionMonthModal(monthNumber, metricKey = '') {
   state.selectedTeamCompletionMonth = safeNumber(month.month);
   state.teamCompletionModalScopeType = 'month';
   state.teamCompletionModalFilter = firstAvailableMonthCompletionFilter(monthScope, metricKey).key;
-  renderTeamCompletionMemberModal();
-  elements.teamCompletionMemberModal.hidden = false;
+  renderTeamCompletionModalWithDetail();
 }
 
 export function closeTeamCompletionMemberModal() {
@@ -1481,7 +1596,7 @@ export function renderTeamCompletionDataQuality(review = state.teamWorkCompletio
   if (!elements.teamCompletionDataQuality) {
     return;
   }
-  const dataQuality = review?.dataQuality || {};
+  const dataQuality = review?.dataQuality || review?.dataQualitySummary || {};
   const notes = Array.isArray(dataQuality.notes) ? dataQuality.notes.slice(0, 4) : [];
   const issueCount = dataQualityIssueCount(dataQuality);
   elements.teamCompletionDataQuality.classList.toggle('is-clean', !issueCount);
@@ -1580,7 +1695,7 @@ export function renderTeamWorkCompletionDashboard(review = state.teamWorkComplet
   renderTeamCompletionMembers(review);
   renderTeamCompletionDataQuality(review);
   if (elements.teamCompletionChartInsight) {
-    elements.teamCompletionChartInsight.textContent = `总览为累计完成；月度柱状图仅展示 ${review.year} 年 ${contextLabel(review.dashboardContext)}平面方案和方案摆场可靠完成日期，不含项目总闭环。`;
+    elements.teamCompletionChartInsight.textContent = `总览为累计完成；月度柱状图展示 ${review.year} 年 ${contextLabel(review.dashboardContext)}口径下的平面方案、方案摆场和项目总闭环完成日期；闭环缺少业务完成日期时使用项目 Deadline 落月。`;
   }
   bindDashboardTooltips(elements.teamWorkCompletionModule);
 }

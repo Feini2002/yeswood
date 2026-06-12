@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  READ_MODEL_SCHEMA_VERSION,
   publishReadModelDirectory,
   readDashboardSessionReadModel,
 } from '../src/backend/readModelRepository.mjs';
@@ -19,10 +20,10 @@ async function writeJson(filePath, payload) {
   await fs.writeFile(filePath, `${JSON.stringify(payload)}\n`, 'utf8');
 }
 
-async function seedReadModel(baseDir, { owner = 'Owner A', context = 'direct', year = 2026 } = {}) {
+async function seedReadModel(baseDir, { owner = 'Owner A', context = 'direct', year = 2026, schemaVersion = READ_MODEL_SCHEMA_VERSION } = {}) {
   const currentDir = path.join(baseDir, 'current');
   await writeJson(path.join(currentDir, 'manifest.json'), {
-    schemaVersion: 1,
+    schemaVersion,
     readModel: true,
     snapshotHash: 'hash-1',
     generatedAt: '2026-06-11T08:00:00.000Z',
@@ -32,6 +33,8 @@ async function seedReadModel(baseDir, { owner = 'Owner A', context = 'direct', y
       'profile-dashboard',
       'team-metrics',
       'team-work-completion',
+      'team-work-completion-summary',
+      'team-work-completion-detail',
       'team-responsibility-review',
     ],
     contexts: ['all', 'franchise', 'direct'],
@@ -39,7 +42,7 @@ async function seedReadModel(baseDir, { owner = 'Owner A', context = 'direct', y
     owners: [{ owner, key: ownerKey(owner) }],
   });
   await writeJson(path.join(currentDir, 'dashboard-session', 'core.json'), {
-    schemaVersion: 1,
+    schemaVersion,
     readModel: true,
     readOnly: true,
     snapshotHash: 'hash-1',
@@ -92,12 +95,20 @@ async function seedReadModel(baseDir, { owner = 'Owner A', context = 'direct', y
       [owner]: { owner, dashboardContext: context, summary: { totalProjects: 1 } },
     },
   });
-  await writeJson(path.join(currentDir, 'team-work-completion', `${ownerKey(owner)}__${context}__${year}.json`), {
+  await writeJson(path.join(currentDir, 'team-work-completion-summary', `${ownerKey(owner)}__${context}__${year}.json`), {
     owner,
     requestedOwner: owner,
     dashboardContext: context,
     year,
     summary: {},
+  });
+  await writeJson(path.join(currentDir, 'team-work-completion-detail', `${ownerKey(owner)}__${context}__${year}.json`), {
+    owner,
+    requestedOwner: owner,
+    dashboardContext: context,
+    year,
+    summary: {},
+    projectsById: { p1: { id: 'p1', name: 'P1' } },
   });
   await writeJson(path.join(currentDir, 'team-responsibility-review', `${ownerKey(owner)}__${context}.json`), {
     owner,
@@ -128,6 +139,20 @@ test('readDashboardSessionReadModel reads the current hard read model without a 
   assert.equal(result.payload.projectCatalog.items.length, 1);
 });
 
+test('readDashboardSessionReadModel rejects non-current schema read models', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir, { schemaVersion: 1 });
+
+  const result = readDashboardSessionReadModel(
+    { readModelDir: tempDir },
+    { owner: 'Owner A', dashboardContext: 'direct', year: 2026 }
+  );
+
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.payload, null);
+  assert.match(result.reason, /manifest|schema|incomplete/i);
+});
+
 test('readDashboardSessionReadModel reports missing and incomplete states explicitly', async () => {
   const missingDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
   assert.deepEqual(readDashboardSessionReadModel({ readModelDir: missingDir }, {}), {
@@ -138,7 +163,7 @@ test('readDashboardSessionReadModel reports missing and incomplete states explic
 
   const incompleteDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
   await seedReadModel(incompleteDir);
-  await fs.rm(path.join(incompleteDir, 'current', 'team-work-completion'), { recursive: true, force: true });
+  await fs.rm(path.join(incompleteDir, 'current', 'team-work-completion-summary'), { recursive: true, force: true });
 
   const result = readDashboardSessionReadModel(
     { readModelDir: incompleteDir },

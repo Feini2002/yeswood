@@ -93,13 +93,14 @@ export async function loadPublicAppHarness({ fetchImpl } = {}) {
   resetAppState();
   const { runtimeStore } = await import('./lib/runtime-flags.mjs');
   runtimeStore.updateCheckInFlight = false;
-  runtimeStore.analysisAgentInFlight = false;
+  runtimeStore.pageRefreshInFlight = false;
   runtimeStore.syncMessageTimer = null;
   runtimeStore.drillModalRequestId = 0;
   runtimeStore.projectDetailRequestId = 0;
   runtimeStore.teamMetricsRequestId = 0;
   runtimeStore.teamWorkCompletionRequestId = 0;
   runtimeStore.teamWorkCompletionRequestPromises = new Map();
+  runtimeStore.teamWorkCompletionDetailPromises = new Map();
   runtimeStore.ownerReviewRequestId = 0;
   runtimeStore.ownerReviewRequestPromises = new Map();
   runtimeStore.teamMetricsBatchPromises = new Map();
@@ -141,6 +142,7 @@ export async function loadPublicAppHarness({ fetchImpl } = {}) {
     navigateToOwnerReview: mod.navigateToOwnerReview,
     resetOwnerReviewForTeamOwnerChange: mod.resetOwnerReviewForTeamOwnerChange,
     refresh: mod.refresh,
+    refreshCurrentPage: mod.refreshCurrentPage,
     resolveProjectKeyDate: mod.resolveProjectKeyDate,
     resolveProjectKeyDateReminders: mod.resolveProjectKeyDateReminders,
     readProjectKeyDate: mod.readProjectKeyDate,

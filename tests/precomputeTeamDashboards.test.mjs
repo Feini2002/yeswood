@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import {
   hasCompletePrecompute,
+  hasPrecomputedTeamBundle,
   ownersFromSnapshot,
   precomputeSnapshotHash,
   precomputeTeamDashboards,
@@ -13,6 +14,7 @@ import {
   readPrecomputedTeamMetricsBatch,
   readPrecomputedTeamResponsibilityReview,
   readPrecomputedTeamWorkCompletion,
+  readPrecomputedTeamWorkCompletionDetail,
 } from '../src/backend/precomputeTeamDashboards.mjs';
 import { buildTeamResponsibilityReview } from '../src/backend/teamResponsibilityReview.mjs';
 import { buildTeamWorkCompletionReview } from '../src/backend/teamWorkCompletionReview.mjs';
@@ -57,6 +59,8 @@ function project(id, fields = {}) {
       CD设计师: raw('陈菲菲'),
       硬装项目进度: raw('闭环'),
       软装项目进度: raw('闭环'),
+      上会时间: raw(id.includes('2025') ? '2025-05-20' : '2026-05-20'),
+      闭环周期: raw('26'),
       项目闭环时间: raw('2026-06-15'),
       attachmentUrl: raw('https://example.test/file?Expires=1781147357&Signature=keep-out-of-summary'),
       ...Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, raw(value)])),
@@ -93,6 +97,7 @@ test('precomputeTeamDashboards writes work completion payloads that match live c
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'precompute-team-dashboard-'));
   const config = { precomputeDir: path.join(tempDir, 'precomputed') };
   const sourceSnapshot = snapshot();
+  const [owner] = ownersFromSnapshot(sourceSnapshot, personnelArchitecture);
 
   const result = await precomputeTeamDashboards(sourceSnapshot, {
     config,
@@ -105,21 +110,72 @@ test('precomputeTeamDashboards writes work completion payloads that match live c
   assert.ok(result.features.includes('team-work-completion'));
   assert.ok(result.features.includes('team-metrics'));
 
-  const actual = readPrecomputedTeamWorkCompletion(config, sourceSnapshot, personnelArchitecture, {
-    owner: '苏:佳*蕾',
-    requestedOwner: '苏:佳*蕾',
+  const actualSummary = readPrecomputedTeamWorkCompletion(config, sourceSnapshot, personnelArchitecture, {
+    owner,
+    requestedOwner: owner,
+    dashboardContext: 'direct',
+    year: 2026,
+  });
+  const actual = readPrecomputedTeamWorkCompletionDetail(config, sourceSnapshot, personnelArchitecture, {
+    owner,
+    requestedOwner: owner,
     dashboardContext: 'direct',
     year: 2026,
   });
   const expected = buildTeamWorkCompletionReview(sourceSnapshot.projects, personnelArchitecture.teams[0], {
-    requestedOwner: '苏:佳*蕾',
+    requestedOwner: owner,
     dashboardContext: 'direct',
     personnelArchitecture,
     year: 2026,
   });
 
   assert.deepEqual(actual, expected);
+  assert.equal(actualSummary.projectsById, undefined);
   assert.ok(Object.keys(actual.projectsById).length > 0);
+  assert.equal(actualSummary.monthly.months[5].lifecycleCompleted, 1);
+  assert.equal(actualSummary.monthly.months[5].projectIds, undefined);
+  assert.deepEqual(actual.monthly.months[5].projectIds.lifecycle, ['direct-2026']);
+});
+
+test('precomputeTeamDashboards splits work completion summary from detail payloads', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'precompute-team-dashboard-'));
+  const config = { precomputeDir: path.join(tempDir, 'precomputed') };
+  const sourceSnapshot = snapshot();
+  const [owner] = ownersFromSnapshot(sourceSnapshot, personnelArchitecture);
+
+  const result = await precomputeTeamDashboards(sourceSnapshot, {
+    config,
+    contexts: ['direct'],
+    years: [2026],
+    now: new Date('2026-06-11T00:00:00.000Z'),
+  });
+
+  const summaryFiles = await fs.readdir(path.join(config.precomputeDir, result.snapshotHash, 'team-work-completion-summary'));
+  const detailFiles = await fs.readdir(path.join(config.precomputeDir, result.snapshotHash, 'team-work-completion-detail'));
+  assert.ok(summaryFiles.length >= 1);
+  assert.ok(detailFiles.length >= 1);
+
+  const summary = readPrecomputedTeamWorkCompletion(config, sourceSnapshot, personnelArchitecture, {
+    owner,
+    requestedOwner: owner,
+    dashboardContext: 'direct',
+    year: 2026,
+  });
+  const detail = readPrecomputedTeamWorkCompletionDetail(config, sourceSnapshot, personnelArchitecture, {
+    owner,
+    requestedOwner: owner,
+    dashboardContext: 'direct',
+    year: 2026,
+  });
+
+  assert.equal(summary.owner, owner);
+  assert.equal(summary.summary.lifecycle.completedCount, detail.summary.lifecycle.completedCount);
+  assert.equal(typeof summary.dataQualitySummary.missingDateCompletionCount, 'number');
+  assert.equal(summary.dataQuality, undefined);
+  assert.equal(summary.projectsById, undefined);
+  assert.equal(summary.members.some((member) => Array.isArray(member.projectIds)), false);
+  assert.ok(Object.keys(detail.projectsById).length > 0);
+  assert.equal(detail.members.some((member) => Array.isArray(member.projectIds)), true);
 });
 
 test('precomputeTeamDashboards writes team metrics payloads for batch reads', async () => {
@@ -172,7 +228,7 @@ test('precomputeTeamDashboards writes dashboard session and responsibility revie
     'utf8'
   );
   const sessionFromFile = JSON.parse(sessionFile);
-  assert.equal(sessionFromFile.schemaVersion, 2);
+  assert.equal(sessionFromFile.schemaVersion, 5);
   assert.equal(sessionFromFile.snapshotHash, result.snapshotHash);
   assert.equal(sessionFromFile.projectCatalog, undefined);
   assert.equal(sessionFromFile.profileDashboards, undefined);
@@ -247,9 +303,12 @@ test('precomputeTeamDashboards publishes hard read model current bundle', async 
   assert.equal(catalog.items.some((item) => item.rawFields), false);
   assert.equal(JSON.stringify(catalog).includes('Expires=1781147357'), false);
 
-  const workCompletion2025 = await fs.readdir(path.join(currentDir, 'team-work-completion'));
-  assert.ok(workCompletion2025.some((fileName) => fileName.endsWith('__2025.json')));
-  assert.ok(workCompletion2025.some((fileName) => fileName.endsWith('__2026.json')));
+  const workCompletionSummary = await fs.readdir(path.join(currentDir, 'team-work-completion-summary'));
+  const workCompletionDetail = await fs.readdir(path.join(currentDir, 'team-work-completion-detail'));
+  assert.ok(workCompletionSummary.some((fileName) => fileName.endsWith('__2025.json')));
+  assert.ok(workCompletionSummary.some((fileName) => fileName.endsWith('__2026.json')));
+  assert.ok(workCompletionDetail.some((fileName) => fileName.endsWith('__2025.json')));
+  assert.ok(workCompletionDetail.some((fileName) => fileName.endsWith('__2026.json')));
 
   const sessionOwner = session.team.owner || owner;
   assert.equal(sessionOwner, owner);
@@ -295,6 +354,30 @@ test('hasCompletePrecompute returns manifest only for the current snapshot hash'
   assert.equal(hasCompletePrecompute(staleSnapshot, config), null);
 });
 
+test('hasPrecomputedTeamBundle verifies files for the requested owner context and year', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'precompute-team-dashboard-'));
+  const config = { precomputeDir: path.join(tempDir, 'precomputed') };
+  const sourceSnapshot = snapshot();
+  const [owner] = ownersFromSnapshot(sourceSnapshot, personnelArchitecture);
+
+  const manifest = await precomputeTeamDashboards(sourceSnapshot, {
+    config,
+    contexts: ['direct'],
+    years: [2026],
+  });
+  assert.deepEqual(
+    hasPrecomputedTeamBundle(sourceSnapshot, config, { owner, dashboardContext: 'direct', year: 2026 }),
+    manifest
+  );
+
+  const summaryDir = path.join(config.precomputeDir, manifest.snapshotHash, 'team-work-completion-summary');
+  const [summaryFile] = await fs.readdir(summaryDir);
+  await fs.rm(path.join(summaryDir, summaryFile));
+
+  assert.equal(hasCompletePrecompute(sourceSnapshot, config), null);
+  assert.equal(hasPrecomputedTeamBundle(sourceSnapshot, config, { owner, dashboardContext: 'direct', year: 2026 }), null);
+});
+
 test('precomputed work completion filenames are safe on Windows', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'precompute-team-dashboard-'));
   const config = { precomputeDir: path.join(tempDir, 'precomputed') };
@@ -305,7 +388,10 @@ test('precomputed work completion filenames are safe on Windows', async () => {
     years: [2026],
   });
 
-  const files = await fs.readdir(path.join(config.precomputeDir, result.snapshotHash, 'team-work-completion'));
-  assert.equal(files.length, 1);
-  assert.doesNotMatch(files[0], /[<>:"/\\|?*\x00-\x1f]/);
+  const summaryFiles = await fs.readdir(path.join(config.precomputeDir, result.snapshotHash, 'team-work-completion-summary'));
+  const detailFiles = await fs.readdir(path.join(config.precomputeDir, result.snapshotHash, 'team-work-completion-detail'));
+  assert.equal(summaryFiles.length, 1);
+  assert.equal(detailFiles.length, 1);
+  assert.doesNotMatch(summaryFiles[0], /[<>:"/\\|?*\x00-\x1f]/);
+  assert.doesNotMatch(detailFiles[0], /[<>:"/\\|?*\x00-\x1f]/);
 });

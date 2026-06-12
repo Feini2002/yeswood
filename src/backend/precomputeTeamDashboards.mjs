@@ -17,10 +17,12 @@ import { buildTeamWorkCompletionReview } from './teamWorkCompletionReview.mjs';
 export const DASHBOARD_SESSION_PRECOMPUTE_FEATURE = 'dashboard-session';
 export const TEAM_RESPONSIBILITY_REVIEW_PRECOMPUTE_FEATURE = 'team-responsibility-review';
 export const TEAM_WORK_COMPLETION_PRECOMPUTE_FEATURE = 'team-work-completion';
+export const TEAM_WORK_COMPLETION_SUMMARY_PRECOMPUTE_FEATURE = 'team-work-completion-summary';
+export const TEAM_WORK_COMPLETION_DETAIL_PRECOMPUTE_FEATURE = 'team-work-completion-detail';
 export const TEAM_METRICS_PRECOMPUTE_FEATURE = 'team-metrics';
 export const PROJECT_CATALOG_SUMMARY_PRECOMPUTE_FEATURE = 'project-catalog-summary';
 export const PROFILE_DASHBOARD_PRECOMPUTE_FEATURE = 'profile-dashboard';
-const PRECOMPUTE_SCHEMA_VERSION = 2;
+const PRECOMPUTE_SCHEMA_VERSION = 5;
 const DEFAULT_RETAINED_PRECOMPUTE_VERSIONS = 3;
 const COMPLETE_PRECOMPUTE_FEATURES = [
   DASHBOARD_SESSION_PRECOMPUTE_FEATURE,
@@ -28,6 +30,8 @@ const COMPLETE_PRECOMPUTE_FEATURES = [
   PROFILE_DASHBOARD_PRECOMPUTE_FEATURE,
   TEAM_RESPONSIBILITY_REVIEW_PRECOMPUTE_FEATURE,
   TEAM_WORK_COMPLETION_PRECOMPUTE_FEATURE,
+  TEAM_WORK_COMPLETION_SUMMARY_PRECOMPUTE_FEATURE,
+  TEAM_WORK_COMPLETION_DETAIL_PRECOMPUTE_FEATURE,
   TEAM_METRICS_PRECOMPUTE_FEATURE,
 ];
 
@@ -77,10 +81,18 @@ function teamWorkCompletionFileName({ owner, dashboardContext, year }) {
   return `${hashToken(owner)}__${safeSegment(dashboardContext || 'all')}__${safeSegment(year)}.json`;
 }
 
-function teamWorkCompletionFilePath(config = {}, snapshotHash, params = {}) {
+function teamWorkCompletionSummaryFilePath(config = {}, snapshotHash, params = {}) {
   return path.join(
     precomputeDirForHash(config, snapshotHash),
-    TEAM_WORK_COMPLETION_PRECOMPUTE_FEATURE,
+    TEAM_WORK_COMPLETION_SUMMARY_PRECOMPUTE_FEATURE,
+    teamWorkCompletionFileName(params)
+  );
+}
+
+function teamWorkCompletionDetailFilePath(config = {}, snapshotHash, params = {}) {
+  return path.join(
+    precomputeDirForHash(config, snapshotHash),
+    TEAM_WORK_COMPLETION_DETAIL_PRECOMPUTE_FEATURE,
     teamWorkCompletionFileName(params)
   );
 }
@@ -165,11 +177,95 @@ function manifestHasFeatures(manifest, features = []) {
   return features.every((feature) => manifestHasFeature(manifest, feature));
 }
 
+function fileExists(filePath) {
+  try {
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function precomputeFilesComplete(config = {}, snapshotHash, manifest = {}) {
+  const baseDir = precomputeDirForHash(config, snapshotHash);
+  if (
+    !fileExists(dashboardSessionFilePath(config, snapshotHash)) ||
+    !fileExists(projectCatalogSummaryFilePath(baseDir)) ||
+    !fileExists(profileDashboardFilePath(baseDir, 'department')) ||
+    !fileExists(profileDashboardFilePath(baseDir, 'direct')) ||
+    !fileExists(profileDashboardFilePath(baseDir, 'franchise'))
+  ) {
+    return false;
+  }
+
+  const contexts = Array.isArray(manifest.contexts) && manifest.contexts.length ? manifest.contexts : ['all'];
+  const years = Array.isArray(manifest.years) && manifest.years.length ? manifest.years : [new Date().getFullYear()];
+  const owners = (Array.isArray(manifest.owners) ? manifest.owners : [])
+    .map((owner) => owner?.owner || owner)
+    .filter(Boolean);
+
+  for (const dashboardContext of contexts) {
+    if (!fileExists(teamMetricsFilePath(config, snapshotHash, dashboardContext))) {
+      return false;
+    }
+  }
+  for (const owner of owners) {
+    for (const dashboardContext of contexts) {
+      if (!fileExists(teamResponsibilityReviewFilePath(config, snapshotHash, { owner, dashboardContext }))) {
+        return false;
+      }
+      for (const year of years) {
+        const params = { owner, dashboardContext, year };
+        if (
+          !fileExists(teamWorkCompletionSummaryFilePath(config, snapshotHash, params)) ||
+          !fileExists(teamWorkCompletionDetailFilePath(config, snapshotHash, params))
+        ) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
 export function hasCompletePrecompute(snapshot = {}, config = {}) {
   const architecture = snapshot.personnelArchitecture || {};
   const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
   const manifest = readManifest(config, snapshotHash);
-  return manifestHasFeatures(manifest, COMPLETE_PRECOMPUTE_FEATURES) ? manifest : null;
+  if (!manifestHasFeatures(manifest, COMPLETE_PRECOMPUTE_FEATURES)) {
+    return null;
+  }
+  return precomputeFilesComplete(config, snapshotHash, manifest) ? manifest : null;
+}
+
+export function hasPrecomputedTeamBundle(snapshot = {}, config = {}, params = {}) {
+  const architecture = snapshot.personnelArchitecture || {};
+  const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
+  const manifest = readManifest(config, snapshotHash);
+  if (!manifestHasFeatures(manifest, COMPLETE_PRECOMPUTE_FEATURES)) {
+    return null;
+  }
+  const owner = params.owner || manifest?.owners?.[0]?.owner || '';
+  const dashboardContext = params.dashboardContext || 'all';
+  const year = Number(params.year || new Date().getFullYear());
+  if (!owner) {
+    return fileExists(dashboardSessionFilePath(config, snapshotHash)) ? manifest : null;
+  }
+  if (
+    !fileExists(teamMetricsFilePath(config, snapshotHash, dashboardContext)) ||
+    !fileExists(teamWorkCompletionSummaryFilePath(config, snapshotHash, { owner, dashboardContext, year })) ||
+    !fileExists(teamWorkCompletionDetailFilePath(config, snapshotHash, { owner, dashboardContext, year })) ||
+    !fileExists(teamResponsibilityReviewFilePath(config, snapshotHash, { owner, dashboardContext }))
+  ) {
+    return null;
+  }
+  return readPrecomputedDashboardSession(config, snapshot, architecture, {
+    owner,
+    requestedOwner: owner,
+    dashboardContext,
+    year,
+  })
+    ? manifest
+    : null;
 }
 
 function publicSnapshotMeta(snapshot = {}, config = {}) {
@@ -478,11 +574,92 @@ function buildProfileDashboard(snapshot = {}, architecture = {}, profile = 'depa
   };
 }
 
+function completionMetricSummary(metric = {}) {
+  return {
+    completedCount: Number(metric.completedCount || 0),
+    inProgressCount: Number(metric.inProgressCount || 0),
+    missingDateCount: Number(metric.missingDateCount || 0),
+  };
+}
+
+function completionMonthlySummary(month = {}) {
+  const { projectIds: _projectIds, ...rest } = month || {};
+  return rest;
+}
+
+function completionGroupSummary(group = {}) {
+  const { projectIds: _projectIds, monthly = {}, summary = {}, ...rest } = group || {};
+  return {
+    ...rest,
+    summary: {
+      floorPlan: completionMetricSummary(summary.floorPlan),
+      display: completionMetricSummary(summary.display),
+      lifecycle: completionMetricSummary(summary.lifecycle),
+    },
+    monthly: {
+      months: Array.isArray(monthly.months) ? monthly.months.map(completionMonthlySummary) : [],
+    },
+  };
+}
+
+function completionMemberSummary(member = {}) {
+  const { projectIds: _projectIds, projectRows: _projectRows, summary = {}, ...rest } = member || {};
+  return {
+    ...rest,
+    summary: {
+      floorPlan: completionMetricSummary(summary.floorPlan),
+      display: completionMetricSummary(summary.display),
+      lifecycle: completionMetricSummary(summary.lifecycle),
+    },
+  };
+}
+
+function dataQualitySummary(dataQuality = {}) {
+  return {
+    unmappedMemberCount: Number(dataQuality.unmappedMemberCount || 0),
+    missingDateCompletionCount: Number(dataQuality.missingDateCompletionCount || 0),
+    weakProjectKeyCount: Number(dataQuality.weakProjectKeyCount || 0),
+    notesCount: Array.isArray(dataQuality.notes) ? dataQuality.notes.length : 0,
+  };
+}
+
+function buildTeamWorkCompletionSummaryPayload(payload = {}) {
+  const {
+    projectsById: _projectsById,
+    sourceProjects: _sourceProjects,
+    dataQuality,
+    summary = {},
+    monthly = {},
+    groups = [],
+    members = [],
+    ...rest
+  } = payload || {};
+  return {
+    ...rest,
+    summary: {
+      floorPlan: completionMetricSummary(summary.floorPlan),
+      display: completionMetricSummary(summary.display),
+      lifecycle: completionMetricSummary(summary.lifecycle),
+    },
+    monthly: {
+      months: Array.isArray(monthly.months) ? monthly.months.map(completionMonthlySummary) : [],
+    },
+    groups: Array.isArray(groups) ? groups.map(completionGroupSummary) : [],
+    members: Array.isArray(members) ? members.map(completionMemberSummary) : [],
+    dataQualitySummary: dataQualitySummary(dataQuality),
+    readOnly: true,
+  };
+}
+
 async function publishPrecomputeDirectory(config, snapshotHash, tmpDir) {
   const baseDir = precomputeBaseDir(config);
   const finalDir = precomputeDirForHash(config, snapshotHash);
   const existingManifest = readManifest(config, snapshotHash);
-  if (existingManifest && manifestHasFeatures(existingManifest, COMPLETE_PRECOMPUTE_FEATURES)) {
+  if (
+    existingManifest &&
+    manifestHasFeatures(existingManifest, COMPLETE_PRECOMPUTE_FEATURES) &&
+    precomputeFilesComplete(config, snapshotHash, existingManifest)
+  ) {
     await removeDirectoryInside(baseDir, tmpDir);
     return finalDir;
   }
@@ -531,6 +708,12 @@ export async function precomputeTeamDashboards(snapshot = {}, options = {}) {
   const config = options.config || {};
   const architecture = snapshot.personnelArchitecture || {};
   const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
+  if (options.force !== true) {
+    const existingManifest = hasCompletePrecompute(snapshot, config);
+    if (existingManifest) {
+      return existingManifest;
+    }
+  }
   const baseDir = precomputeBaseDir(config);
   await fsp.mkdir(baseDir, { recursive: true });
   await cleanupStalePrecomputeTempDirs(config);
@@ -559,7 +742,8 @@ export async function precomputeTeamDashboards(snapshot = {}, options = {}) {
   await fsp.mkdir(path.join(tmpDir, 'project-catalog'), { recursive: true });
   await fsp.mkdir(path.join(tmpDir, PROFILE_DASHBOARD_PRECOMPUTE_FEATURE), { recursive: true });
   await fsp.mkdir(path.join(tmpDir, TEAM_RESPONSIBILITY_REVIEW_PRECOMPUTE_FEATURE), { recursive: true });
-  await fsp.mkdir(path.join(tmpDir, TEAM_WORK_COMPLETION_PRECOMPUTE_FEATURE), { recursive: true });
+  await fsp.mkdir(path.join(tmpDir, TEAM_WORK_COMPLETION_SUMMARY_PRECOMPUTE_FEATURE), { recursive: true });
+  await fsp.mkdir(path.join(tmpDir, TEAM_WORK_COMPLETION_DETAIL_PRECOMPUTE_FEATURE), { recursive: true });
   await fsp.mkdir(path.join(tmpDir, TEAM_METRICS_PRECOMPUTE_FEATURE), { recursive: true });
   try {
     const metricsByContext = new Map();
@@ -617,11 +801,20 @@ export async function precomputeTeamDashboards(snapshot = {}, options = {}) {
             personnelArchitecture: architecture,
             year,
           });
-          workCompletionByKey.set(`${owner}\0${dashboardContext}\0${year}`, payload);
+          const summaryPayload = buildTeamWorkCompletionSummaryPayload(payload);
+          workCompletionByKey.set(`${owner}\0${dashboardContext}\0${year}`, summaryPayload);
           await writeJson(
             path.join(
               tmpDir,
-              TEAM_WORK_COMPLETION_PRECOMPUTE_FEATURE,
+              TEAM_WORK_COMPLETION_SUMMARY_PRECOMPUTE_FEATURE,
+              teamWorkCompletionFileName({ owner, dashboardContext, year })
+            ),
+            summaryPayload
+          );
+          await writeJson(
+            path.join(
+              tmpDir,
+              TEAM_WORK_COMPLETION_DETAIL_PRECOMPUTE_FEATURE,
               teamWorkCompletionFileName({ owner, dashboardContext, year })
             ),
             payload
@@ -678,11 +871,31 @@ export function readPrecomputedTeamResponsibilityReview(config = {}, snapshot = 
 export function readPrecomputedTeamWorkCompletion(config = {}, snapshot = {}, architecture = {}, params = {}) {
   const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
   const manifest = readManifest(config, snapshotHash);
-  if (!manifestHasFeature(manifest, TEAM_WORK_COMPLETION_PRECOMPUTE_FEATURE)) {
+  if (!manifestHasFeature(manifest, TEAM_WORK_COMPLETION_SUMMARY_PRECOMPUTE_FEATURE)) {
     return null;
   }
 
-  const payload = readJsonFile(teamWorkCompletionFilePath(config, snapshotHash, params));
+  const payload = readJsonFile(teamWorkCompletionSummaryFilePath(config, snapshotHash, params));
+  if (!payload) {
+    return null;
+  }
+  if (params.requestedOwner && payload.requestedOwner !== params.requestedOwner) {
+    return {
+      ...payload,
+      requestedOwner: params.requestedOwner,
+    };
+  }
+  return payload;
+}
+
+export function readPrecomputedTeamWorkCompletionDetail(config = {}, snapshot = {}, architecture = {}, params = {}) {
+  const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
+  const manifest = readManifest(config, snapshotHash);
+  if (!manifestHasFeature(manifest, TEAM_WORK_COMPLETION_DETAIL_PRECOMPUTE_FEATURE)) {
+    return null;
+  }
+
+  const payload = readJsonFile(teamWorkCompletionDetailFilePath(config, snapshotHash, params));
   if (!payload) {
     return null;
   }

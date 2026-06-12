@@ -22,6 +22,7 @@ import {
   readEffectiveWorkflowStage,
   readProjectStage,
   readProjectNodeValue,
+  isProjectWorkflowClosed,
   projectAreaLabel,
   PROJECT_NODE_FIELD_ALIASES,
 } from '../domain/project-workflow.mjs';
@@ -126,10 +127,13 @@ export function projectDetailFieldValue(project, field) {
 
 
 export function projectDetailFieldApplies(project, group, field) {
+  const label = String(field.label || '');
+  if (isProjectWorkflowClosed(project) && group.key === 'reminders' && label === '下一提醒') {
+    return false;
+  }
   if (!isSleepStoreProject(project)) {
     return true;
   }
-  const label = String(field.label || '');
   if (group.key === 'overview') {
     return label !== '软装负责人';
   }
@@ -215,7 +219,10 @@ export function renderDetailGroup(project, group) {
 }
 
 
-export function renderProjectDetailContext(context = null) {
+export function renderProjectDetailContext(context = null, project = null) {
+  if (project && isProjectWorkflowClosed(project)) {
+    return '';
+  }
   if (!context?.action && !context?.reason) {
     return '';
   }
@@ -374,7 +381,7 @@ export function renderProjectDetailModalLoading(project = {}) {
         <h3 id="projectDetailTitle" title="${escapeHtml(project.name || '')}">${escapeHtml(project.name || '未命名项目')}</h3>
       </div>
     </header>
-    ${renderProjectDetailContext(state.projectDetailContext)}
+    ${renderProjectDetailContext(state.projectDetailContext, project)}
     <div class="project-detail-empty project-detail-loading" role="status" aria-live="polite">
       <strong>正在加载项目明细</strong>
       <span>正在读取完整字段，请稍候…</span>
@@ -397,7 +404,7 @@ export function renderProjectDetailModalLoadError(project = {}, error = null) {
         <h3 id="projectDetailTitle" title="${escapeHtml(project.name || '')}">${escapeHtml(project.name || '未命名项目')}</h3>
       </div>
     </header>
-    ${renderProjectDetailContext(state.projectDetailContext)}
+    ${renderProjectDetailContext(state.projectDetailContext, project)}
     <div class="project-detail-empty project-detail-loading is-error" role="alert">
       <strong>项目明细加载失败</strong>
       <span>${escapeHtml(message)}</span>
@@ -422,7 +429,8 @@ export function renderProjectDetailModal(project) {
     { label: '面积', value: projectAreaLabel(project) },
   ].filter((item) => !sleepStore || item.label !== '软装负责人');
   const stage = displayOrDash(readProjectStage(project));
-  const keyDateText = readProjectKeyDate(project);
+  const closed = isProjectWorkflowClosed(project);
+  const keyDateText = closed ? '' : readProjectKeyDate(project);
   const assignmentReminder = renderProjectAssignmentReminder(project);
   const fieldGapReminder = renderProjectFieldGapReminder(project);
 
@@ -433,7 +441,7 @@ export function renderProjectDetailModal(project) {
         <h3 id="projectDetailTitle" title="${escapeHtml(project.name)}">${escapeHtml(project.name || '未命名项目')}</h3>
       </div>
     </header>
-    ${renderProjectDetailContext(state.projectDetailContext)}
+    ${renderProjectDetailContext(state.projectDetailContext, project)}
     ${assignmentReminder}
     ${fieldGapReminder}
     <div class="project-detail-meta">
@@ -453,10 +461,14 @@ export function renderProjectDetailModal(project) {
         <span>当前节点</span>
         <strong title="${escapeHtml(stage)}">${renderProjectStageStack(project)}</strong>
       </div>
-      <div>
-        <span>下一提醒</span>
-        <strong title="${escapeHtml(keyDateText)}">${renderProjectKeyDateStack(project)}</strong>
-      </div>
+      ${
+        closed
+          ? ''
+          : `<div>
+              <span>下一提醒</span>
+              <strong title="${escapeHtml(keyDateText)}">${renderProjectKeyDateStack(project)}</strong>
+            </div>`
+      }
     </div>
     ${buildProjectDetailFieldGroups().map((group) => renderDetailGroup(project, group)).join('')}
   `;

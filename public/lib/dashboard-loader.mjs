@@ -12,13 +12,12 @@ import {
 } from '../components/filter-bar.mjs';
 import {
   updateSyncControl,
-  updateAnalysisAgentControl,
-  isAnalysisAgentInFlight,
-  setAnalysisAgentInFlight,
+  updatePageRefreshControl,
+  isPageRefreshInFlight,
+  setPageRefreshInFlight,
   setSyncMessage,
   isDashboardSyncEnabled,
   isDashboardAutoUpdateEnabled,
-  currentAnalysisAgentLabel,
 } from '../components/sync-controls.mjs';
 import {
   renderDetailsViewTabs,
@@ -278,6 +277,9 @@ function hasLoadedTeamSessionBundle(owner, dashboardContext, year) {
 
 export async function loadDashboardSession(options = {}) {
   const payload = await fetchJson(dashboardSessionUrl(options));
+  if (payload?.status === 'preparing' && !payload.snapshot) {
+    return payload;
+  }
   return applyDashboardSessionPayload(payload);
 }
 
@@ -339,7 +341,7 @@ export async function loadTeamPageModules({ forceRefresh = false } = {}) {
       year,
     };
   }
-  const catalogPromise = loadProjectCatalog({ force: forceRefresh }).catch((error) => {
+  void loadProjectCatalog({ force: forceRefresh }).catch((error) => {
     console.warn('Team page project catalog preload failed', error);
     return null;
   });
@@ -348,7 +350,6 @@ export async function loadTeamPageModules({ forceRefresh = false } = {}) {
     loadTeamWorkCompletion(owner, dashboardContext, undefined, { forceRefresh }),
     loadOwnerResponsibilityReview(owner, dashboardContext, { forceRefresh }),
   ]);
-  await catalogPromise;
   const failedTeamLoad = teamResult.find((result) => result.status === 'rejected');
   if (failedTeamLoad && teamResult.every((result) => result.status === 'rejected')) {
     throw failedTeamLoad.reason;
@@ -458,7 +459,7 @@ export async function hardRefresh() {
     return false;
   } finally {
     updateSyncControl();
-    updateAnalysisAgentControl();
+    updatePageRefreshControl();
   }
 }
 
@@ -483,14 +484,14 @@ export async function refresh() {
 }
 
 
-export async function runAnalysisAgent() {
-  if (isAnalysisAgentInFlight()) {
-    return;
+export async function refreshCurrentPage() {
+  if (isPageRefreshInFlight()) {
+    return false;
   }
 
-  setAnalysisAgentInFlight(true);
-  updateAnalysisAgentControl();
-  setSyncMessage(`${currentAnalysisAgentLabel()}中`);
+  setPageRefreshInFlight(true);
+  updatePageRefreshControl();
+  setSyncMessage('刷新中');
 
   try {
     const pageId = currentPageId();
@@ -516,13 +517,15 @@ export async function runAnalysisAgent() {
       }
       renderAll();
     }
-    setSyncMessage('分析已刷新');
+    setSyncMessage('已刷新');
+    return true;
   } catch (error) {
-    console.warn('Analysis Agent failed', error);
-    setSyncMessage('分析失败');
+    console.warn('Page refresh failed', error);
+    setSyncMessage('刷新失败');
+    return false;
   } finally {
-    setAnalysisAgentInFlight(false);
-    updateAnalysisAgentControl();
+    setPageRefreshInFlight(false);
+    updatePageRefreshControl();
   }
 }
 
@@ -612,5 +615,5 @@ export function renderAll() {
   elements.sourceLabel.textContent = sourceDisplayLabel(snapshot.source);
   elements.syncedAt.textContent = formatDateTime(snapshot.syncedAt);
   updateSyncControl();
-  updateAnalysisAgentControl();
+  updatePageRefreshControl();
 }

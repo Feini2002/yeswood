@@ -7,9 +7,11 @@ import path from 'node:path';
 import { createProjectSnapshot, clearSnapshotCache, getSnapshot, syncProjects } from '../src/backend/syncService.mjs';
 import { resolveFieldMap } from '../src/backend/fieldResolver.mjs';
 import {
+  precomputeTeamDashboards,
   ownersFromSnapshot,
   readPrecomputedTeamMetricsBatch,
   readPrecomputedTeamWorkCompletion,
+  readPrecomputedTeamWorkCompletionDetail,
 } from '../src/backend/precomputeTeamDashboards.mjs';
 
 test('createProjectSnapshot excludes accidental rows from metrics, filters, and details', () => {
@@ -123,6 +125,7 @@ test('syncProjects schedules dashboard precompute after returning the SQLite ref
   const synced = await syncProjects({ config, source: 'mock' });
   const [owner] = ownersFromSnapshot(synced, synced.personnelArchitecture);
   assert.equal(typeof queuedPrecompute, 'function');
+  assert.equal(config.precomputeScheduledHashes?.size, 1);
   assert.equal(
     readPrecomputedTeamWorkCompletion(config, synced, synced.personnelArchitecture, {
       owner,
@@ -140,7 +143,13 @@ test('syncProjects schedules dashboard precompute after returning the SQLite ref
   );
 
   await queuedPrecompute();
+  assert.equal(config.precomputeScheduledHashes?.size || 0, 0);
   const payload = readPrecomputedTeamWorkCompletion(config, synced, synced.personnelArchitecture, {
+    owner,
+    dashboardContext: 'all',
+    year: new Date().getFullYear(),
+  });
+  const detailPayload = readPrecomputedTeamWorkCompletionDetail(config, synced, synced.personnelArchitecture, {
     owner,
     dashboardContext: 'all',
     year: new Date().getFullYear(),
@@ -153,7 +162,8 @@ test('syncProjects schedules dashboard precompute after returning the SQLite ref
   assert.ok(owner);
   assert.equal(payload?.readOnly, true);
   assert.equal(payload?.owner, owner);
-  assert.equal(typeof payload?.projectsById, 'object');
+  assert.equal(payload?.projectsById, undefined);
+  assert.equal(typeof detailPayload?.projectsById, 'object');
   assert.equal(metricsPayload?.readOnly, true);
   assert.equal(metricsPayload?.metricsByOwner?.[owner]?.owner, owner);
 });
@@ -191,6 +201,7 @@ test('getSnapshot schedules dashboard precompute when reading an existing SQLite
   const [owner] = ownersFromSnapshot(snapshot, snapshot.personnelArchitecture);
   assert.ok(owner);
   assert.equal(typeof queuedPrecompute, 'function');
+  assert.equal(config.precomputeScheduledHashes?.size, 1);
   assert.equal(
     readPrecomputedTeamMetricsBatch(config, snapshot, snapshot.personnelArchitecture, {
       owners: [owner],
@@ -200,12 +211,44 @@ test('getSnapshot schedules dashboard precompute when reading an existing SQLite
   );
 
   await queuedPrecompute();
+  assert.equal(config.precomputeScheduledHashes?.size || 0, 0);
   const metricsPayload = readPrecomputedTeamMetricsBatch(config, snapshot, snapshot.personnelArchitecture, {
     owners: [owner],
     dashboardContext: 'all',
   });
 
   assert.equal(metricsPayload?.metricsByOwner?.[owner]?.owner, owner);
+});
+
+test('getSnapshot skips dashboard precompute scheduling when complete read model already exists', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-sqlite-precompute-complete-'));
+  const config = {
+    mode: 'mock',
+    cacheFile: path.join(tempDir, 'dashboard-cache.json'),
+    databaseFile: path.join(tempDir, 'app.sqlite'),
+    precomputeDir: path.join(tempDir, 'precomputed'),
+    readModelDir: path.join(tempDir, 'read-model'),
+    precomputeEnabled: false,
+    dingtalk: {
+      fieldMap: {},
+      pageSize: 100,
+      maxPages: 1,
+    },
+  };
+  await syncProjects({ config, source: 'mock' });
+  const snapshot = await getSnapshot(config);
+  await precomputeTeamDashboards(snapshot, { config });
+  clearSnapshotCache(config);
+
+  let queuedPrecompute = null;
+  config.precomputeEnabled = true;
+  config.precomputeScheduler = (task) => {
+    queuedPrecompute = task;
+  };
+
+  await getSnapshot(config);
+
+  assert.equal(queuedPrecompute, null);
 });
 
 test('clearSnapshotCache clears the precompute manifest index', () => {

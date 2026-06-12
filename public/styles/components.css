@@ -89,7 +89,7 @@
 .filter-select-button:focus,
 .filter-toggle-button:focus,
 .sync-button:focus,
-.agent-button:focus {
+.page-refresh-button:focus {
   outline: 2px solid var(--action-green);
   outline-offset: 2px;
 }

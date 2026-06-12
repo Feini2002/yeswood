@@ -131,7 +131,7 @@ test('frontend removes placeholder filter options from selects', async () => {
   assert.match(js, /values\.filter/);
 });
 
-test('topbar exposes sync and analysis agent actions', async () => {
+test('topbar exposes sync and page refresh actions', async () => {
   const [html, js, css] = await Promise.all([
     readFile(join(publicDir, 'index.html'), 'utf8'),
     readFrontendJsBundle(),
@@ -140,15 +140,16 @@ test('topbar exposes sync and analysis agent actions', async () => {
 
   assert.match(html, /id="syncButton"/);
   assert.match(html, /aria-label="同步项目数据"/);
-  assert.match(html, /id="analysisAgentButton"/);
-  assert.match(html, /aria-label="运行分析 Agent"/);
-  assert.match(js, /analysisAgentButton/);
-  assert.match(js, /function currentAnalysisAgentLabel/);
-  assert.match(js, /async function runAnalysisAgent/);
-  assert.match(css, /\.agent-button/);
-  assert.doesNotMatch(html, /id="refreshButton"|刷新看板|↻/);
-  assert.doesNotMatch(js, /refreshButton/);
-  assert.doesNotMatch(css, /\.refresh-button/);
+  assert.match(html, /id="pageRefreshButton"/);
+  assert.match(html, /aria-label="刷新当前页面"/);
+  assert.match(html, />\s*刷新\s*<\/button>/);
+  assert.match(js, /pageRefreshButton/);
+  assert.match(js, /function currentPageRefreshCopy/);
+  assert.match(js, /async function refreshCurrentPage/);
+  assert.match(css, /\.page-refresh-button/);
+  assert.doesNotMatch(html, /id="analysisAgentButton"|运行分析 Agent|分析小组/);
+  assert.doesNotMatch(js, /analysisAgentButton|currentAnalysisAgentLabel|runAnalysisAgent/);
+  assert.doesNotMatch(css, /\.agent-button/);
 });
 
 test('frontend avoids readonly-dashboard sidebar wording', async () => {
@@ -374,7 +375,7 @@ test('frontend exposes team work completion module inside team dashboard', async
   assert.match(js, /data-owner-review-copy-summary/);
   assert.match(js, /handleOwnerReviewKeydown/);
   assert.match(js, /resetOwnerReviewForTeamOwnerChange/);
-  assert.match(js, /loadTeamWorkCompletion\(owner, dashboardContext\)/);
+  assert.match(js, /loadTeamWorkCompletion\(owner,\s*dashboardContext(?:,\s*year)?\)/);
   const ownerReviewHeroSummary = js.match(/function renderOwnerReviewHeroSummary\(review\) \{[\s\S]*?\n\}/)?.[0] || '';
   assert.match(ownerReviewHeroSummary, /执行负载/);
   assert.doesNotMatch(ownerReviewHeroSummary, /团队项目|责任项|本月完成|延期未闭环/);

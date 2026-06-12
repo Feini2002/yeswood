@@ -42,7 +42,7 @@ function record(recordId, overrides = {}) {
     CD设计师: raw('陈菲菲'),
     硬装项目进度: raw('闭环'),
     软装项目进度: raw('闭环'),
-    上会日期: raw('2026-05-20'),
+    上会时间: raw('2026-05-20'),
     闭环周期: raw('26'),
     ...Object.fromEntries(Object.entries(overrides.fields || {}).map(([key, value]) => [key, raw(value)])),
   };
@@ -80,7 +80,7 @@ async function withTestServer(run, options = {}) {
     projects: [
       record('direct-2026'),
       record('franchise-2026', { fields: { 组别: '加盟新店', 闭环周期: '27' } }),
-      record('direct-2025', { fields: { 上会日期: '2025-05-20', 闭环周期: '26' } }),
+      record('direct-2025', { fields: { 上会时间: '2025-05-20', 闭环周期: '26' } }),
     ],
   };
   await fs.writeFile(
@@ -172,7 +172,22 @@ test('/api/team-work-completion prefers matching precomputed payloads', async ()
 
       assert.equal(payload.status, 200);
       assert.equal(payload.body.precomputedHit, true);
-      assert.ok(Object.keys(payload.body.projectsById || {}).length > 0);
+      assert.equal(payload.body.projectsById, undefined);
+
+      const detail = await getJson(
+        port,
+        `/api/team-work-completion?owner=${encodeURIComponent(personnelArchitecture.teams[0].owner)}&context=direct&year=2026&view=detail`
+      );
+      assert.equal(detail.status, 200);
+      assert.ok(Object.keys(detail.body.projectsById || {}).length > 0);
+
+      const forced = await getJson(
+        port,
+        `/api/team-work-completion?owner=${encodeURIComponent(personnelArchitecture.teams[0].owner)}&context=direct&year=2026&forceRefresh=true`
+      );
+      assert.equal(forced.status, 200);
+      assert.equal(forced.body.precomputedHit, undefined);
+      assert.ok(Object.keys(forced.body.projectsById || {}).length > 0);
     },
     {
       beforeListen: async ({ config, snapshot: sourceSnapshot }) => {
@@ -188,7 +203,7 @@ test('/api/team-work-completion prefers matching precomputed payloads', async ()
         });
 
         const snapshotHash = precomputeSnapshotHash(precomputeSnapshot, personnelArchitecture);
-        const teamDir = path.join(config.precomputeDir, snapshotHash, 'team-work-completion');
+        const teamDir = path.join(config.precomputeDir, snapshotHash, 'team-work-completion-summary');
         const [fileName] = await fs.readdir(teamDir);
         const filePath = path.join(teamDir, fileName);
         const precomputed = JSON.parse(await fs.readFile(filePath, 'utf8'));
@@ -198,11 +213,83 @@ test('/api/team-work-completion prefers matching precomputed payloads', async ()
   );
 });
 
+test('/api/team-work-completion returns preparing when read model is missing without force refresh', async () => {
+  await withTestServer(async (port) => {
+    const payload = await getJson(
+      port,
+      `/api/team-work-completion?owner=${encodeURIComponent(personnelArchitecture.teams[0].owner)}&context=direct&year=2026`
+    );
+
+    assert.equal(payload.status, 202);
+    assert.equal(payload.body.status, 'preparing');
+    assert.equal(payload.body.readModel, true);
+    assert.doesNotMatch(JSON.stringify(payload.body), /projectsById|members/);
+  });
+});
+
+test('/api/team-work-completion computes missing detail payload when fallback is explicitly allowed', async () => {
+  await withTestServer(async (port) => {
+    const payload = await getJson(
+      port,
+      `/api/team-work-completion?owner=${encodeURIComponent(
+        personnelArchitecture.teams[0].owner
+      )}&context=direct&year=2026&view=detail&fallback=compute`
+    );
+
+    assert.equal(payload.status, 200);
+    assert.equal(payload.body.readOnly, true);
+    assert.equal(payload.body.dashboardContext, 'direct');
+    assert.equal(payload.body.year, 2026);
+    assert.ok(Object.keys(payload.body.projectsById || {}).length > 0);
+  });
+});
+
+test('/api/team-work-completion ignores stale schema precomputed payloads', async () => {
+  await withTestServer(
+    async (port) => {
+      const payload = await getJson(
+        port,
+        `/api/team-work-completion?owner=${encodeURIComponent('苏佳蕾')}&context=direct&year=2026`
+      );
+
+      assert.equal(payload.status, 202);
+      assert.equal(payload.body.status, 'preparing');
+      assert.equal(payload.body.readModel, true);
+      assert.doesNotMatch(JSON.stringify(payload.body), /stale-precomputed/);
+    },
+    {
+      beforeListen: async ({ config, snapshot: sourceSnapshot }) => {
+        const precomputeSnapshot = {
+          ...sourceSnapshot,
+          personnelArchitecture,
+        };
+        await precomputeTeamDashboards(precomputeSnapshot, {
+          config,
+          contexts: ['direct'],
+          years: [2026],
+          now: new Date('2026-06-11T00:00:00.000Z'),
+        });
+
+        const snapshotHash = precomputeSnapshotHash(precomputeSnapshot, personnelArchitecture);
+        const manifestPath = path.join(config.precomputeDir, snapshotHash, 'manifest.json');
+        const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+        await fs.writeFile(manifestPath, `${JSON.stringify({ ...manifest, schemaVersion: 2 })}\n`, 'utf8');
+
+        const teamDir = path.join(config.precomputeDir, snapshotHash, 'team-work-completion-summary');
+        const [fileName] = await fs.readdir(teamDir);
+        const filePath = path.join(teamDir, fileName);
+        const precomputed = JSON.parse(await fs.readFile(filePath, 'utf8'));
+        await fs.writeFile(filePath, `${JSON.stringify({ ...precomputed, marker: 'stale-precomputed' })}\n`, 'utf8');
+      },
+    }
+  );
+});
+
 test('/api/team-work-completion returns the clean work completion payload without breaking legacy review', async () => {
   await withTestServer(async (port) => {
     const payload = await getJson(
       port,
-      `/api/team-work-completion?owner=${encodeURIComponent('苏佳蕾')}&context=direct&year=2026`
+      `/api/team-work-completion?owner=${encodeURIComponent('苏佳蕾')}&context=direct&year=2026&forceRefresh=true`
     );
 
     assert.equal(payload.status, 200);
@@ -225,7 +312,7 @@ test('/api/team-work-completion returns the clean work completion payload withou
 
     const repeat = await getJson(
       port,
-      `/api/team-work-completion?owner=${encodeURIComponent('苏佳蕾')}&context=direct&year=2026`
+      `/api/team-work-completion?owner=${encodeURIComponent('苏佳蕾')}&context=direct&year=2026&forceRefresh=true`
     );
     assert.equal(repeat.status, 200);
     assert.equal(repeat.body.summary.lifecycle.completedCount, 2);

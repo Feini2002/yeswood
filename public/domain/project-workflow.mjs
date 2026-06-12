@@ -9,7 +9,7 @@ import {
 export const PROJECT_NODE_FIELD_ALIASES = {
   managementStart: ['启动时间', '启动日期', '开始日期'],
   managementOpen: ['计划开业时间', '计划完成日期', '截止日期'],
-  meetingDate: ['上会日期'],
+  meetingDate: ['上会时间', '上会日期'],
   meetingStatus: ['上会情况'],
   measureDate: ['复尺时间', '复尺日期'],
   measureStatus: ['复尺情况'],
@@ -59,7 +59,7 @@ const WORKFLOW_STAGE_DATE_RULES = {
     { pattern: /施工图完成审核|内审/, label: '施工图审核', fields: PROJECT_NODE_FIELD_ALIASES.constructionReview },
     { pattern: /待采购|采购/, label: '采购', fields: PROJECT_NODE_FIELD_ALIASES.purchaseTime },
     { pattern: /施工图/, label: '施工图初稿', fields: PROJECT_NODE_FIELD_ALIASES.constructionDraft },
-    { pattern: /完成上会|上会/, label: '上会', fields: ['上会日期'] },
+    { pattern: /完成上会|上会/, label: '上会', fields: PROJECT_NODE_FIELD_ALIASES.meetingDate },
     { pattern: /完成复尺|复尺/, label: '复尺', fields: ['复尺时间'] },
     { pattern: /平面/, label: '平面结束', fields: PROJECT_NODE_FIELD_ALIASES.floorPlanFinish },
   ],
@@ -470,6 +470,16 @@ export function isCompanyLifecycleClosed(project) {
 }
 
 
+export function hasCompletedLifecycleMetric(project) {
+  return Boolean(project?.metrics?.lifecycle?.completed);
+}
+
+
+export function isProjectLifecycleClosed(project) {
+  return hasCompletedLifecycleMetric(project) || isCompanyLifecycleClosed(project);
+}
+
+
 export function isDesignResponsibilityClosed(project) {
   if (isSleepStoreProject(project)) {
     return isHardWorkflowClosed(project);
@@ -544,7 +554,7 @@ export function resolveWorkflowStageDateRule(stage, discipline) {
 
 
 export function isProjectWorkflowClosed(project) {
-  return isCompanyLifecycleClosed(project);
+  return isProjectLifecycleClosed(project);
 }
 
 

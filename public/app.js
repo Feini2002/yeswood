@@ -31,6 +31,7 @@ import * as teamsPage from './pages/teams.mjs';
 import {
   renderAll,
   loadDashboard,
+  loadDashboardSession,
   loadProjectCatalog,
   applyVisibleProjects,
   loadTeamPageModules,
@@ -40,7 +41,7 @@ import {
   hardRefresh,
   debounce,
   syncDingTalk,
-  runAnalysisAgent,
+  refreshCurrentPage,
   startAutoUpdateChecks,
   renderDashboardStatusState,
 } from './lib/dashboard-loader.mjs';
@@ -87,6 +88,7 @@ const {
   cancelTeamWorkCompletionPreload,
   loadTeamMetrics,
   loadTeamWorkCompletion,
+  resolveTeamWorkCompletionYear,
   loadTeamDashboardScope,
   loadTeamAnnualEntryStructure,
   loadOwnerResponsibilityReview,
@@ -144,7 +146,7 @@ const {
   handleFilterSelectKeydown,
 } = filterBar;
 const { ensureTeamOwnerOptions, ensureOwnerReviewControls, resolveTeamOwner, resolveTeamDashboardContext, resolveOwnerReviewOwner, resolveOwnerReviewDashboardContext } = personnel;
-const { updateSyncControl, updateAnalysisAgentControl, isDashboardAutoUpdateEnabled } = syncControls;
+const { updateSyncControl, updatePageRefreshControl, isDashboardAutoUpdateEnabled } = syncControls;
 const { loadProfileDashboard, renderProfilePage } = profileShared;
 const { openRulesInfoDialog } = rulesPage;
 
@@ -182,8 +184,8 @@ export function bindEvents() {
     });
   }
   elements.syncButton.addEventListener('click', syncDingTalk);
-  if (elements.analysisAgentButton) {
-    elements.analysisAgentButton.addEventListener('click', runAnalysisAgent);
+  if (elements.pageRefreshButton) {
+    elements.pageRefreshButton.addEventListener('click', refreshCurrentPage);
   }
   if (elements.rulesInfoOpen) {
     elements.rulesInfoOpen.addEventListener('click', openRulesInfoDialog);
@@ -299,7 +301,7 @@ export async function init() {
   showPage(currentPageId(), { skipPageDataLoad: true });
   bindEvents();
   updateSyncControl();
-  updateAnalysisAgentControl();
+  updatePageRefreshControl();
   startDevReload();
   renderDashboardStatusState('loading');
   try {
@@ -327,14 +329,16 @@ configureRouter({
   refresh: softRefresh,
   tierStoreStatusLabel,
   renderPausedProjectToggle,
-  updateAnalysisAgentControl,
+  updatePageRefreshControl,
   ensureTeamOwnerOptions,
   ensureOwnerReviewControls,
   resolveTeamOwner,
   resolveTeamDashboardContext,
+  resolveTeamWorkCompletionYear,
   resolveOwnerReviewOwner,
   resolveOwnerReviewDashboardContext,
   loadTeamPageModules,
+  loadTeamDashboardSession: loadDashboardSession,
   loadTeamMetrics,
   loadTeamWorkCompletion,
   ensurePageProjects: async () => {
@@ -368,6 +372,7 @@ export {
   navigateToOwnerReview,
   resetOwnerReviewForTeamOwnerChange,
   refresh,
+  refreshCurrentPage,
   resolveProjectKeyDate,
   resolveProjectKeyDateReminders,
   readProjectKeyDate,

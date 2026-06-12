@@ -12,7 +12,7 @@ export const elements = {
   pausedProjectFilterField: document.querySelector('#pausedProjectFilterField'),
   pausedProjectToggle: document.querySelector('#pausedProjectToggle'),
   syncButton: document.querySelector('#syncButton'),
-  analysisAgentButton: document.querySelector('#analysisAgentButton'),
+  pageRefreshButton: document.querySelector('#pageRefreshButton'),
   syncMessage: document.querySelector('#syncMessage'),
   overviewCommandCenter: document.querySelector('#overviewCommandCenter'),
   overviewSignalStrip: document.querySelector('#overviewSignalStrip'),

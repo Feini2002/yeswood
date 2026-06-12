@@ -208,6 +208,7 @@ function createPrecomputeWorker(snapshot, config = {}, snapshotHash = '') {
     });
   }).finally(() => {
     config.precomputePromises?.delete?.(snapshotHash);
+    config.precomputeScheduledHashes?.delete?.(snapshotHash);
   });
   if (!config.precomputePromises) {
     config.precomputePromises = new Map();
@@ -237,6 +238,10 @@ function scheduleDashboardPrecompute(snapshot, config = getConfig()) {
   if (config.precomputeEnabled === false) {
     return null;
   }
+  const cachedManifest = hasCompletePrecompute(snapshot, config);
+  if (cachedManifest) {
+    return null;
+  }
   const architecture = snapshot.personnelArchitecture || {};
   const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
   if (!config.precomputeScheduledHashes) {
@@ -249,9 +254,8 @@ function scheduleDashboardPrecompute(snapshot, config = getConfig()) {
   const run = async () => {
     try {
       return await precomputeTeamDashboards(snapshot, { config });
-    } catch (error) {
+    } finally {
       config.precomputeScheduledHashes?.delete?.(snapshotHash);
-      throw error;
     }
   };
   if (typeof config.precomputeScheduler === 'function') {

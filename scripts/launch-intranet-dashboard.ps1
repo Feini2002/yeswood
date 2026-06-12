@@ -18,6 +18,7 @@ $env:PORT="$Port"
 $env:HOST='0.0.0.0'
 $env:PUBLIC_DIR=$SNAPSHOT_PUBLIC
 $env:DATA_DIR=$SNAPSHOT_DATA
+$env:PRECOMPUTE_DIR=(Join-Path $SNAPSHOT_DATA 'precomputed')
 $env:LOCAL_CACHE_FILE=(Join-Path $SNAPSHOT_DATA 'dashboard-cache.json')
 $env:LOCAL_DATABASE_FILE=(Join-Path $SNAPSHOT_DATA 'app.sqlite')
 $env:PERSONNEL_DATABASE_FILE=(Join-Path $SNAPSHOT_DATA 'personnel-database.json')

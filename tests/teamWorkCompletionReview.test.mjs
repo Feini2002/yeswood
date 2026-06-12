@@ -16,6 +16,7 @@ function project(overrides = {}) {
     name: overrides.name || '测试项目',
     status: overrides.status || '推进中',
     storeStatus: overrides.storeStatus || '常规店',
+    dueDate: overrides.dueDate || '',
     updatedAt: overrides.updatedAt || '2026-06-30T00:00:00.000Z',
     rawFields: overrides.rawFields || {},
     ...overrides,
@@ -258,7 +259,7 @@ test('buildTeamWorkCompletionReview keeps completed stopped projects and suppres
   assert.equal(review.projectsById['unfinished-paused'].metrics.lifecycle.state, 'none');
 });
 
-test('buildTeamWorkCompletionReview excludes missing-date completions from monthly bars', () => {
+test('buildTeamWorkCompletionReview does not flag closed lifecycle projects as missing dates', () => {
   const review = buildTeamWorkCompletionReview(
     [
       project({
@@ -277,7 +278,9 @@ test('buildTeamWorkCompletionReview excludes missing-date completions from month
   );
 
   assert.equal(review.summary.lifecycle.completedCount, 1);
-  assert.equal(review.summary.lifecycle.missingDateCount, 1);
+  assert.equal(review.summary.lifecycle.missingDateCount, 0);
+  assert.equal(review.dataQuality.missingDateCompletionCount, 0);
+  assert.deepEqual(review.dataQuality.notes, []);
   assert.equal(review.monthly.months.reduce((sum, item) => sum + item.lifecycleCompleted, 0), 0);
 });
 
@@ -309,8 +312,18 @@ test('buildTeamWorkCompletionReview buckets completion months from business date
           CD设计师: raw('陈菲菲'),
           硬装项目进度: raw('闭环'),
           软装项目进度: raw('待采购'),
-          上会日期: raw('2026-05-20'),
+          上会时间: raw('2026-05-20'),
           闭环周期: raw('12'),
+        },
+      }),
+      project({
+        id: 'lifecycle-deadline-fallback',
+        dueDate: '2026-04-10',
+        rawFields: {
+          组别: raw('直营新店'),
+          CD设计师: raw('陈菲菲'),
+          硬装项目进度: raw('闭环'),
+          软装项目进度: raw('闭环'),
         },
       }),
     ],
@@ -320,10 +333,13 @@ test('buildTeamWorkCompletionReview buckets completion months from business date
 
   assert.equal(month(review, 4).floorPlanCompleted, 1);
   assert.deepEqual(month(review, 4).projectIds.floorPlan, ['floor-completed']);
+  assert.equal(month(review, 4).lifecycleCompleted, 1);
+  assert.deepEqual(month(review, 4).projectIds.lifecycle, ['lifecycle-deadline-fallback']);
   assert.equal(month(review, 5).displayCompleted, 1);
   assert.deepEqual(month(review, 5).projectIds.display, ['display-completed']);
   assert.equal(month(review, 6).lifecycleCompleted, 1);
   assert.deepEqual(month(review, 6).projectIds.lifecycle, ['lifecycle-completed']);
+  assert.equal(review.monthly.months.reduce((sum, item) => sum + item.lifecycleCompleted, 0), 2);
 });
 
 test('buildTeamWorkCompletionReview counts projects that only match the team owner', () => {

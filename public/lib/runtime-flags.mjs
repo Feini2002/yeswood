@@ -1,13 +1,14 @@
 /** Module-scoped runtime flags migrated from legacy app.js singletons. */
 export const runtimeStore = {
   updateCheckInFlight: false,
-  analysisAgentInFlight: false,
+  pageRefreshInFlight: false,
   syncMessageTimer: null,
   drillModalRequestId: 0,
   projectDetailRequestId: 0,
   teamMetricsRequestId: 0,
   teamWorkCompletionRequestId: 0,
   teamWorkCompletionRequestPromises: new Map(),
+  teamWorkCompletionDetailPromises: new Map(),
   ownerReviewRequestId: 0,
   ownerReviewRequestPromises: new Map(),
   teamMetricsBatchPromises: new Map(),
@@ -26,8 +27,8 @@ export const runtimeStore = {
   teamAnnualEntryStructureController: null,
 };
 
-export function setAnalysisAgentInFlight(value) {
-  runtimeStore.analysisAgentInFlight = Boolean(value);
+export function setPageRefreshInFlight(value) {
+  runtimeStore.pageRefreshInFlight = Boolean(value);
 }
 
 export function clearSyncMessageTimer() {

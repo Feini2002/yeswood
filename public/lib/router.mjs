@@ -196,7 +196,7 @@ export function showPage(pageId = currentPageId(), options = {}) {
     state.assignmentAlertExpanded = false;
   }
   routerHooks.renderPausedProjectToggle?.();
-  routerHooks.updateAnalysisAgentControl?.();
+  routerHooks.updatePageRefreshControl?.();
   if (pageChanged) {
     window.scrollTo(0, 0);
   }
@@ -206,16 +206,45 @@ export function showPage(pageId = currentPageId(), options = {}) {
   if (!skipPageDataLoad && pageChanged && pageId === 'teams') {
     routerHooks.ensureTeamOwnerOptions?.();
     routerHooks.ensureOwnerReviewControls?.();
+    const owner = routerHooks.resolveTeamOwner?.() || parsePageHash().owner || '';
+    const dashboardContext = routerHooks.resolveTeamDashboardContext?.() || parsePageHash().dashboardContext || 'all';
+    const year = routerHooks.resolveTeamWorkCompletionYear?.() || Number(parsePageHash().year || 0) || undefined;
     routerHooks
-      .loadTeamPageModules?.()
+      .loadTeamDashboardSession?.({ owner, dashboardContext, year })
+      ?.then((payload) => {
+        if (payload?.status === 'preparing' && !payload.team) {
+          console.warn('Team dashboard session read model is preparing', {
+            owner,
+            dashboardContext,
+            year,
+            reason: payload.reason || payload.status,
+          });
+          routerHooks.renderTeamDashboard?.();
+          routerHooks.renderTeamWorkCompletionDashboard?.();
+          routerHooks.renderOwnerReviewDashboard?.();
+          return null;
+        }
+        const team = payload?.team || {};
+        if (!team.metrics || !team.workCompletion || !team.responsibilityReview) {
+          console.warn('Team dashboard session missing requested bundle; falling back to module loaders', {
+            owner,
+            dashboardContext,
+            year,
+          });
+          return routerHooks.loadTeamPageModules?.();
+        }
+        return payload;
+      })
       ?.then(() => {
         routerHooks.renderTeamDashboard?.();
         routerHooks.renderTeamWorkCompletionDashboard?.();
         routerHooks.renderOwnerReviewDashboard?.();
       })
       ?.catch((error) => {
-        console.warn('Team dashboard load failed', error);
+        console.warn('Team dashboard session load failed; keeping current team page state', error);
         routerHooks.renderTeamDashboardError?.();
+        routerHooks.renderTeamWorkCompletionDashboard?.();
+        routerHooks.renderOwnerReviewDashboard?.();
       });
   }
 

@@ -221,6 +221,18 @@ export async function loadTeamDashboardSessionBundle(
   params.set('context', dashboardContext || 'all');
   params.set('year', String(normalizedYear));
   const payload = await fetchJson(`${DASHBOARD_SESSION_ENDPOINT}?${params}`, { timeoutMs: 15_000 });
+  if (payload?.status === 'preparing' && !payload.team) {
+    state.selectedTeamOwner = owner;
+    state.teamWorkCompletionRefreshStatus = 'preparing';
+    state.teamWorkCompletionRefreshError = payload.reason || '';
+    return {
+      status: 'preparing',
+      reason: payload.reason || payload.status,
+      metrics: null,
+      workCompletion: null,
+      responsibilityReview: null,
+    };
+  }
   if (payload.snapshot) {
     state.snapshot = payload.snapshot;
     state.personnelArchitecture = payload.snapshot.personnelArchitecture || state.personnelArchitecture;
@@ -670,6 +682,9 @@ export async function loadTeamWorkCompletion(
   params.set('owner', owner);
   params.set('context', dashboardContext || 'all');
   params.set('year', String(normalizedYear));
+  if (forceRefresh) {
+    params.set('forceRefresh', 'true');
+  }
 
   const requestController = new AbortController();
   const requestEntry = { requestId, promise: null, controller: requestController };
@@ -681,6 +696,32 @@ export async function loadTeamWorkCompletion(
       });
       if (!background && requestId !== runtimeStore.teamWorkCompletionRequestId) {
         return null;
+      }
+      if (payload?.status === 'preparing') {
+        if (background) {
+          return payload;
+        }
+        if (visibleReview) {
+          state.teamWorkCompletion = visibleReview;
+          state.teamWorkCompletionLoading = false;
+          state.teamWorkCompletionError = '';
+          state.teamWorkCompletionRefreshStatus = 'preparing';
+          state.teamWorkCompletionRefreshError = payload.reason || '';
+          state.teamWorkCompletionSwitchTarget = '';
+          if (currentPageId() === 'teams') {
+            renderTeamWorkCompletionDashboard(visibleReview);
+          }
+          return visibleReview;
+        }
+        state.teamWorkCompletion = null;
+        state.teamWorkCompletionLoading = true;
+        state.teamWorkCompletionError = '';
+        state.teamWorkCompletionRefreshStatus = 'preparing';
+        state.teamWorkCompletionRefreshError = payload.reason || '';
+        if (currentPageId() === 'teams') {
+          renderTeamWorkCompletionLoading(owner);
+        }
+        return payload;
       }
       rememberTeamWorkCompletion(payload, owner, dashboardContext, normalizedYear);
       if (background) {
@@ -784,6 +825,14 @@ export async function loadTeamDashboardScope(
       { status: 'fulfilled', value: sessionBundle.workCompletion },
       { status: 'fulfilled', value: sessionBundle.responsibilityReview },
     ];
+  }
+  if (sessionBundle?.status === 'preparing') {
+    if (currentPageId() === 'teams') {
+      renderTeamDashboard();
+      renderTeamWorkCompletionDashboard();
+      renderOwnerReviewDashboard();
+    }
+    return [{ status: 'fulfilled', value: sessionBundle }];
   }
 
   const routeContext = normalizeTeamDashboardScopeContext(dashboardContext);

@@ -528,6 +528,7 @@ export function readSnapshotFromDatabase(database, { personnelArchitecture = {} 
     .prepare('select * from projects where archived_at is null order by created_at, id')
     .all()
     .map(projectFromRow);
+  refreshSplitOwnerResponsibilitiesIfNeeded(database, canonicalProjects);
   const projects = enrichProjectsForDisplay(canonicalProjects, personnelArchitecture);
 
   return {
@@ -556,7 +557,7 @@ function enrichMetricsFromDatabase(database, projects, { personnelArchitecture =
       Number(databasePersonnel.summary?.coveredProjects || 0) > 0 ||
       Number(databasePersonnel.summary?.totalAssignments || 0) > 0;
     if (projects.length === 0 || hasDatabaseAssignments) {
-      metrics.personnel = databasePersonnel;
+      metrics.personnel = mergePersonnelStats(databasePersonnel, metrics.personnel);
     }
   } catch (error) {
     // responsibility 表为空或数据库异常时，保留内存中的 personnel stats 作为降级方案。
@@ -566,4 +567,81 @@ function enrichMetricsFromDatabase(database, projects, { personnelArchitecture =
     }
   }
   return metrics;
+}
+
+function personnelStatKey(person = {}) {
+  return String(person.identityId || person.name || person.displayName || person.sourceName || '').trim();
+}
+
+function mergePersonnelRole(databaseRole = {}, fallbackRole = {}) {
+  const peopleByKey = new Map();
+  for (const person of databaseRole.people || []) {
+    const key = personnelStatKey(person);
+    if (key) {
+      peopleByKey.set(key, { ...person });
+    }
+  }
+  for (const person of fallbackRole.people || []) {
+    const key = personnelStatKey(person);
+    if (key && !peopleByKey.has(key)) {
+      peopleByKey.set(key, { ...person });
+    }
+  }
+  const people = Array.from(peopleByKey.values()).sort(
+    (a, b) => Number(b.value || 0) - Number(a.value || 0) || String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hans-CN')
+  );
+  return {
+    ...fallbackRole,
+    ...databaseRole,
+    projectCount: Math.max(Number(databaseRole.projectCount || 0), Number(fallbackRole.projectCount || 0)),
+    uniquePeople: people.length,
+    totalAssignments: people.reduce((sum, person) => sum + Number(person.value || 0), 0),
+    people,
+    topPeople: people.slice(0, 8),
+  };
+}
+
+function mergePersonnelStats(databasePersonnel = {}, fallbackPersonnel = {}) {
+  const databaseRoles = Array.isArray(databasePersonnel.roles) ? databasePersonnel.roles : [];
+  const fallbackRoles = Array.isArray(fallbackPersonnel.roles) ? fallbackPersonnel.roles : [];
+  const fallbackByKey = new Map(fallbackRoles.map((role) => [role.key, role]));
+  const usedRoleKeys = new Set();
+  const roles = databaseRoles.map((role) => {
+    usedRoleKeys.add(role.key);
+    return mergePersonnelRole(role, fallbackByKey.get(role.key));
+  });
+  for (const role of fallbackRoles) {
+    if (!usedRoleKeys.has(role.key)) {
+      roles.push(role);
+    }
+  }
+
+  const allPeople = new Set();
+  let totalAssignments = 0;
+  for (const role of roles) {
+    for (const person of role.people || []) {
+      const key = personnelStatKey(person);
+      if (key) {
+        allPeople.add(key);
+      }
+    }
+    totalAssignments += Number(role.totalAssignments || 0);
+  }
+
+  return {
+    ...fallbackPersonnel,
+    ...databasePersonnel,
+    summary: {
+      ...fallbackPersonnel.summary,
+      ...databasePersonnel.summary,
+      roleCount: roles.length,
+      uniquePeople: allPeople.size,
+      coveredProjects: Math.max(
+        Number(databasePersonnel.summary?.coveredProjects || 0),
+        Number(fallbackPersonnel.summary?.coveredProjects || 0)
+      ),
+      totalAssignments,
+    },
+    roles,
+  };
 }
