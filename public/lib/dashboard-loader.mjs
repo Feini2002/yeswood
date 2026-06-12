@@ -56,6 +56,7 @@ import {
 } from '../domain/personnel.mjs';
 import { loadProfileMetrics, loadProfileDashboard, renderProfilePage } from '../pages/profile-shared.mjs';
 import { renderOwnerReviewDashboard } from '../pages/owner-review.mjs';
+import { queueTeamWorkCompletionDetailPreload } from '../pages/team-work-completion.mjs';
 import {
   currentCatalogSignature,
   fetchProjectCatalog,
@@ -251,6 +252,12 @@ export function applyDashboardSessionPayload(payload = {}) {
     state.teamWorkCompletionRefreshStatus = '';
     state.teamWorkCompletionRefreshError = '';
     rememberTeamWorkCompletion(team.workCompletion, owner, dashboardContext, year);
+    if (currentPageId() === 'teams') {
+      queueTeamWorkCompletionDetailPreload(team.workCompletion, {
+        reason: 'dashboard-session',
+        allowCompute: false,
+      });
+    }
   }
   if (owner && team.responsibilityReview) {
     state.ownerReview = team.responsibilityReview;
@@ -326,6 +333,10 @@ export async function loadTeamPageModules({ forceRefresh = false } = {}) {
     state.teamMetrics = state.teamMetricsByOwner[owner];
     state.teamWorkCompletion = cachedTeamWorkCompletion(owner, dashboardContext, year);
     state.ownerReview = cachedOwnerReview(owner, dashboardContext);
+    queueTeamWorkCompletionDetailPreload(state.teamWorkCompletion, {
+      reason: 'team-page-cache',
+      allowCompute: false,
+    });
     console.info?.('Team page modules served from dashboard-session read model cache', {
       owner,
       dashboardContext,

@@ -1364,6 +1364,107 @@
   font-weight: 850;
 }
 
+.team-completion-detail-pending {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.32fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  min-height: 146px;
+  padding: 18px 20px;
+  border: 1px dashed rgba(29, 102, 128, 0.24);
+  border-radius: 8px;
+  background: #f7fbfb;
+  color: rgba(51, 51, 51, 0.62);
+  text-align: left;
+}
+
+.team-completion-detail-pending-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.team-completion-detail-pending-copy strong {
+  color: #1d6680;
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.team-completion-detail-pending-copy span {
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.55;
+}
+
+.team-completion-detail-pending.is-error {
+  grid-template-columns: minmax(0, 1fr) auto;
+  border-color: rgba(183, 121, 31, 0.32);
+  background: #fffaf2;
+}
+
+.team-completion-detail-pending.is-error .team-completion-detail-pending-copy strong {
+  color: #8a5a12;
+}
+
+.team-completion-detail-pending button {
+  justify-self: end;
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid rgba(32, 48, 38, 0.16);
+  border-radius: 6px;
+  background: #fff;
+  color: #202721;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.team-completion-detail-pending button:hover,
+.team-completion-detail-pending button:focus-visible {
+  border-color: rgba(29, 102, 128, 0.42);
+  outline: none;
+}
+
+.team-completion-detail-skeleton {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+}
+
+.team-completion-detail-skeleton-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(124px, 0.55fr) minmax(124px, 0.55fr) minmax(124px, 0.55fr) minmax(260px, 1.15fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.team-completion-detail-skeleton-row span {
+  display: block;
+  height: 13px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(29, 102, 128, 0.08), rgba(29, 102, 128, 0.17), rgba(29, 102, 128, 0.08));
+  background-size: 180% 100%;
+  animation: team-completion-detail-skeleton 1.4s ease-in-out infinite;
+}
+
+.team-completion-detail-skeleton-row span:nth-child(1) {
+  height: 16px;
+}
+
+.team-completion-detail-skeleton-row span:nth-child(5) {
+  opacity: 0.72;
+}
+
+@keyframes team-completion-detail-skeleton {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}
+
 .team-completion-data-quality {
   display: grid;
   grid-template-columns: auto auto minmax(0, 1fr);

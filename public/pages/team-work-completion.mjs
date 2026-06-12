@@ -8,6 +8,15 @@ import { runtimeStore } from '../lib/runtime-flags.mjs';
 import { state } from '../lib/state.mjs';
 import { TEAM_WORK_COMPLETION_ENDPOINT, fetchJson } from '../lib/api.mjs';
 import { openProjectDetailByReference } from '../components/project-workbench.mjs';
+import {
+  getTeamWorkCompletionDetailStatus,
+  isCurrentTeamWorkCompletionKey,
+  markTeamWorkCompletionDetailStatus,
+  mergeTeamWorkCompletionDetail,
+  rememberTeamWorkCompletion,
+  teamWorkCompletionDetailCacheKey,
+  teamWorkCompletionHasDetail,
+} from '../domain/team-work-completion-store.mjs';
 
 const TEAM_COMPLETION_ECHARTS_ASSET_URL = '../assets/echarts/echarts.esm.min.mjs';
 const TEAM_COMPLETION_CHART_FONT_FAMILY =
@@ -200,70 +209,70 @@ function teamCompletionSourceProjects(review = state.teamWorkCompletion) {
   return Object.values(teamCompletionProjectsById(review));
 }
 
-function teamWorkCompletionHasDetail(review = state.teamWorkCompletion) {
-  return Boolean(review?.projectsById && Object.keys(review.projectsById).length);
+function rerenderOpenTeamCompletionModalIfStillCurrent(requestKey = '') {
+  if (
+    !elements.teamCompletionMemberModal ||
+    elements.teamCompletionMemberModal.hidden ||
+    !isCurrentTeamWorkCompletionKey(requestKey)
+  ) {
+    return;
+  }
+  renderTeamCompletionMemberModal(state.teamWorkCompletion);
 }
 
-function teamWorkCompletionDetailRequestKey(review = state.teamWorkCompletion) {
-  if (!review) {
-    return '';
-  }
-  const owner = String(review.owner || state.selectedTeamOwner || '').trim();
-  if (!owner) {
-    return '';
-  }
-  const dashboardContext = normalizeDashboardContext(review.dashboardContext || resolveTeamDashboardContext() || 'all');
-  const year = Number(review.year || state.teamWorkCompletionYear || new Date().getFullYear());
-  return `${owner}::${dashboardContext}::${Number.isFinite(year) ? year : ''}`;
-}
-
-function ensureTeamWorkCompletionDetail(review = state.teamWorkCompletion) {
+export function preloadTeamWorkCompletionDetail(
+  review = state.teamWorkCompletion,
+  { allowCompute = false, reason = 'background' } = {}
+) {
   if (!review || teamWorkCompletionHasDetail(review)) {
-    return review;
+    return Promise.resolve(review);
   }
   const owner = review.owner || state.selectedTeamOwner || '';
   if (!owner) {
-    return review;
+    return Promise.resolve(review);
   }
-  const requestKey = teamWorkCompletionDetailRequestKey(review);
+  const requestKey = teamWorkCompletionDetailCacheKey(review);
   if (!requestKey) {
-    return review;
+    return Promise.resolve(review);
   }
   const existingRequest = runtimeStore.teamWorkCompletionDetailPromises.get(requestKey);
   if (existingRequest) {
     return existingRequest;
   }
+
+  const dashboardContext = normalizeDashboardContext(review.dashboardContext || resolveTeamDashboardContext() || 'all');
+  const year = Number(review.year || state.teamWorkCompletionYear || new Date().getFullYear());
   const params = new URLSearchParams();
   params.set('owner', owner);
-  params.set('context', review.dashboardContext || resolveTeamDashboardContext() || 'all');
-  params.set('year', String(review.year || state.teamWorkCompletionYear || new Date().getFullYear()));
+  params.set('context', dashboardContext || 'all');
+  params.set('year', String(Number.isFinite(year) ? year : new Date().getFullYear()));
   params.set('view', 'detail');
-  params.set('fallback', 'compute');
-  const promise = fetchJson(`${TEAM_WORK_COMPLETION_ENDPOINT}?${params}`, { timeoutMs: 30_000 })
+  params.set('fallback', allowCompute ? 'compute' : 'readModel');
+
+  markTeamWorkCompletionDetailStatus(requestKey, 'loading', reason);
+  const promise = fetchJson(`${TEAM_WORK_COMPLETION_ENDPOINT}?${params}`, { timeoutMs: allowCompute ? 30_000 : 8_000 })
     .then((detail) => {
-      if (teamWorkCompletionDetailRequestKey(state.teamWorkCompletion) !== requestKey) {
-        return state.teamWorkCompletion || review;
-      }
       if (detail?.status === 'preparing') {
-        state.teamWorkCompletionRefreshStatus = 'preparing';
-        state.teamWorkCompletionRefreshError = detail.reason || '';
-        return {
-          ...review,
-          detailStatus: 'preparing',
-          detailReason: detail.reason || '',
-        };
+        markTeamWorkCompletionDetailStatus(requestKey, 'preparing', detail.reason || reason);
+        rerenderOpenTeamCompletionModalIfStillCurrent(requestKey);
+        return review;
       }
-      state.teamWorkCompletion = {
-        ...review,
-        ...detail,
-      };
-      return state.teamWorkCompletion;
+
+      const merged = mergeTeamWorkCompletionDetail(review, detail);
+      rememberTeamWorkCompletion(merged, owner, dashboardContext, year);
+      markTeamWorkCompletionDetailStatus(requestKey, 'ready', reason);
+      if (isCurrentTeamWorkCompletionKey(requestKey)) {
+        state.teamWorkCompletion = merged;
+        state.teamWorkCompletionRefreshStatus = '';
+        state.teamWorkCompletionRefreshError = '';
+        rerenderOpenTeamCompletionModalIfStillCurrent(requestKey);
+      }
+      return merged;
     })
     .catch((error) => {
-      if (teamWorkCompletionDetailRequestKey(state.teamWorkCompletion) !== requestKey) {
-        return state.teamWorkCompletion || review;
-      }
-      throw error;
+      markTeamWorkCompletionDetailStatus(requestKey, 'error', error?.message || reason);
+      rerenderOpenTeamCompletionModalIfStillCurrent(requestKey);
+      return review;
     })
     .finally(() => {
       if (runtimeStore.teamWorkCompletionDetailPromises.get(requestKey) === promise) {
@@ -272,6 +281,17 @@ function ensureTeamWorkCompletionDetail(review = state.teamWorkCompletion) {
     });
   runtimeStore.teamWorkCompletionDetailPromises.set(requestKey, promise);
   return promise;
+}
+
+export function queueTeamWorkCompletionDetailPreload(review = state.teamWorkCompletion, options = {}) {
+  if (!review || teamWorkCompletionHasDetail(review)) {
+    return null;
+  }
+  const schedule = typeof queueMicrotask === 'function' ? queueMicrotask : (callback) => setTimeout(callback, 0);
+  schedule(() => {
+    preloadTeamWorkCompletionDetail(review, options);
+  });
+  return true;
 }
 
 function renderTeamCompletionMemberModalPreparing(message = '项目明细准备中') {
@@ -1256,15 +1276,73 @@ function teamCompletionProjectRole(project = {}, scope = {}) {
   };
 }
 
+function renderTeamCompletionProjectRowsEmpty(activeFilter = TEAM_COMPLETION_FILTERS[0]) {
+  return `
+    <div class="team-completion-member-modal-empty">
+      <strong>暂无${escapeHtml(activeFilter.label)}项目</strong>
+      <span>当前筛选没有可展开项目，弹窗尺寸保持不变。</span>
+    </div>
+  `;
+}
+
+function renderTeamCompletionProjectRowsPending(expectedCount = 0, detailStatus = {}) {
+  const delayed = detailStatus.elapsedMs > 800 || detailStatus.status === 'preparing';
+  const message = delayed
+    ? `预计 ${expectedCount} 项，明细准备好后自动补齐。`
+    : `预计 ${expectedCount} 项，正在读取当前负责人的项目明细。`;
+  return `
+    <div class="team-completion-detail-pending" aria-live="polite">
+      <div class="team-completion-detail-pending-copy">
+        <strong>正在补齐项目行</strong>
+        <span>${escapeHtml(message)}</span>
+      </div>
+      <div class="team-completion-detail-skeleton" aria-hidden="true">
+        ${[0, 1, 2]
+          .map(
+            () => `
+              <div class="team-completion-detail-skeleton-row">
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+            `
+          )
+          .join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderTeamCompletionProjectRowsError(expectedCount = 0, detailStatus = {}) {
+  return `
+    <div class="team-completion-detail-pending is-error" aria-live="polite">
+      <div class="team-completion-detail-pending-copy">
+        <strong>项目行暂时无法读取</strong>
+        <span>${escapeHtml(detailStatus.detail || `预计 ${expectedCount} 项，稍后可重试明细读取。`)}</span>
+      </div>
+      <button type="button" data-team-completion-detail-retry>重试</button>
+    </div>
+  `;
+}
+
 function renderTeamCompletionProjectRows(review = state.teamWorkCompletion, scope = {}, activeFilter = TEAM_COMPLETION_FILTERS[0]) {
+  const expectedCount = teamCompletionFilterValue(scope, activeFilter);
+  if (!teamWorkCompletionHasDetail(review)) {
+    if (!expectedCount) {
+      return renderTeamCompletionProjectRowsEmpty(activeFilter);
+    }
+    const detailStatus = getTeamWorkCompletionDetailStatus(review);
+    if (detailStatus.status === 'error') {
+      return renderTeamCompletionProjectRowsError(expectedCount, detailStatus);
+    }
+    return renderTeamCompletionProjectRowsPending(expectedCount, detailStatus);
+  }
+
   const projects = projectRowsForCompletionScope(review, scope, activeFilter);
   if (!projects.length) {
-    return `
-      <div class="team-completion-member-modal-empty">
-        <strong>暂无${escapeHtml(activeFilter.label)}项目</strong>
-        <span>当前筛选没有可展开项目，弹窗尺寸保持不变。</span>
-      </div>
-    `;
+    return renderTeamCompletionProjectRowsEmpty(activeFilter);
   }
   return projects
     .map((project) => {
@@ -1390,29 +1468,21 @@ export function renderTeamCompletionMemberModal(review = state.teamWorkCompletio
   `;
 }
 
-function renderTeamCompletionModalWithDetail() {
-  const detailOrPromise = ensureTeamWorkCompletionDetail();
-  if (!detailOrPromise?.then) {
-    renderTeamCompletionMemberModal(detailOrPromise || state.teamWorkCompletion);
+function renderTeamCompletionModal() {
+  const review = state.teamWorkCompletion;
+  if (!review) {
+    renderTeamCompletionMemberModalPreparing();
     elements.teamCompletionMemberModal.hidden = false;
     return;
   }
-  renderTeamCompletionMemberModalPreparing();
-  detailOrPromise
-    .then((review) => {
-      if (review?.detailStatus === 'preparing' || review?.status === 'preparing') {
-        renderTeamCompletionMemberModalPreparing();
-        return;
-      }
-      renderTeamCompletionMemberModal(review || state.teamWorkCompletion);
-      elements.teamCompletionMemberModal.hidden = false;
-    })
-    .catch((error) => {
-      state.teamWorkCompletionRefreshStatus = 'stale';
-      state.teamWorkCompletionRefreshError = error?.message || 'Team work completion detail load failed';
-      renderTeamCompletionMemberModal(state.teamWorkCompletion);
-      elements.teamCompletionMemberModal.hidden = false;
+  renderTeamCompletionMemberModal(review);
+  elements.teamCompletionMemberModal.hidden = false;
+  if (!teamWorkCompletionHasDetail(review)) {
+    preloadTeamWorkCompletionDetail(review, {
+      reason: 'modal-cold-click',
+      allowCompute: false,
     });
+  }
 }
 
 export function openTeamCompletionGroupModal(groupName, metricKey = '') {
@@ -1429,7 +1499,7 @@ export function openTeamCompletionGroupModal(groupName, metricKey = '') {
   state.selectedTeamCompletionMonth = 0;
   state.teamCompletionModalScopeType = 'group';
   state.teamCompletionModalFilter = firstAvailableGroupCompletionFilter(group, metricKey).key;
-  renderTeamCompletionModalWithDetail();
+  renderTeamCompletionModal();
 }
 
 export function openTeamCompletionMemberModal(name) {
@@ -1443,7 +1513,7 @@ export function openTeamCompletionMemberModal(name) {
   state.teamCompletionModalScopeType = 'member';
   const member = memberByName(nextName);
   state.teamCompletionModalFilter = firstAvailableTeamCompletionFilter(member || {}).key;
-  renderTeamCompletionModalWithDetail();
+  renderTeamCompletionModal();
 }
 
 export function openTeamCompletionScopeModal(filterKey = '') {
@@ -1455,7 +1525,7 @@ export function openTeamCompletionScopeModal(filterKey = '') {
   state.selectedTeamCompletionMonth = 0;
   state.teamCompletionModalScopeType = 'team';
   state.teamCompletionModalFilter = teamCompletionFilterByKey(filterKey).key;
-  renderTeamCompletionModalWithDetail();
+  renderTeamCompletionModal();
 }
 
 export function openTeamCompletionMonthModal(monthNumber, metricKey = '') {
@@ -1472,7 +1542,7 @@ export function openTeamCompletionMonthModal(monthNumber, metricKey = '') {
   state.selectedTeamCompletionMonth = safeNumber(month.month);
   state.teamCompletionModalScopeType = 'month';
   state.teamCompletionModalFilter = firstAvailableMonthCompletionFilter(monthScope, metricKey).key;
-  renderTeamCompletionModalWithDetail();
+  renderTeamCompletionModal();
 }
 
 export function closeTeamCompletionMemberModal() {
@@ -1530,6 +1600,15 @@ export function handleTeamCompletionMemberModalClick(event) {
   }
   if (event.target.closest('[data-team-completion-member-close]') || event.target === elements.teamCompletionMemberModal) {
     closeTeamCompletionMemberModal();
+    return;
+  }
+  const retryButton = event.target.closest('[data-team-completion-detail-retry]');
+  if (retryButton) {
+    preloadTeamWorkCompletionDetail(state.teamWorkCompletion, {
+      reason: 'modal-retry',
+      allowCompute: false,
+    });
+    renderTeamCompletionMemberModal();
     return;
   }
   const filterButton = event.target.closest('[data-team-completion-filter]');

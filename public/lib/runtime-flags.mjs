@@ -9,6 +9,7 @@ export const runtimeStore = {
   teamWorkCompletionRequestId: 0,
   teamWorkCompletionRequestPromises: new Map(),
   teamWorkCompletionDetailPromises: new Map(),
+  teamWorkCompletionDetailStatuses: new Map(),
   ownerReviewRequestId: 0,
   ownerReviewRequestPromises: new Map(),
   teamMetricsBatchPromises: new Map(),

@@ -101,6 +101,7 @@ export async function loadPublicAppHarness({ fetchImpl } = {}) {
   runtimeStore.teamWorkCompletionRequestId = 0;
   runtimeStore.teamWorkCompletionRequestPromises = new Map();
   runtimeStore.teamWorkCompletionDetailPromises = new Map();
+  runtimeStore.teamWorkCompletionDetailStatuses = new Map();
   runtimeStore.ownerReviewRequestId = 0;
   runtimeStore.ownerReviewRequestPromises = new Map();
   runtimeStore.teamMetricsBatchPromises = new Map();

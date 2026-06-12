@@ -1,0 +1,132 @@
+import { TEAM_WORK_COMPLETION_CACHE_LIMIT } from '../lib/constants.mjs';
+import { runtimeStore } from '../lib/runtime-flags.mjs';
+import { state } from '../lib/state.mjs';
+
+function teamWorkCompletionSnapshotCacheKey(snapshot = state.snapshot) {
+  return [
+    snapshot?.source || '',
+    snapshot?.storage || '',
+    snapshot?.syncedAt || '',
+    snapshot?.totalRecords ?? '',
+    snapshot?.ignoredRecords ?? '',
+  ].join('|');
+}
+
+function teamWorkCompletionContextKey(dashboardContext = 'all') {
+  return dashboardContext || 'all';
+}
+
+export function teamWorkCompletionCacheKey(
+  owner = '',
+  dashboardContext = 'all',
+  year = state.teamWorkCompletionYear
+) {
+  return `${teamWorkCompletionSnapshotCacheKey()}:${teamWorkCompletionContextKey(dashboardContext)}:${owner || ''}:${
+    Number(year) || ''
+  }`;
+}
+
+export function cachedTeamWorkCompletion(
+  owner = '',
+  dashboardContext = 'all',
+  year = state.teamWorkCompletionYear
+) {
+  return state.teamWorkCompletionByKey?.[teamWorkCompletionCacheKey(owner, dashboardContext, year)] || null;
+}
+
+export function pruneTeamWorkCompletionCache(maxEntries = TEAM_WORK_COMPLETION_CACHE_LIMIT) {
+  const entries = Object.entries(state.teamWorkCompletionByKey || {});
+  if (entries.length <= maxEntries) {
+    return;
+  }
+  state.teamWorkCompletionByKey = Object.fromEntries(entries.slice(entries.length - maxEntries));
+}
+
+export function rememberTeamWorkCompletion(
+  payload,
+  owner = payload?.owner || '',
+  dashboardContext = payload?.dashboardContext || 'all',
+  year = payload?.year || state.teamWorkCompletionYear
+) {
+  if (!payload?.owner && !owner) {
+    return;
+  }
+  const requestedKey = teamWorkCompletionCacheKey(owner || payload.owner, dashboardContext, year);
+  const canonicalKey = teamWorkCompletionCacheKey(payload.owner || owner, dashboardContext, year);
+  state.teamWorkCompletionByKey = {
+    ...state.teamWorkCompletionByKey,
+    [requestedKey]: payload,
+    [canonicalKey]: payload,
+  };
+  pruneTeamWorkCompletionCache();
+}
+
+export function teamWorkCompletionHasDetail(review = state.teamWorkCompletion) {
+  const hasProjectsById =
+    Object.prototype.hasOwnProperty.call(review || {}, 'projectsById') &&
+    review?.projectsById &&
+    typeof review.projectsById === 'object';
+  const hasSourceProjects =
+    Object.prototype.hasOwnProperty.call(review || {}, 'sourceProjects') && Array.isArray(review?.sourceProjects);
+  return Boolean(review?.detailReady || hasProjectsById || hasSourceProjects);
+}
+
+export function mergeTeamWorkCompletionDetail(review = state.teamWorkCompletion, detail = {}) {
+  return {
+    ...(review || {}),
+    ...(detail || {}),
+    detailReady: true,
+    detailStatus: 'ready',
+    detailReason: '',
+  };
+}
+
+export function teamWorkCompletionDetailCacheKey(review = state.teamWorkCompletion) {
+  if (!review) {
+    return '';
+  }
+  const owner = String(review.owner || state.selectedTeamOwner || '').trim();
+  if (!owner) {
+    return '';
+  }
+  return teamWorkCompletionCacheKey(owner, review.dashboardContext || 'all', review.year || state.teamWorkCompletionYear);
+}
+
+export function currentTeamWorkCompletionCacheKey() {
+  return teamWorkCompletionDetailCacheKey(state.teamWorkCompletion);
+}
+
+export function isCurrentTeamWorkCompletionKey(requestKey = '') {
+  return Boolean(requestKey && currentTeamWorkCompletionCacheKey() === requestKey);
+}
+
+export function markTeamWorkCompletionDetailStatus(requestKey = '', status = '', detail = '') {
+  if (!requestKey || !status) {
+    return;
+  }
+  if (!runtimeStore.teamWorkCompletionDetailStatuses) {
+    runtimeStore.teamWorkCompletionDetailStatuses = new Map();
+  }
+  const existing = runtimeStore.teamWorkCompletionDetailStatuses.get(requestKey) || {};
+  runtimeStore.teamWorkCompletionDetailStatuses.set(requestKey, {
+    status,
+    detail,
+    startedAt: existing.startedAt || Date.now(),
+    updatedAt: Date.now(),
+  });
+}
+
+export function getTeamWorkCompletionDetailStatus(review = state.teamWorkCompletion) {
+  if (teamWorkCompletionHasDetail(review)) {
+    return { status: 'ready', detail: '', elapsedMs: 0 };
+  }
+  const requestKey = teamWorkCompletionDetailCacheKey(review);
+  const entry = requestKey ? runtimeStore.teamWorkCompletionDetailStatuses?.get(requestKey) : null;
+  if (!entry) {
+    return { status: 'idle', detail: '', elapsedMs: 0 };
+  }
+  return {
+    ...entry,
+    elapsedMs: Math.max(0, Date.now() - Number(entry.startedAt || Date.now())),
+  };
+}

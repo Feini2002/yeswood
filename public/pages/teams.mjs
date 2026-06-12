@@ -51,14 +51,21 @@ import {
   openTeamCompletionGroupModal,
   openTeamCompletionMemberModal,
   openTeamCompletionMonthModal,
+  queueTeamWorkCompletionDetailPreload,
   renderTeamWorkCompletionDashboard,
   renderTeamWorkCompletionError,
   renderTeamWorkCompletionLoading,
   syncTeamCompletionControls,
 } from './team-work-completion.mjs';
+import {
+  cachedTeamWorkCompletion as cachedStoredTeamWorkCompletion,
+  rememberTeamWorkCompletion as rememberStoredTeamWorkCompletion,
+  pruneTeamWorkCompletionCache as pruneStoredTeamWorkCompletionCache,
+  teamWorkCompletionCacheKey as storedTeamWorkCompletionCacheKey,
+} from '../domain/team-work-completion-store.mjs';
 import { runtimeStore } from '../lib/runtime-flags.mjs';
 import { teamOwnerDisplayName } from '../domain/personnel.mjs';
-import { OWNER_REVIEW_CACHE_LIMIT, TEAM_OWNER_STORAGE_KEY, TEAM_WORK_COMPLETION_CACHE_LIMIT } from '../lib/constants.mjs';
+import { OWNER_REVIEW_CACHE_LIMIT, TEAM_OWNER_STORAGE_KEY } from '../lib/constants.mjs';
 import { enhanceTeamOwnerSelect, renderFilterSelect } from '../components/filter-bar.mjs';
 import { closeProjectDetailModal } from '../components/project-detail-modal.mjs';
 
@@ -165,7 +172,7 @@ export function teamWorkCompletionCacheKey(
   dashboardContext = resolveTeamDashboardContext(),
   year = resolveTeamWorkCompletionYear()
 ) {
-  return `${ownerReviewSnapshotCacheKey()}:${teamMetricsContextKey(dashboardContext)}:${owner || ''}:${Number(year) || ''}`;
+  return storedTeamWorkCompletionCacheKey(owner, dashboardContext, year);
 }
 
 
@@ -174,7 +181,7 @@ export function cachedTeamWorkCompletion(
   dashboardContext = resolveTeamDashboardContext(),
   year = resolveTeamWorkCompletionYear()
 ) {
-  return state.teamWorkCompletionByKey?.[teamWorkCompletionCacheKey(owner, dashboardContext, year)] || null;
+  return cachedStoredTeamWorkCompletion(owner, dashboardContext, year);
 }
 
 
@@ -184,26 +191,12 @@ export function rememberTeamWorkCompletion(
   dashboardContext = payload?.dashboardContext || 'all',
   year = payload?.year || resolveTeamWorkCompletionYear()
 ) {
-  if (!payload?.owner && !owner) {
-    return;
-  }
-  const requestedKey = teamWorkCompletionCacheKey(owner || payload.owner, dashboardContext, year);
-  const canonicalKey = teamWorkCompletionCacheKey(payload.owner || owner, dashboardContext, year);
-  state.teamWorkCompletionByKey = {
-    ...state.teamWorkCompletionByKey,
-    [requestedKey]: payload,
-    [canonicalKey]: payload,
-  };
-  pruneTeamWorkCompletionCache();
+  rememberStoredTeamWorkCompletion(payload, owner, dashboardContext, year);
 }
 
 
-export function pruneTeamWorkCompletionCache(maxEntries = TEAM_WORK_COMPLETION_CACHE_LIMIT) {
-  const entries = Object.entries(state.teamWorkCompletionByKey || {});
-  if (entries.length <= maxEntries) {
-    return;
-  }
-  state.teamWorkCompletionByKey = Object.fromEntries(entries.slice(entries.length - maxEntries));
+export function pruneTeamWorkCompletionCache(maxEntries) {
+  pruneStoredTeamWorkCompletionCache(maxEntries);
 }
 
 
@@ -267,6 +260,10 @@ export async function loadTeamDashboardSessionBundle(
     state.teamWorkCompletionRefreshStatus = '';
     state.teamWorkCompletionRefreshError = '';
     state.teamWorkCompletionSwitchTarget = '';
+    queueTeamWorkCompletionDetailPreload(team.workCompletion, {
+      reason: 'dashboard-session',
+      allowCompute: false,
+    });
   }
   if (team.responsibilityReview) {
     rememberOwnerReview(team.responsibilityReview, owner, contextKey);
@@ -637,7 +634,10 @@ export async function loadTeamWorkCompletion(
       renderTeamWorkCompletionDashboard(cachedReview);
     }
     if (!background) {
-      scheduleTeamWorkCompletionPreload(dashboardContext, cachedReview.owner || owner, normalizedYear);
+      queueTeamWorkCompletionDetailPreload(cachedReview, {
+        reason: 'cache-hit',
+        allowCompute: false,
+      });
     }
     return cachedReview;
   }
@@ -739,7 +739,10 @@ export async function loadTeamWorkCompletion(
       if (currentPageId() === 'teams') {
         renderTeamWorkCompletionDashboard(payload);
       }
-      scheduleTeamWorkCompletionPreload(dashboardContext, payload.owner || owner, normalizedYear);
+      queueTeamWorkCompletionDetailPreload(payload, {
+        reason: 'after-summary',
+        allowCompute: false,
+      });
       return payload;
     } catch (error) {
       if (!background && requestId !== runtimeStore.teamWorkCompletionRequestId) {

@@ -150,7 +150,6 @@ function sampleDashboardSession({ owner = 'Owner A', dashboardContext = 'direct'
         monthly: { months: [] },
         groups: [],
         members: [],
-        projectsById: {},
         dataQuality: { notes: [], unmappedMemberCount: 0, missingDateCompletionCount: 0, weakProjectKeyCount: 0 },
         readOnly: true,
       },
@@ -874,8 +873,12 @@ test('team work completion month button opens the existing project modal filtere
   assert.doesNotMatch(app.elements.teamCompletionMemberModalBody.innerHTML, /绍兴摆场店/);
 });
 
-test('team work completion modal lazy-loads detail rows from summary payloads', async () => {
+test('team work completion modal opens immediately and fills detail rows from background read model', async () => {
   const requested = [];
+  let resolveDetail;
+  const detailBody = new Promise((resolve) => {
+    resolveDetail = resolve;
+  });
   const app = await loadPublicAppHarness({
     fetchImpl: async (url) => {
       const path = String(url);
@@ -883,37 +886,7 @@ test('team work completion modal lazy-loads detail rows from summary payloads', 
       if (path.startsWith('/api/team-work-completion') && path.includes('view=detail')) {
         return {
           ok: true,
-          json: async () => ({
-            owner: 'Owner A',
-            requestedOwner: 'Owner A',
-            dashboardContext: 'direct',
-            year: 2026,
-            projectCount: 1,
-            summary: {
-              floorPlan: { completedCount: 1, inProgressCount: 0, missingDateCount: 0, completedProjectIds: ['p1'] },
-              display: { completedCount: 0, inProgressCount: 0, missingDateCount: 0, completedProjectIds: [] },
-              lifecycle: { completedCount: 0, inProgressCount: 0, missingDateCount: 0, completedProjectIds: [] },
-            },
-            monthly: { months: [] },
-            groups: [],
-            members: [],
-            projectsById: {
-              p1: {
-                id: 'p1',
-                name: 'Project One',
-                storeStatus: 'Open',
-                status: 'Done',
-                metrics: {
-                  floorPlan: { completed: true, inProgress: false, status: 'Done' },
-                  display: { completed: false, inProgress: false, status: 'Pending' },
-                  lifecycle: { completed: false, inProgress: false, status: 'Pending' },
-                },
-                roleLabelsByMember: {},
-              },
-            },
-            dataQuality: { notes: [], unmappedMemberCount: 0, missingDateCompletionCount: 0, weakProjectKeyCount: 0 },
-            readOnly: true,
-          }),
+          json: async () => detailBody,
         };
       }
       return { ok: true, json: async () => ({}) };
@@ -928,7 +901,7 @@ test('team work completion modal lazy-loads detail rows from summary payloads', 
     year: 2026,
     projectCount: 1,
     summary: {
-      floorPlan: { completedCount: 1, inProgressCount: 0, missingDateCount: 0 },
+      floorPlan: { completedCount: 1, inProgressCount: 0, missingDateCount: 0, completedProjectIds: ['p1'] },
       display: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
       lifecycle: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
     },
@@ -957,18 +930,59 @@ test('team work completion modal lazy-loads detail rows from summary payloads', 
       },
     },
   });
-  await new Promise((resolve) => setTimeout(resolve, 0));
 
   const detailRequests = requested.filter((path) => path.includes('/api/team-work-completion') && path.includes('view=detail'));
+  assert.equal(app.elements.teamCompletionMemberModal.hidden, false);
   assert.equal(detailRequests.length, 1);
-  assert.match(detailRequests[0], /fallback=compute/);
+  assert.match(detailRequests[0], /fallback=readModel/);
+  assert.doesNotMatch(detailRequests[0], /fallback=compute/);
+  assert.match(app.elements.teamCompletionMemberModalBody.innerHTML, /team-completion-detail-pending/);
+  assert.doesNotMatch(app.elements.teamCompletionMemberModalBody.innerHTML, /\u9879\u76ee\u660e\u7ec6\u51c6\u5907\u4e2d/);
+  assert.doesNotMatch(app.elements.teamCompletionMemberModalBody.innerHTML, /Project One/);
+
+  resolveDetail({
+    owner: 'Owner A',
+    requestedOwner: 'Owner A',
+    dashboardContext: 'direct',
+    year: 2026,
+    projectCount: 1,
+    summary: {
+      floorPlan: { completedCount: 1, inProgressCount: 0, missingDateCount: 0, completedProjectIds: ['p1'] },
+      display: { completedCount: 0, inProgressCount: 0, missingDateCount: 0, completedProjectIds: [] },
+      lifecycle: { completedCount: 0, inProgressCount: 0, missingDateCount: 0, completedProjectIds: [] },
+    },
+    monthly: { months: [] },
+    groups: [],
+    members: [],
+    projectsById: {
+      p1: {
+        id: 'p1',
+        name: 'Project One',
+        storeStatus: 'Open',
+        status: 'Done',
+        metrics: {
+          floorPlan: { completed: true, inProgress: false, status: 'Done' },
+          display: { completed: false, inProgress: false, status: 'Pending' },
+          lifecycle: { completed: false, inProgress: false, status: 'Pending' },
+        },
+        roleLabelsByMember: {},
+      },
+    },
+    dataQuality: { notes: [], unmappedMemberCount: 0, missingDateCompletionCount: 0, weakProjectKeyCount: 0 },
+    readOnly: true,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
   assert.match(app.elements.teamCompletionMemberModalBody.innerHTML, /Project One/);
 });
 
-test('team work completion modal keeps preparing state when detail read model is not ready', async () => {
+test('team work completion modal keeps shell visible when detail read model is not ready', async () => {
+  const requested = [];
   const app = await loadPublicAppHarness({
     fetchImpl: async (url) => {
       const path = String(url);
+      requested.push(path);
       if (path.startsWith('/api/team-work-completion') && path.includes('view=detail')) {
         return {
           ok: true,
@@ -1009,7 +1023,12 @@ test('team work completion modal keeps preparing state when detail read model is
   });
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assert.match(app.elements.teamCompletionMemberModalBody.innerHTML, /\u9879\u76ee\u660e\u7ec6\u51c6\u5907\u4e2d/);
+  const detailRequests = requested.filter((path) => path.includes('/api/team-work-completion') && path.includes('view=detail'));
+  assert.equal(app.elements.teamCompletionMemberModal.hidden, false);
+  assert.equal(detailRequests.length, 1);
+  assert.doesNotMatch(detailRequests[0], /fallback=compute/);
+  assert.match(app.elements.teamCompletionMemberModalBody.innerHTML, /team-completion-detail-pending/);
+  assert.doesNotMatch(app.elements.teamCompletionMemberModalBody.innerHTML, /\u9879\u76ee\u660e\u7ec6\u51c6\u5907\u4e2d/);
   assert.doesNotMatch(app.elements.teamCompletionMemberModalBody.innerHTML, /\u6682\u65e0\u56e2\u961f\u5b8c\u6210\u8be6\u60c5/);
 });
 
@@ -2146,7 +2165,7 @@ test('team work completion uses cached results by default and force refreshes ex
   assert.equal(app.state.teamWorkCompletion.summary.floorPlan.completedCount, 2);
 });
 
-test('initial teams route loads dashboard session without page fanout', async () => {
+test('initial teams route loads dashboard session and preloads current detail without page fanout', async () => {
   const requested = [];
   const app = await loadPublicAppHarness({
     fetchImpl: async (url) => {
@@ -2156,6 +2175,12 @@ test('initial teams route loads dashboard session without page fanout', async ()
         return {
           ok: true,
           json: async () => sampleDashboardSession({ owner: 'Owner A', dashboardContext: 'direct', year: 2026 }),
+        };
+      }
+      if (path.startsWith('/api/team-work-completion') && path.includes('view=detail')) {
+        return {
+          ok: true,
+          json: async () => ({ status: 'preparing', reason: 'detail-read-model-building' }),
         };
       }
       throw new Error(`initial session load should not fetch ${path}`);
@@ -2175,7 +2200,18 @@ test('initial teams route loads dashboard session without page fanout', async ()
   await app.init();
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assert.deepEqual(requested, ['/api/dashboard-session?owner=Owner+A&context=direct&year=2026']);
+  assert.equal(requested[0], '/api/dashboard-session?owner=Owner+A&context=direct&year=2026');
+  const detailRequests = requested.filter((path) => path.startsWith('/api/team-work-completion') && path.includes('view=detail'));
+  assert.equal(detailRequests.length, 1);
+  assert.match(detailRequests[0], /owner=Owner\+A/);
+  assert.match(detailRequests[0], /context=direct/);
+  assert.match(detailRequests[0], /year=2026/);
+  assert.match(detailRequests[0], /fallback=readModel/);
+  assert.doesNotMatch(detailRequests[0], /fallback=compute/);
+  assert.deepEqual(
+    requested.filter((path) => path.startsWith('/api/team-metrics') || path.startsWith('/api/team-responsibility-review')),
+    []
+  );
   assert.equal(app.state.snapshot.source, 'mock');
   assert.equal(app.state.metrics.summary.totalProjects, 1);
   assert.equal(app.state.profileMetrics.department.profile, 'department');
@@ -2184,7 +2220,7 @@ test('initial teams route loads dashboard session without page fanout', async ()
   assert.equal(app.state.ownerReview.owner, 'Owner A');
 });
 
-test('teams page switch loads dashboard session without module fanout', async () => {
+test('teams page switch loads dashboard session and preloads current detail without module fanout', async () => {
   const requested = [];
   const app = await loadPublicAppHarness({
     fetchImpl: async (url) => {
@@ -2194,6 +2230,12 @@ test('teams page switch loads dashboard session without module fanout', async ()
         return {
           ok: true,
           json: async () => sampleDashboardSession({ owner: 'Owner A', dashboardContext: 'direct', year: 2026 }),
+        };
+      }
+      if (path.startsWith('/api/team-work-completion') && path.includes('view=detail')) {
+        return {
+          ok: true,
+          json: async () => ({ status: 'preparing', reason: 'detail-read-model-building' }),
         };
       }
       throw new Error(`teams switch should not fan out to ${path}`);
@@ -2214,7 +2256,18 @@ test('teams page switch loads dashboard session without module fanout', async ()
   app.showPage('teams');
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assert.deepEqual(requested, ['/api/dashboard-session?owner=Owner+A&context=direct&year=2026']);
+  assert.equal(requested[0], '/api/dashboard-session?owner=Owner+A&context=direct&year=2026');
+  const detailRequests = requested.filter((path) => path.startsWith('/api/team-work-completion') && path.includes('view=detail'));
+  assert.equal(detailRequests.length, 1);
+  assert.match(detailRequests[0], /owner=Owner\+A/);
+  assert.match(detailRequests[0], /context=direct/);
+  assert.match(detailRequests[0], /year=2026/);
+  assert.match(detailRequests[0], /fallback=readModel/);
+  assert.doesNotMatch(detailRequests[0], /fallback=compute/);
+  assert.deepEqual(
+    requested.filter((path) => path.startsWith('/api/team-metrics') || path.startsWith('/api/team-responsibility-review')),
+    []
+  );
   assert.equal(app.state.teamMetrics?.owner, 'Owner A');
   assert.equal(app.state.teamWorkCompletion?.owner, 'Owner A');
   assert.equal(app.state.ownerReview?.owner, 'Owner A');
@@ -2405,6 +2458,12 @@ test('teams dashboard refresh loads work completion after team owner options res
           }),
         };
       }
+      if (path.startsWith('/api/team-work-completion') && path.includes('view=detail')) {
+        return {
+          ok: true,
+          json: async () => ({ status: 'preparing', reason: 'detail-read-model-building' }),
+        };
+      }
       if (path.startsWith('/api/team-work-completion')) {
         return {
           ok: true,
@@ -2492,7 +2551,21 @@ test('teams dashboard refresh loads work completion after team owner options res
 
   await app.refresh();
 
-  assert.deepEqual(requested, ['/api/dashboard-session?owner=Owner+A&context=direct&year=2026']);
+  assert.equal(requested[0], '/api/dashboard-session?owner=Owner+A&context=direct&year=2026');
+  const detailRequests = requested.filter((path) => path.startsWith('/api/team-work-completion') && path.includes('view=detail'));
+  assert.equal(detailRequests.length, 1);
+  assert.match(detailRequests[0], /fallback=readModel/);
+  assert.doesNotMatch(detailRequests[0], /fallback=compute/);
+  assert.deepEqual(
+    requested.filter(
+      (path) =>
+        (path.startsWith('/api/team-metrics') ||
+          path.startsWith('/api/team-work-completion') ||
+          path.startsWith('/api/team-responsibility-review')) &&
+        !path.includes('view=detail')
+    ),
+    []
+  );
   assert.equal(app.state.teamMetrics?.owner, 'Owner A');
   assert.equal(app.state.teamWorkCompletion?.owner, 'Owner A');
   assert.equal(app.state.ownerReview?.owner, 'Owner A');
