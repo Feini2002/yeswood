@@ -26,6 +26,7 @@ import {
   projectWorkbenchViewKey,
   renderTable,
 } from '../components/project-workbench.mjs';
+import { queueVisibleDrillPreload } from '../components/drill-preload.mjs';
 import { hideProjectAssignmentAlert } from '../components/project-detail-modal.mjs';
 import { renderOverviewDashboard } from '../pages/overview.mjs';
 import {
@@ -44,7 +45,9 @@ import {
   renderTeamWorkCompletionDashboard,
 } from '../pages/teams.mjs';
 import { DASHBOARD_UPDATE_CHECK_INTERVAL_MS, shouldReloadDashboard } from '../realtime.js';
+import { resolveTeamPageDashboardContext } from './constants.mjs';
 import { runtimeStore } from './runtime-flags.mjs';
+import { LIFECYCLE_STAGE_ORDER } from '../dashboard/project-lifecycle.mjs';
 import {
   ensureTeamOwnerOptions,
   ensureOwnerReviewControls,
@@ -61,10 +64,27 @@ import { teamWorkCompletionHasDetail } from '../domain/team-work-completion-stor
 import {
   currentCatalogSignature,
   fetchProjectCatalog,
+  filterProjectsLocally,
   hasComplexProjectFilters,
   invalidateProjectCaches,
+  preloadDrillProjects,
   resolveVisibleProjects,
 } from '../domain/project-catalog.mjs';
+
+const DASHBOARD_SESSION_PREPARING_RETRY_DELAYS_MS = globalThis.__PUBLIC_APP_TEST_HARNESS__
+  ? [0]
+  : [500, 1000, 2000, 4000];
+
+function isDashboardSessionPreparing(payload) {
+  return payload?.status === 'preparing' && !payload.snapshot;
+}
+
+function waitForDashboardSessionRetry(delayMs) {
+  if (!delayMs) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => globalThis.setTimeout(resolve, delayMs));
+}
 
 export function dashboardStatusPanel({ title, description = '', tone = 'neutral' } = {}) {
   return `
@@ -169,12 +189,19 @@ function applyFilterOptions(filters = {}) {
 }
 
 
-function dashboardSessionUrl(options = {}) {
+function dashboardSessionRequestContext(options = {}) {
   const route = parsePageHash();
-  const params = new URLSearchParams();
   const owner = options.owner || route.owner || resolveTeamOwner();
-  const dashboardContext = options.dashboardContext || route.dashboardContext || resolveTeamDashboardContext() || 'all';
+  const dashboardContext = resolveTeamPageDashboardContext(
+    options.dashboardContext || route.dashboardContext || resolveTeamDashboardContext()
+  );
   const year = Number(options.year || route.year || state.teamWorkCompletionYear || new Date().getFullYear());
+  return { owner, dashboardContext, year };
+}
+
+function dashboardSessionUrl(options = {}) {
+  const { owner, dashboardContext, year } = dashboardSessionRequestContext(options);
+  const params = new URLSearchParams();
   if (owner) {
     params.set('owner', owner);
   }
@@ -184,6 +211,67 @@ function dashboardSessionUrl(options = {}) {
   }
   const query = params.toString();
   return query ? `${DASHBOARD_SESSION_ENDPOINT}?${query}` : DASHBOARD_SESSION_ENDPOINT;
+}
+
+function cachedTeamDashboardSessionPayload({ owner = '', dashboardContext = 'all', year } = {}, { forceRefresh = false } = {}) {
+  if (forceRefresh || !owner || !hasLoadedTeamSessionBundle(owner, dashboardContext, year)) {
+    return null;
+  }
+  const metrics = state.teamMetricsByOwner?.[owner] || null;
+  const workCompletion = cachedTeamWorkCompletion(owner, dashboardContext, year);
+  const responsibilityReview = cachedOwnerReview(owner, dashboardContext);
+  state.teamMetrics = metrics;
+  state.teamMetricsLoading = false;
+  state.teamMetricsError = '';
+  state.teamWorkCompletion = workCompletion;
+  state.teamWorkCompletionYear = Number(year) || state.teamWorkCompletionYear;
+  state.teamWorkCompletionLoading = false;
+  state.teamWorkCompletionError = '';
+  state.ownerReview = responsibilityReview;
+  state.ownerReviewLoading = false;
+  state.ownerReviewError = '';
+  state.selectedTeamOwner = owner;
+  if (!teamWorkCompletionHasDetail(workCompletion)) {
+    queueTeamWorkCompletionDetailPreload(workCompletion, {
+      reason: 'team-session-cache-missing-detail',
+      allowCompute: false,
+    });
+  }
+  return {
+    schemaVersion: 1,
+    readOnly: true,
+    snapshot: state.snapshot,
+    metrics: state.metrics,
+    departmentMetrics: state.profileMetrics?.department || null,
+    projectCatalog: state.projectsCatalogLoaded
+      ? { items: state.allProjects || [], fieldCatalog: state.fieldCatalog || [], view: 'summary', readOnly: true }
+      : null,
+    team: {
+      owner,
+      dashboardContext,
+      year,
+      metrics,
+      workCompletion,
+      responsibilityReview,
+    },
+  };
+}
+
+function mergeDepartmentMetrics(baseMetrics = null, dashboardMetrics = null) {
+  if (!baseMetrics && !dashboardMetrics) {
+    return null;
+  }
+  const merged = {
+    ...(baseMetrics || {}),
+    ...(dashboardMetrics || {}),
+  };
+  if (!merged.projectBoard && baseMetrics?.projectBoard) {
+    merged.projectBoard = baseMetrics.projectBoard;
+  }
+  if (!merged.annualEntryStructure && baseMetrics?.annualEntryStructure) {
+    merged.annualEntryStructure = baseMetrics.annualEntryStructure;
+  }
+  return merged;
 }
 
 
@@ -199,8 +287,9 @@ export function applyDashboardSessionPayload(payload = {}) {
   state.metrics = payload.metrics || {};
   state.fullMetrics = payload.metrics || {};
   state.pendingDetailsDrill = null;
-  state.profileMetrics.department = payload.departmentMetrics || null;
-  state.annualEntryStructure = payload.departmentMetrics?.annualEntryStructure || null;
+  const baseDepartmentMetrics = payload.departmentMetrics || null;
+  state.profileMetrics.department = baseDepartmentMetrics;
+  state.annualEntryStructure = baseDepartmentMetrics?.annualEntryStructure || null;
   const profileDashboards = payload.profileDashboards || {};
   const loadedProfiles = { ...(state.profileDashboardLoaded || {}) };
   for (const profile of ['department', 'direct', 'franchise']) {
@@ -209,10 +298,12 @@ export function applyDashboardSessionPayload(payload = {}) {
       continue;
     }
     const metrics = dashboard.metrics || dashboard;
-    state.profileMetrics[profile] = metrics || null;
     if (profile === 'department') {
-      state.annualEntryStructure = metrics?.annualEntryStructure || state.annualEntryStructure || null;
+      const mergedDepartmentMetrics = mergeDepartmentMetrics(baseDepartmentMetrics, metrics || null);
+      state.profileMetrics.department = mergedDepartmentMetrics;
+      state.annualEntryStructure = mergedDepartmentMetrics?.annualEntryStructure || state.annualEntryStructure || null;
     } else {
+      state.profileMetrics[profile] = metrics || null;
       state.profileProjects[profile] = Array.isArray(dashboard.projects) ? dashboard.projects : [];
     }
     loadedProfiles[profile] = true;
@@ -224,6 +315,10 @@ export function applyDashboardSessionPayload(payload = {}) {
     state.fieldCatalog = Array.isArray(projectCatalog.fieldCatalog) ? projectCatalog.fieldCatalog : state.fieldCatalog;
     state.projectsCatalogLoaded = true;
     state.projectsCatalogSignature = nextCatalogSignature;
+    const activeFilters = readFilters();
+    if (!hasComplexProjectFilters(activeFilters)) {
+      state.projects = filterProjectsLocally(state.allProjects, activeFilters);
+    }
     invalidateProjectCaches({ catalog: false, drill: true, details: false });
   }
   applyFilterOptions(payload.filters || {});
@@ -253,7 +348,8 @@ export function applyDashboardSessionPayload(payload = {}) {
     state.teamWorkCompletionRefreshStatus = '';
     state.teamWorkCompletionRefreshError = '';
     rememberTeamWorkCompletion(team.workCompletion, owner, dashboardContext, year);
-    if (currentPageId() === 'teams' && !teamWorkCompletionHasDetail(team.workCompletion)) {
+    const pageId = currentPageId();
+    if ((pageId === 'overview' || pageId === 'teams') && !teamWorkCompletionHasDetail(team.workCompletion)) {
       queueTeamWorkCompletionDetailPreload(team.workCompletion, {
         reason: 'dashboard-session-missing-detail',
         allowCompute: false,
@@ -282,10 +378,56 @@ function hasLoadedTeamSessionBundle(owner, dashboardContext, year) {
   );
 }
 
+function overviewLifecycleDrillPreloadKey() {
+  const signature = currentCatalogSignature();
+  const stageKeys = LIFECYCLE_STAGE_ORDER.map((stage) => stage.key).join(',');
+  return signature ? `${signature}:${stageKeys}` : '';
+}
+
+function overviewLifecycleDrillFilters() {
+  return LIFECYCLE_STAGE_ORDER.map((stage) => ({ lifecycleStage: stage.key }));
+}
+
+function queueOverviewLifecycleDrillPreload({ forceRefresh = false } = {}) {
+  const cacheKey = overviewLifecycleDrillPreloadKey();
+  if (!cacheKey) {
+    return;
+  }
+  if (!forceRefresh && runtimeStore.overviewLifecycleDrillPreloadKey === cacheKey) {
+    return;
+  }
+
+  runtimeStore.overviewLifecycleDrillPreloadKey = cacheKey;
+  const request = preloadDrillProjects(overviewLifecycleDrillFilters(), { concurrency: 3 })
+    .then((results) => {
+      const failed = results.filter((result) => result.status === 'rejected');
+      if (failed.length) {
+        runtimeStore.overviewLifecycleDrillPreloadKey = '';
+      }
+      return results;
+    })
+    .catch(() => {
+      runtimeStore.overviewLifecycleDrillPreloadKey = '';
+      return [];
+    })
+    .finally(() => {
+      if (runtimeStore.overviewLifecycleDrillPreloadPromise === request) {
+        runtimeStore.overviewLifecycleDrillPreloadPromise = null;
+      }
+    });
+  runtimeStore.overviewLifecycleDrillPreloadPromise = request;
+}
+
 
 export async function loadDashboardSession(options = {}) {
+  const requestContext = dashboardSessionRequestContext(options);
+  const cachedPayload =
+    parsePageHash().pageId === 'teams' ? cachedTeamDashboardSessionPayload(requestContext, options) : null;
+  if (cachedPayload) {
+    return cachedPayload;
+  }
   const payload = await fetchJson(dashboardSessionUrl(options));
-  if (payload?.status === 'preparing' && !payload.snapshot) {
+  if (isDashboardSessionPreparing(payload)) {
     return payload;
   }
   return applyDashboardSessionPayload(payload);
@@ -372,8 +514,30 @@ export async function loadTeamPageModules({ forceRefresh = false } = {}) {
 export async function loadDashboard(options = {}) {
   const forceRefresh = Boolean(options.forceRefresh);
   const pageId = currentPageId();
-  await loadDashboardSession(options);
+  let sessionPayload = await loadDashboardSession(options);
+  for (const delayMs of DASHBOARD_SESSION_PREPARING_RETRY_DELAYS_MS) {
+    if (!isDashboardSessionPreparing(sessionPayload)) {
+      break;
+    }
+    if (!hasVisibleDashboardData()) {
+      renderDashboardStatusState('loading');
+    }
+    await waitForDashboardSessionRetry(delayMs);
+    sessionPayload = await loadDashboardSession(options);
+  }
+  if (isDashboardSessionPreparing(sessionPayload)) {
+    if (!hasVisibleDashboardData()) {
+      renderDashboardStatusState('loading');
+    }
+    console.warn('Dashboard session read model is preparing', {
+      reason: sessionPayload.reason || sessionPayload.status,
+    });
+    return false;
+  }
   renderAll();
+  if (pageId === 'overview') {
+    queueOverviewLifecycleDrillPreload({ forceRefresh });
+  }
 
   const catalogPromise =
     needsProjectCatalog(pageId) && (!state.projectsCatalogLoaded || forceRefresh)
@@ -422,6 +586,7 @@ export async function loadDashboard(options = {}) {
   if (pageLoads.length) {
     await Promise.all(pageLoads);
   }
+  return true;
 }
 
 
@@ -628,4 +793,5 @@ export function renderAll() {
   elements.syncedAt.textContent = formatDateTime(snapshot.syncedAt);
   updateSyncControl();
   updatePageRefreshControl();
+  queueVisibleDrillPreload();
 }

@@ -11,6 +11,7 @@ const DISPLAY_COMPLETION_DATE_FIELDS = [
   '摆场文件发出时间(项目群）',
   '摆场文件发出时间（项目群）',
 ];
+const DISPLAY_START_DATE_FIELDS = ['摆场开始时间', '摆场时间', '现场摆场时间'];
 const MEETING_DATE_FIELDS = ['上会时间', '上会日期'];
 const CLOSURE_CYCLE_FIELDS = ['闭环周期', '闭环期', '项目闭环周期'];
 const LIFECYCLE_COMPLETION_DATE_FIELDS = ['项目闭环时间', '项目闭环日期', '闭环时间', '闭环日期', '闭环完成时间'];
@@ -182,21 +183,24 @@ export function resolveDisplayCompletionState(project) {
     return stateResult('display', { completed: false, inProgress: false });
   }
   const completedAt = readReliableDate(project, DISPLAY_COMPLETION_DATE_FIELDS);
+  const startedAt = readReliableDate(project, DISPLAY_START_DATE_FIELDS);
   const completed = Boolean(completedAt);
   const hardStage = readWorkflowStage(project, { discipline: 'hard' });
   const softStage = readWorkflowStage(project, { discipline: 'soft' });
   const inProgress =
     !completed &&
     !isProjectStoppedForCompletion(project) &&
-    (hasStartedProgress(hardStage, DISPLAY_ACTIVE_STAGE_PATTERN) ||
+    (Boolean(startedAt) ||
+      hasStartedProgress(hardStage, DISPLAY_ACTIVE_STAGE_PATTERN) ||
       hasStartedProgress(softStage, DISPLAY_ACTIVE_STAGE_PATTERN));
   return stateResult('display', {
     completed,
     inProgress,
-    status: completed ? '摆场文件已发出' : [hardStage, softStage].filter(Boolean).join(' / '),
+    status: completed ? '摆场文件已发出' : startedAt ? '摆场已开始' : [hardStage, softStage].filter(Boolean).join(' / '),
     completedAt,
     evidence: [
       completedAt ? '摆场文件发出时间(项目群）' : '',
+      !completed && startedAt ? '摆场开始时间' : '',
       !completed && hardStage ? '硬装项目进度' : '',
       !completed && softStage ? '软装项目进度' : '',
     ].filter(Boolean),

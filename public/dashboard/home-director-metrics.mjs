@@ -69,8 +69,11 @@ const SLEEP_STORE_NAME_PATTERN = /睡眠店/;
 const SLEEP_HARD_CLOSED_STAGE_PATTERN = /^(闭环|完成|已完成)$/;
 const SLEEP_CONSTRUCTION_CLOSED_STAGE_PATTERN =
   /施工.*闭环|施工图.*完成.*审核|施工图.*审核.*完成|施工图.*审核.*通过|施工图完成审核|施工图审核通过/;
-const FORM_CLOSED_STAGES = new Set(['闭环', '完成', '已完成']);
-const FORM_PAUSED_OR_CANCELED_PATTERN = /暂停|取消|已取消|关闭|已关闭/;
+const FORM_CLOSED_STAGES = new Set(['闭环']);
+const FORM_PAUSED_STAGE_PATTERN = /暂停/;
+const FORM_PAUSE_RECOVERY_PATTERN = /曾暂停|历史暂停|暂停后(?:恢复|复工|重启|继续|推进)|暂停.*(?:恢复|复工|重启|继续|推进)/;
+const FORM_REPAUSED_STAGE_PATTERN = /(?:再次|重新|又).*暂停|(?:恢复|复工|重启|继续|推进)后.*暂停/;
+const FORM_CANCELED_PATTERN = /取消|已取消|关闭|已关闭/;
 const HARD_STAGE_AT_OR_AFTER_CONSTRUCTION_PATTERN = /施工图|施工整改|待采购|摆场|闭环|已完成|^完成$|点位/;
 const SOFT_STAGE_AT_OR_AFTER_POINT_PATTERN = /点位|软装方案|软装完成|产品清单|待采购|采购|摆场|闭环|^完成$|已完成/;
 
@@ -90,7 +93,11 @@ function readWorkflowStage(project, discipline = 'hard') {
   if (discipline === 'soft' && isSleepStoreProject(project)) {
     return '';
   }
-  return readRawFieldDisplay(project, discipline === 'soft' ? FIELD_ALIASES.softStage : FIELD_ALIASES.hardStage);
+  const rawStage = readRawFieldDisplay(project, discipline === 'soft' ? FIELD_ALIASES.softStage : FIELD_ALIASES.hardStage);
+  if (rawStage) {
+    return rawStage;
+  }
+  return normalizeText(project?.[discipline === 'soft' ? 'softProgressStage' : 'hardProgressStage']);
 }
 
 function parseTime(value) {
@@ -202,6 +209,10 @@ function projectOwnerDisplay(project) {
 }
 
 function projectBusinessScope(project) {
+  const scope = normalizeText(project?.franchiseScope);
+  if (scope === 'direct' || scope === 'franchise') {
+    return scope;
+  }
   const group = readRawFieldDisplay(project, FIELD_ALIASES.businessGroup);
   if (/加盟/.test(group)) {
     return 'franchise';
@@ -260,8 +271,8 @@ function isPointDesignStarted(project) {
   const softStage = readWorkflowStage(project, 'soft');
   return Boolean(
     readRawFieldDisplay(project, FIELD_ALIASES.hardCompletion) ||
-      (hardStage && !FORM_PAUSED_OR_CANCELED_PATTERN.test(hardStage) && HARD_STAGE_AT_OR_AFTER_CONSTRUCTION_PATTERN.test(hardStage)) ||
-      (softStage && !FORM_PAUSED_OR_CANCELED_PATTERN.test(softStage) && SOFT_STAGE_AT_OR_AFTER_POINT_PATTERN.test(softStage)) ||
+      (hardStage && !isStoppedFormWorkflowStage(hardStage) && HARD_STAGE_AT_OR_AFTER_CONSTRUCTION_PATTERN.test(hardStage)) ||
+      (softStage && !isStoppedFormWorkflowStage(softStage) && SOFT_STAGE_AT_OR_AFTER_POINT_PATTERN.test(softStage)) ||
       readRawFieldDisplay(project, FIELD_ALIASES.pointStatus) ||
       readRawFieldDisplay(project, FIELD_ALIASES.pointDone)
   );
@@ -353,20 +364,40 @@ function currentYearEntrySummary(departmentMetrics = {}, projects = [], now = ne
 }
 
 function rawHardStage(project) {
-  return readRawFieldDisplay(project, FIELD_ALIASES.hardStage);
+  return readWorkflowStage(project, 'hard');
 }
 
 function rawSoftStage(project) {
-  return readRawFieldDisplay(project, FIELD_ALIASES.softStage);
+  return readWorkflowStage(project, 'soft');
 }
 
 function isFormScopedProject(project) {
   return ['direct', 'franchise'].includes(projectBusinessScope(project));
 }
 
+function isCurrentPausedWorkflowStage(stage) {
+  const text = normalizeText(stage);
+  if (!FORM_PAUSED_STAGE_PATTERN.test(text)) {
+    return false;
+  }
+  if (FORM_REPAUSED_STAGE_PATTERN.test(text)) {
+    return true;
+  }
+  return !FORM_PAUSE_RECOVERY_PATTERN.test(text);
+}
+
+function isStoppedFormWorkflowStage(stage) {
+  return isCurrentPausedWorkflowStage(stage) || FORM_CANCELED_PATTERN.test(normalizeText(stage));
+}
+
 function isFormPausedOrCanceled(project) {
-  return FORM_PAUSED_OR_CANCELED_PATTERN.test(
-    [rawHardStage(project), rawSoftStage(project), project?.status, readRawFieldDisplay(project, ['项目状态', '状态'])]
+  const hardStage = rawHardStage(project);
+  const softStage = rawSoftStage(project);
+  if (isCurrentPausedWorkflowStage(hardStage) || isCurrentPausedWorkflowStage(softStage)) {
+    return true;
+  }
+  return FORM_CANCELED_PATTERN.test(
+    [hardStage, softStage, project?.status, readRawFieldDisplay(project, ['项目状态', '状态'])]
       .map(normalizeText)
       .filter(Boolean)
       .join(' ')
@@ -374,7 +405,7 @@ function isFormPausedOrCanceled(project) {
 }
 
 function isFormClosedProject(project) {
-  return FORM_CLOSED_STAGES.has(rawHardStage(project)) && FORM_CLOSED_STAGES.has(rawSoftStage(project));
+  return FORM_CLOSED_STAGES.has(rawHardStage(project)) || FORM_CLOSED_STAGES.has(rawSoftStage(project));
 }
 
 function countProjects(projects, predicate, scope = '') {
@@ -388,7 +419,7 @@ function projectBoardSummary(projects = [], now = new Date()) {
   const currentYearEntryPredicate = (project) => projectEntryYear(project) === year && !isFormPausedOrCanceled(project);
   const previousYearUnclosedPredicate = (project) =>
     projectEntryYear(project) === previousYear && !isFormPausedOrCanceled(project) && !isFormClosedProject(project);
-  const closedPredicate = (project) => isFormClosedProject(project);
+  const closedPredicate = (project) => !isFormPausedOrCanceled(project) && isFormClosedProject(project);
 
   return {
     year,
@@ -479,7 +510,14 @@ function metricSummary(metrics = {}, departmentMetrics = {}) {
   const summary = metrics?.summary || {};
   const totals = departmentMetrics?.totals || {};
   const scopeCount = departmentMetrics?.scopeCount ?? summary.totalProjects ?? 0;
-  const pausedCount = departmentMetrics?.pausedCount ?? metrics?.pausedCount ?? summary.pausedProjects ?? 0;
+  const pausedCount =
+    departmentMetrics?.pausedOrCanceledCount ??
+    metrics?.pausedOrCanceledCount ??
+    summary.pausedOrCanceledProjects ??
+    departmentMetrics?.pausedCount ??
+    metrics?.pausedCount ??
+    summary.pausedProjects ??
+    0;
   const totalScopeCount = departmentMetrics?.totalScopeCount ?? metrics?.totalScopeCount ?? scopeCount + pausedCount;
   const openDelayed = totals.openDelayed ?? summary.delayedProjects ?? 0;
   const notStarted = totals.notStarted ?? summary.notStarted ?? 0;
@@ -524,7 +562,7 @@ function buildSignalStrip(summary) {
       key: 'pausedOrCanceled',
       label: '暂停/取消项目量',
       value: board.pausedOrCanceled ?? 0,
-      caption: '原表进度含暂停/取消',
+      caption: '当前暂停或取消',
       tone: board.pausedOrCanceled ? 'amber' : 'green',
       alert: (board.pausedOrCanceled ?? 0) > 0,
       drillFilter: null,
@@ -533,7 +571,7 @@ function buildSignalStrip(summary) {
       key: 'closedProjectTotal',
       label: '全年已闭环项目总量',
       value: board.closedProjectTotal ?? 0,
-      caption: '硬装/软装均闭环',
+      caption: '任一轨道闭环',
       tone: 'teal',
       drillFilter: null,
     },
@@ -650,6 +688,9 @@ function buildStageLane(projects = []) {
 }
 
 function riskTags(project, now) {
+  if (classifyProjectStage(project).key === 'paused') {
+    return [];
+  }
   if (isDesignResponsibilityClosed(project)) {
     return [];
   }
@@ -859,6 +900,9 @@ function buildPressureTimeline(projects = []) {
     return buckets.get(label);
   };
   for (const project of projects || []) {
+    if (!isActiveRegionProject(project)) {
+      continue;
+    }
     const startMonth = monthKey(project.startDate);
     const dueMonth = monthKey(project.dueDate);
     const nature = classifyStoreNature(project);
@@ -892,7 +936,7 @@ function buildDataNotes(metrics = {}, departmentMetrics = {}) {
     {
       label: '总盘口径',
       value: `${departmentMetrics?.scopeCount ?? metrics?.summary?.totalProjects ?? 0} 项`,
-      text: '首页在营项目不含暂停项目，暂停沉淀单独看。',
+      text: '首页在营项目不含暂停/取消项目，暂停和取消单独看。',
     },
     {
       label: '延期口径',
@@ -922,13 +966,20 @@ export function buildDirectorOverviewModel({
   const safeProjects = Array.isArray(projects) ? projects : [];
   const baseSummary = metricSummary(metrics, departmentMetrics);
   const currentYearEntry = currentYearEntrySummary(departmentMetrics, safeProjects, now);
-  const projectBoard = projectBoardSummary(safeProjects, now);
+  const backendProjectBoard = departmentMetrics?.projectBoard && typeof departmentMetrics.projectBoard === 'object' ? departmentMetrics.projectBoard : null;
+  const projectBoard = backendProjectBoard
+    ? {
+        year: dashboardYear(now),
+        previousYear: dashboardYear(now) - 1,
+        ...backendProjectBoard,
+      }
+    : projectBoardSummary(safeProjects, now);
   const annualEntry = departmentMetrics?.annualEntryStructure;
-  if (annualEntry?.totals && annualEntry.year === currentYearEntry.year) {
+  if (!backendProjectBoard && annualEntry?.totals && annualEntry.year === currentYearEntry.year) {
     projectBoard.currentYearEntryTotal = annualEntry.totals.entry ?? projectBoard.currentYearEntryTotal;
     projectBoard.currentYearEntryDirect = annualEntry.totals.direct ?? projectBoard.currentYearEntryDirect;
     projectBoard.currentYearEntryFranchise = annualEntry.totals.franchise ?? projectBoard.currentYearEntryFranchise;
-  } else if (Number.isFinite(Number(departmentMetrics?.currentYearEntry?.count))) {
+  } else if (!backendProjectBoard && Number.isFinite(Number(departmentMetrics?.currentYearEntry?.count))) {
     projectBoard.currentYearEntryTotal = departmentMetrics.currentYearEntry.count;
   }
   const summary = {

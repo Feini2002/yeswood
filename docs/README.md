@@ -52,4 +52,4 @@
 
 ## 规则维护同步约定
 
-规则变更须按三层治理：可执行规则（`src/backend/hardDecorationDeadlineRules.mjs`、日历数据）→ 人类可读规则（`rules/operational-rulebook.md`）→ 运营展示（前端 `#rules`）。根目录 README 与公司背景只保留摘要和链接。详见 [`AGENTS.md`](../AGENTS.md)。
+规则变更须按三层治理：可执行规则（`src/backend/hardDecorationDeadlineRules.mjs`、日历数据）→ 人类可读规则（`rules/operational-rulebook.md`）→ 运营展示（前端 `#developer-docs` 规则章节）。根目录 README 与公司背景只保留摘要和链接。详见 [`AGENTS.md`](../AGENTS.md)。

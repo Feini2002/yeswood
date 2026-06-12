@@ -23,6 +23,8 @@ import {
   readProjectStage,
   readProjectNodeValue,
   isProjectWorkflowClosed,
+  isPausedOrCanceledProject,
+  isSingleTrackLifecycleClosure,
   projectAreaLabel,
   PROJECT_NODE_FIELD_ALIASES,
 } from '../domain/project-workflow.mjs';
@@ -84,6 +86,7 @@ function buildProjectDetailFieldGroups() {
       { label: '流程记录：产品清单接收时间', fields: PROJECT_NODE_FIELD_ALIASES.productListSent, value: (project) => formatDate(readProjectNodeValue(project, 'productListSent')), always: true },
       { label: '采购时间', fields: PROJECT_NODE_FIELD_ALIASES.purchaseTime, value: (project) => formatDate(readProjectNodeValue(project, 'purchaseTime')), always: true },
       { label: '采购完成情况', fields: PROJECT_NODE_FIELD_ALIASES.purchaseStatus, always: true },
+      { label: '摆场开始时间', fields: PROJECT_NODE_FIELD_ALIASES.displayStart, value: (project) => formatDate(readProjectNodeValue(project, 'displayStart')), always: true },
       { label: '摆场文件发出时间', fields: PROJECT_NODE_FIELD_ALIASES.displayFileSent, value: (project) => formatDate(readProjectNodeValue(project, 'displayFileSent')), always: true },
       { label: '摆场时间', fields: PROJECT_NODE_FIELD_ALIASES.displayTime, value: (project) => formatDate(readProjectNodeValue(project, 'displayTime')), always: true },
       { label: '启动时间', fields: PROJECT_NODE_FIELD_ALIASES.managementStart, value: (project) => formatDate(project.startDate || readProjectNodeValue(project, 'managementStart')), always: true },
@@ -128,7 +131,7 @@ export function projectDetailFieldValue(project, field) {
 
 export function projectDetailFieldApplies(project, group, field) {
   const label = String(field.label || '');
-  if (isProjectWorkflowClosed(project) && group.key === 'reminders' && label === '下一提醒') {
+  if ((isProjectWorkflowClosed(project) || isPausedOrCanceledProject(project)) && group.key === 'reminders' && label === '下一提醒') {
     return false;
   }
   if (!isSleepStoreProject(project)) {
@@ -220,7 +223,7 @@ export function renderDetailGroup(project, group) {
 
 
 export function renderProjectDetailContext(context = null, project = null) {
-  if (project && isProjectWorkflowClosed(project)) {
+  if (project && (isProjectWorkflowClosed(project) || isPausedOrCanceledProject(project))) {
     return '';
   }
   if (!context?.action && !context?.reason) {
@@ -238,6 +241,21 @@ export function renderProjectDetailContext(context = null, project = null) {
       <div>
         ${context.action ? `<b>${escapeHtml(context.action)}</b>` : ''}
         ${facts.length ? `<span>${escapeHtml(facts.join(' · '))}</span>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+export function renderSingleTrackLifecycleNote(project = {}) {
+  if (!isSingleTrackLifecycleClosure(project)) {
+    return '';
+  }
+  return `
+    <div class="project-detail-action-note project-detail-lifecycle-note" role="note">
+      <strong>单轨闭环提醒</strong>
+      <div>
+        <b>项目总闭环已按当前主口径计入</b>
+        <span>另一轨道可能漏填写或未更新，请在原始表单中复核。</span>
       </div>
     </div>
   `;
@@ -420,6 +438,7 @@ export function renderProjectDetailModal(project) {
   }
 
   const sleepStore = isSleepStoreProject(project);
+  const stopped = isPausedOrCanceledProject(project);
   const metaItems = [
     { label: sleepStore ? '负责人' : '硬装负责人', value: displayProjectHardOwner(project) },
     { label: '软装负责人', value: displayProjectSoftOwner(project) },
@@ -430,9 +449,11 @@ export function renderProjectDetailModal(project) {
   ].filter((item) => !sleepStore || item.label !== '软装负责人');
   const stage = displayOrDash(readProjectStage(project));
   const closed = isProjectWorkflowClosed(project);
-  const keyDateText = closed ? '' : readProjectKeyDate(project);
-  const assignmentReminder = renderProjectAssignmentReminder(project);
-  const fieldGapReminder = renderProjectFieldGapReminder(project);
+  const closedForReminder = closed && !stopped;
+  const keyDateText = closedForReminder ? '' : readProjectKeyDate(project);
+  const assignmentReminder = stopped ? '' : renderProjectAssignmentReminder(project);
+  const fieldGapReminder = stopped ? '' : renderProjectFieldGapReminder(project);
+  const singleTrackLifecycleNote = stopped ? '' : renderSingleTrackLifecycleNote(project);
 
   elements.projectDetailModalBody.innerHTML = `
     <header class="project-detail-hero">
@@ -442,6 +463,7 @@ export function renderProjectDetailModal(project) {
       </div>
     </header>
     ${renderProjectDetailContext(state.projectDetailContext, project)}
+    ${singleTrackLifecycleNote}
     ${assignmentReminder}
     ${fieldGapReminder}
     <div class="project-detail-meta">
@@ -462,7 +484,7 @@ export function renderProjectDetailModal(project) {
         <strong title="${escapeHtml(stage)}">${renderProjectStageStack(project)}</strong>
       </div>
       ${
-        closed
+        closedForReminder
           ? ''
           : `<div>
               <span>下一提醒</span>

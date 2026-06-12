@@ -4,6 +4,7 @@ import { escapeHtml, displayOrDash, formatDate, formatDateTime } from '../lib/fo
 import { bindTooltipTriggers, tooltipDataAttr } from '../dashboard/tooltip.mjs';
 import { renderInsightCard, renderInsightCards } from '../dashboard/insight-card.mjs';
 import { renderEmptyState } from '../dashboard/empty-state.mjs';
+import { queueVisibleDrillPreload } from '../components/drill-preload.mjs';
 import { DASHBOARD_METRICS_ENDPOINT, fetchJson } from '../lib/api.mjs';
 import { runtimeStore } from '../lib/runtime-flags.mjs';
 import {
@@ -107,7 +108,7 @@ export function adaptProfileDashboardPayload(metrics) {
 export function buildOverviewKpiItems(payload, options = {}) {
   const summary = payload?.summary || {};
   const definitions = payload?.metricDefinitions || payload?.tooltipCatalog || {};
-  const pausedCount = payload?.pausedCount ?? summary.pausedProjects ?? 0;
+  const pausedCount = payload?.pausedOrCanceledCount ?? payload?.pausedCount ?? summary.pausedOrCanceledProjects ?? summary.pausedProjects ?? 0;
   return OVERVIEW_KPI_METRICS.filter((item) => {
     if (item.key === 'pausedProjects') {
       return pausedCount > 0 || options.showZeroPaused;
@@ -118,9 +119,9 @@ export function buildOverviewKpiItems(payload, options = {}) {
     const tooltip =
       item.key === 'pausedProjects'
         ? {
-            title: '暂停店铺',
+            title: '暂停/取消',
             value: pausedCount,
-            definition: '硬装或软装项目进度为「暂停」，不计入项目总数及其它 KPI。',
+            definition: '当前硬装或软装项目进度为「暂停」或「取消」时单独列示；曾暂停但当前恢复的项目继续参与当前 KPI。',
           }
         : metricDefinitionTooltip(definitions, item.key, item.label, value);
     return {
@@ -134,7 +135,7 @@ export function buildOverviewKpiItems(payload, options = {}) {
         item.key === 'totalProjects'
           ? 'Active total snapshot'
           : item.key === 'pausedProjects'
-            ? 'Paused projects are counted separately.'
+            ? 'Paused and canceled projects are counted separately.'
             : '',
       drillable: item.key !== 'pausedProjects',
       drillFilter:
@@ -1036,6 +1037,7 @@ export function renderProfilePage(profile) {
 
   grid.innerHTML = renderProfileDashboardMarkup(profile, metrics, projects);
   bindDashboardTooltips(grid);
+  queueVisibleDrillPreload();
 }
 
 

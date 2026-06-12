@@ -1,6 +1,11 @@
 import { renderEmptyState } from '../dashboard/empty-state.mjs';
-import { resolveTeamDashboardContext } from '../domain/personnel.mjs';
-import { contextLabel, normalizeDashboardContext } from '../lib/constants.mjs';
+import { resolveTeamDashboardContext, resolveTeamOwner } from '../domain/personnel.mjs';
+import {
+  contextLabel,
+  DEFAULT_TEAM_DASHBOARD_CONTEXT,
+  normalizeDashboardContext,
+  resolveTeamPageDashboardContext,
+} from '../lib/constants.mjs';
 import { bindDashboardTooltips, elements } from '../lib/dom.mjs';
 import { escapeHtml } from '../lib/format.mjs';
 import { currentPageId } from '../lib/router.mjs';
@@ -16,6 +21,7 @@ import {
   rememberTeamWorkCompletion,
   teamWorkCompletionDetailCacheKey,
   teamWorkCompletionHasDetail,
+  teamWorkCompletionReviewMatchesOwner,
 } from '../domain/team-work-completion-store.mjs';
 
 const TEAM_COMPLETION_ECHARTS_ASSET_URL = '../assets/echarts/echarts.esm.min.mjs';
@@ -209,6 +215,264 @@ function teamCompletionSourceProjects(review = state.teamWorkCompletion) {
   return Object.values(teamCompletionProjectsById(review));
 }
 
+function processingQueueIsReady(queue = null) {
+  return Boolean(queue && typeof queue === 'object' && Array.isArray(queue.topProjects));
+}
+
+function teamCompletionProcessingQueue(review = state.teamWorkCompletion, queueKey = '') {
+  const queue = review?.processingQueues?.[queueKey] || null;
+  if (!processingQueueIsReady(queue)) {
+    return { unavailable: true, totalCount: null, topProjects: [] };
+  }
+  return queue;
+}
+
+function uniqueProcessingProjects(projects = []) {
+  const seen = new Set();
+  return (projects || []).filter((project) => {
+    const key = project?.id || project?.name || '';
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function teamCompletionProcessingProjects(review = state.teamWorkCompletion, queueKey = '') {
+  if (queueKey) {
+    const queue = teamCompletionProcessingQueue(review, queueKey);
+    return uniqueProcessingProjects([...(queue.projects || []), ...(queue.topProjects || [])]);
+  }
+  const urgent = teamCompletionProcessingProjects(review, 'urgent');
+  const normal = teamCompletionProcessingProjects(review, 'normal');
+  return uniqueProcessingProjects([...urgent, ...normal]);
+}
+
+function processingQueueTitle(queueKey = '') {
+  return queueKey === 'urgent' ? '紧急项目待处理 Top5' : '非紧急项目待处理 Top5';
+}
+
+function processingQueueText(value, fallback = '') {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  return text || fallback;
+}
+
+function processingQueueMetaParts(project = {}) {
+  const storeStatus = processingQueueText(project.storeStatus, '店态待核对');
+  const area = processingQueueText(project.areaLabel);
+  const stage = processingQueueText(project.actionStage || project.stage || project.status, '阶段待核对');
+  return {
+    storeStatus,
+    area,
+    storeStatusLabel: area ? `店态：${storeStatus} · 面积：${area}` : `店态：${storeStatus}`,
+    stage,
+    teamGroup: processingQueueText(project.teamGroupText),
+    teamDesigner: processingQueueText(project.teamDesignerText),
+  };
+}
+
+function processingQueueMeta(project = {}) {
+  const { storeStatusLabel, stage, teamGroup, teamDesigner } = processingQueueMetaParts(project);
+  return [
+    storeStatusLabel,
+    `当前阶段：${stage}`,
+    teamGroup ? `团队：${teamGroup}` : '',
+    teamDesigner,
+  ].filter(Boolean).join(' · ');
+}
+
+function processingQueueWindowText(project = {}) {
+  const days = Number(project.windowDays);
+  if (project.windowDays === null || project.windowDays === undefined || !Number.isFinite(days)) {
+    return '日期待核对';
+  }
+  const label = processingQueueText(project.windowLabel);
+  return label || `${days}天`;
+}
+
+function processingQueueDateRangeText(project = {}) {
+  const startDate = processingQueueText(project.startDate);
+  const targetDate = processingQueueText(project.targetDate);
+  if (!startDate && !targetDate) {
+    return '启动/目标待核对';
+  }
+  return `启动：${startDate || '待核对'} → 目标：${targetDate || '待核对'}`;
+}
+
+function processingQueueWindowNumber(project = {}) {
+  const days = Number(project.windowDays);
+  if (project.windowDays === null || project.windowDays === undefined || !Number.isFinite(days)) {
+    return '--';
+  }
+  return String(days);
+}
+
+function processingQueueRowState(project = {}) {
+  const days = Number(project.windowDays);
+  if (project.windowDays === null || project.windowDays === undefined || !Number.isFinite(days)) {
+    return ' is-date-missing';
+  }
+  return days < 0 ? ' is-date-anomaly' : '';
+}
+
+function renderProcessingQueueChip(label = '', value = '', className = '') {
+  const safeLabel = processingQueueText(label);
+  const safeValue = processingQueueText(value);
+  if (!safeLabel || !safeValue) {
+    return '';
+  }
+  return `<span class="team-completion-processing-chip${className ? ` ${escapeHtml(className)}` : ''}"><b>${escapeHtml(
+    safeLabel
+  )}</b><em>${escapeHtml(safeValue)}</em></span>`;
+}
+
+function renderProcessingQueueTeamChips(teamGroupText = '') {
+  const text = processingQueueText(teamGroupText);
+  if (!text) {
+    return '';
+  }
+  const match = text.match(/^(.*?)\s*·\s*组长[:：]\s*(.*)$/);
+  if (!match) {
+    return renderProcessingQueueChip('团队', text, 'is-team');
+  }
+  return [
+    renderProcessingQueueChip('团队', match[1], 'is-team'),
+    renderProcessingQueueChip('组长', match[2], 'is-lead'),
+  ].join('');
+}
+
+function renderProcessingQueueDesignerChip(teamDesignerText = '') {
+  const text = processingQueueText(teamDesignerText).replace(/^设计师[:：]\s*/, '');
+  return renderProcessingQueueChip('设计师', text, 'is-designer');
+}
+
+function renderProcessingQueueProjectRow(project = {}, { rank = 0, modal = false } = {}) {
+  const name = processingQueueText(project.name || project.id, '未命名项目');
+  const { storeStatus, area, stage, teamGroup, teamDesigner } = processingQueueMetaParts(project);
+  const meta = processingQueueMeta(project);
+  const windowText = processingQueueWindowText(project);
+  const dateRangeText = processingQueueDateRangeText(project);
+  const startDate = processingQueueText(project.startDate, '待核对');
+  const targetDate = processingQueueText(project.targetDate, '待核对');
+  const windowNumber = processingQueueWindowNumber(project);
+  const identityChips = [
+    renderProcessingQueueChip('店态', storeStatus, 'is-store'),
+    renderProcessingQueueChip('面积', area, 'is-area'),
+  ].join('');
+  const assignmentChips = [renderProcessingQueueTeamChips(teamGroup), renderProcessingQueueDesignerChip(teamDesigner)].join('');
+  const rowLabel = `${rank ? `${rank}、` : ''}${name}，${meta}，交付窗口：${windowText}，周期：${dateRangeText}`;
+  return `
+    <button
+      class="team-completion-processing-row${modal ? ' is-modal-row' : ''}${processingQueueRowState(project)}"
+      type="button"
+      data-team-processing-project-id="${escapeHtml(project.id || '')}"
+      data-team-processing-project-name="${escapeHtml(name)}"
+      title="${escapeHtml(`${name} · ${meta} · 交付窗口：${windowText} · 周期：${dateRangeText}`)}"
+      aria-label="${escapeHtml(rowLabel)}"
+    >
+      <span class="team-completion-processing-rank">${rank ? String(rank).padStart(2, '0') : ''}</span>
+      <span class="team-completion-processing-project">
+        <strong>${escapeHtml(name)}</strong>
+        <small class="team-completion-processing-meta">
+          ${identityChips}
+        </small>
+        ${
+          assignmentChips
+            ? `<small class="team-completion-processing-assignment">${assignmentChips}</small>`
+            : ''
+        }
+      </span>
+      <span class="team-completion-processing-stage">
+        <small>当前阶段</small>
+        <strong>${escapeHtml(stage)}</strong>
+      </span>
+      <span class="team-completion-processing-window">
+        <span class="team-completion-processing-window-badge">
+          <b>交付窗口</b>
+          <em>${escapeHtml(windowNumber)}</em>
+          <i>${escapeHtml(windowNumber === '--' ? '待核对' : '天')}</i>
+        </span>
+        <span class="team-completion-processing-date-track" aria-label="${escapeHtml(`周期：${dateRangeText}`)}">
+          <span><b>启动</b><em>${escapeHtml(startDate)}</em></span>
+          <span><b>目标</b><em>${escapeHtml(targetDate)}</em></span>
+        </span>
+      </span>
+    </button>
+  `;
+}
+
+function renderProcessingQueuePlaceholder(index) {
+  return `
+    <div class="team-completion-processing-row team-completion-processing-placeholder" aria-hidden="true">
+      <span class="team-completion-processing-rank">${String(index).padStart(2, '0')}</span>
+      <span></span>
+      <span></span>
+      <span></span>
+    </div>
+  `;
+}
+
+function renderProcessingQueueColumn(queueKey = 'normal', queue = {}) {
+  const unavailable = Boolean(queue.unavailable);
+  const topProjects = Array.isArray(queue.topProjects) ? queue.topProjects.slice(0, 5) : [];
+  const totalCount = unavailable ? null : safeNumber(queue.totalCount ?? topProjects.length);
+  const placeholders = unavailable
+    ? ''
+    : Array.from({ length: Math.max(0, 5 - topProjects.length) }, (_, index) =>
+        renderProcessingQueuePlaceholder(topProjects.length + index + 1)
+      ).join('');
+  const canOpen = !unavailable && queueKey === 'urgent' && totalCount > topProjects.length;
+  const openIcon = `
+    <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+      <circle cx="5" cy="10" r="1.35" />
+      <circle cx="10" cy="10" r="1.35" />
+      <circle cx="15" cy="10" r="1.35" />
+    </svg>
+  `;
+  return `
+    <article class="team-completion-processing-column is-${escapeHtml(queueKey)}" data-team-processing-queue="${escapeHtml(queueKey)}">
+      <header>
+        <div>
+          <span>${queueKey === 'urgent' ? '人工标记紧急' : '未标记紧急'}</span>
+          <h4>${escapeHtml(processingQueueTitle(queueKey))}</h4>
+        </div>
+        <div class="team-completion-processing-count">
+          <strong>${escapeHtml(unavailable ? '--' : totalCount)}</strong>
+          <small>${unavailable ? '待生成' : '项'}</small>
+          ${
+            canOpen
+              ? `<button type="button" data-team-processing-queue-open="urgent" aria-label="查看全部进行中的紧急项目" title="查看全部进行中的紧急项目">${openIcon}</button>`
+              : ''
+          }
+        </div>
+      </header>
+      <div class="team-completion-processing-list">
+        ${
+          unavailable
+            ? `<div class="team-completion-processing-state" role="status">
+                <strong>队列模型准备中</strong>
+                <span>当前 read-model 缺少待处理队列字段，请等待预计算完成或刷新数据。</span>
+              </div>`
+            : `${topProjects.map((project, index) => renderProcessingQueueProjectRow(project, { rank: index + 1 })).join('')}${placeholders}`
+        }
+      </div>
+    </article>
+  `;
+}
+
+export function renderTeamCompletionProcessingQueues(review = state.teamWorkCompletion) {
+  if (!elements.teamCompletionProcessingQueues) {
+    return;
+  }
+  const urgent = teamCompletionProcessingQueue(review, 'urgent');
+  const normal = teamCompletionProcessingQueue(review, 'normal');
+  elements.teamCompletionProcessingQueues.innerHTML = `
+    ${renderProcessingQueueColumn('urgent', urgent)}
+    ${renderProcessingQueueColumn('normal', normal)}
+  `;
+}
+
 function rerenderOpenTeamCompletionModalIfStillCurrent(requestKey = '') {
   if (
     !elements.teamCompletionMemberModal ||
@@ -240,11 +504,13 @@ export function preloadTeamWorkCompletionDetail(
     return existingRequest;
   }
 
-  const dashboardContext = normalizeDashboardContext(review.dashboardContext || resolveTeamDashboardContext() || 'all');
+  const dashboardContext = resolveTeamPageDashboardContext(
+    review.dashboardContext || resolveTeamDashboardContext() || DEFAULT_TEAM_DASHBOARD_CONTEXT
+  );
   const year = Number(review.year || state.teamWorkCompletionYear || new Date().getFullYear());
   const params = new URLSearchParams();
   params.set('owner', owner);
-  params.set('context', dashboardContext || 'all');
+  params.set('context', dashboardContext || DEFAULT_TEAM_DASHBOARD_CONTEXT);
   params.set('year', String(Number.isFinite(year) ? year : new Date().getFullYear()));
   params.set('view', 'detail');
   params.set('fallback', allowCompute ? 'compute' : 'readModel');
@@ -807,6 +1073,9 @@ export async function renderTeamCompletionECharts(months = state.teamWorkComplet
 
 function clearTeamCompletionPanels() {
   disposeTeamCompletionMonthlyChart();
+  if (elements.teamCompletionProcessingQueues) {
+    elements.teamCompletionProcessingQueues.innerHTML = '';
+  }
   if (elements.teamCompletionMonthlyChart) {
     elements.teamCompletionMonthlyChart.innerHTML = '';
   }
@@ -818,9 +1087,6 @@ function clearTeamCompletionPanels() {
   }
   if (elements.teamCompletionDataQuality) {
     elements.teamCompletionDataQuality.innerHTML = '';
-  }
-  if (elements.teamCompletionChartInsight) {
-    elements.teamCompletionChartInsight.textContent = '';
   }
   if (elements.teamCompletionScopeNote) {
     elements.teamCompletionScopeNote.hidden = true;
@@ -860,6 +1126,9 @@ function setTeamCompletionContentVisible(visible) {
   const mainGrid = elements.teamCompletionMonthlyChart?.closest?.('.team-completion-main-grid');
   const groupsModule = elements.teamCompletionGroupGrid?.closest?.('.team-completion-groups-module');
   overviewModule?.classList?.toggle?.('is-empty', !hasContent);
+  if (elements.teamCompletionProcessingQueues) {
+    elements.teamCompletionProcessingQueues.hidden = !hasContent;
+  }
   if (mainGrid) {
     mainGrid.hidden = !hasContent;
   }
@@ -899,17 +1168,16 @@ function resolveTeamCompletionDashboardContext(review = state.teamWorkCompletion
   }
   if (currentPageId() === 'teams') {
     const hashContext = resolveTeamDashboardContext();
-    return hashContext || 'all';
+    return hashContext || DEFAULT_TEAM_DASHBOARD_CONTEXT;
   }
-  const resolved = normalizeDashboardContext(review?.dashboardContext);
-  return resolved || 'all';
+  return resolveTeamPageDashboardContext(review?.dashboardContext);
 }
 
 export function syncTeamCompletionControls(review = state.teamWorkCompletion, pendingDashboardContext = '') {
   const dashboardContext = resolveTeamCompletionDashboardContext(review, pendingDashboardContext);
   if (elements.teamCompletionContextTabs) {
     elements.teamCompletionContextTabs.querySelectorAll('[data-team-completion-context]').forEach((button) => {
-      const context = button.dataset.teamCompletionContext || 'all';
+      const context = button.dataset.teamCompletionContext || DEFAULT_TEAM_DASHBOARD_CONTEXT;
       const active = context === dashboardContext;
       button.classList.toggle('is-active', active);
       button.setAttribute('aria-selected', active ? 'true' : 'false');
@@ -1485,6 +1753,57 @@ function renderTeamCompletionModal() {
   }
 }
 
+function renderProcessingQueueModalRows(projects = []) {
+  if (!projects.length) {
+    return `
+      <div class="team-completion-member-modal-empty">
+        <strong>暂无紧急项目</strong>
+        <span>当前项目未闭环进行中列表里没有人工标记紧急的项目。</span>
+      </div>
+    `;
+  }
+  return projects
+    .map((project, index) => renderProcessingQueueProjectRow(project, { rank: index + 1, modal: true }))
+    .join('');
+}
+
+export function openTeamCompletionProcessingQueueModal(queueKey = 'urgent') {
+  if (!elements.teamCompletionMemberModal || !elements.teamCompletionMemberModalBody) {
+    return;
+  }
+  if (queueKey !== 'urgent') {
+    return;
+  }
+  const queue = teamCompletionProcessingQueue(state.teamWorkCompletion, 'urgent');
+  const projects = teamCompletionProcessingProjects(state.teamWorkCompletion, 'urgent');
+  elements.teamCompletionMemberModalBody.innerHTML = `
+    <section class="team-completion-member-modal-shell team-completion-processing-modal-shell" role="document">
+      <header class="team-completion-member-modal-header">
+        <div>
+          <span>${escapeHtml(contextLabel(state.teamWorkCompletion?.dashboardContext || 'all'))} · ${
+            state.teamWorkCompletion?.year || state.teamWorkCompletionYear
+          }</span>
+          <h3 id="teamCompletionMemberModalTitle">全部进行中的紧急项目 · ${escapeHtml(safeNumber(queue.totalCount || projects.length))}项</h3>
+          <p>按商场交付时间减启动时间排序，窗口越短越靠前。</p>
+        </div>
+        <button type="button" class="team-completion-member-modal-close" data-team-completion-member-close aria-label="关闭紧急项目列表">×</button>
+      </header>
+      <section class="team-completion-processing-modal-table" aria-label="全部进行中的紧急项目">
+        <div class="team-completion-processing-modal-head">
+          <span>序号</span>
+          <span>项目</span>
+          <span>阶段</span>
+          <span>交付窗口 / 周期</span>
+        </div>
+        <div class="team-completion-processing-modal-rows">
+          ${renderProcessingQueueModalRows(projects)}
+        </div>
+      </section>
+    </section>
+  `;
+  elements.teamCompletionMemberModal.hidden = false;
+}
+
 export function openTeamCompletionGroupModal(groupName, metricKey = '') {
   const nextGroupName = String(groupName || '').trim();
   if (!nextGroupName || !elements.teamCompletionMemberModal) {
@@ -1611,6 +1930,9 @@ export function handleTeamCompletionMemberModalClick(event) {
     renderTeamCompletionMemberModal();
     return;
   }
+  if (handleTeamCompletionProcessingQueueClick(event)) {
+    return;
+  }
   const filterButton = event.target.closest('[data-team-completion-filter]');
   if (filterButton) {
     state.teamCompletionModalFilter = teamCompletionFilterByKey(filterButton.dataset.teamCompletionFilter || '').key;
@@ -1638,6 +1960,32 @@ export function handleTeamCompletionMemberModalClick(event) {
       }
     );
   }
+}
+
+export function handleTeamCompletionProcessingQueueClick(event) {
+  const openButton = event.target.closest('[data-team-processing-queue-open]');
+  if (openButton) {
+    openTeamCompletionProcessingQueueModal(openButton.dataset.teamProcessingQueueOpen || 'urgent');
+    return true;
+  }
+  const projectRow = event.target.closest('[data-team-processing-project-id], [data-team-processing-project-name]');
+  if (!projectRow) {
+    return false;
+  }
+  const sourceProjects = teamCompletionProcessingProjects(state.teamWorkCompletion);
+  openProjectDetailByReference(
+    {
+      projectId: projectRow.dataset.teamProcessingProjectId || '',
+      projectName: projectRow.dataset.teamProcessingProjectName || '',
+    },
+    sourceProjects,
+    {
+      action: '处理进行中项目',
+      reason: '团队进行中项目待处理',
+      meta: '按交付窗口排序',
+    }
+  );
+  return true;
 }
 
 export function handleTeamCompletionMemberModalKeydown(event) {
@@ -1733,11 +2081,36 @@ export function renderTeamWorkCompletionError(message = state.teamWorkCompletion
   clearTeamCompletionPanels();
 }
 
+function currentTeamWorkCompletionOwner() {
+  return resolveTeamOwner() || state.selectedTeamOwner || state.teamWorkCompletion?.owner || '';
+}
+
+function shouldBlockStaleTeamWorkCompletionReview(review = null) {
+  if (currentPageId() !== 'teams' || !review?.owner) {
+    return false;
+  }
+  const owner = currentTeamWorkCompletionOwner();
+  return Boolean(owner && !teamWorkCompletionReviewMatchesOwner(review, owner));
+}
+
 export function renderTeamWorkCompletionDashboard(review = state.teamWorkCompletion) {
   if (!elements.teamWorkCompletionModule) {
     return;
   }
   hideLegacyTeamLoadModule();
+  if (shouldBlockStaleTeamWorkCompletionReview(review)) {
+    const owner = currentTeamWorkCompletionOwner();
+    if (state.teamWorkCompletion === review) {
+      state.teamWorkCompletion = null;
+      state.teamWorkCompletionLoading = true;
+      state.teamWorkCompletionError = '';
+      state.teamWorkCompletionRefreshStatus = 'switching';
+      state.teamWorkCompletionRefreshError = '';
+      state.teamWorkCompletionSwitchTarget = owner;
+    }
+    renderTeamWorkCompletionLoading(owner);
+    return;
+  }
   if (state.teamWorkCompletionLoading && !review) {
     renderTeamWorkCompletionLoading(state.selectedTeamOwner);
     return;
@@ -1768,13 +2141,11 @@ export function renderTeamWorkCompletionDashboard(review = state.teamWorkComplet
     delete elements.teamWorkCompletionModule.dataset.switchingOwner;
   }
   renderTeamCompletionHeroStats(review);
+  renderTeamCompletionProcessingQueues(review);
   renderTeamCompletionScopeNote(review, state.teamMetrics);
   renderTeamCompletionMonthlyChart(review.monthly?.months || []);
   renderTeamCompletionGroups(review);
   renderTeamCompletionMembers(review);
   renderTeamCompletionDataQuality(review);
-  if (elements.teamCompletionChartInsight) {
-    elements.teamCompletionChartInsight.textContent = `总览为累计完成；月度柱状图展示 ${review.year} 年 ${contextLabel(review.dashboardContext)}口径下的平面方案、方案摆场和项目总闭环完成日期；闭环缺少业务完成日期时使用项目 Deadline 落月。`;
-  }
   bindDashboardTooltips(elements.teamWorkCompletionModule);
 }

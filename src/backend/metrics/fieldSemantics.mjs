@@ -34,8 +34,10 @@ export const STORE_SEGMENT_LABELS = {
 const PRIORITY_STATUS_FIELDS = ['项目状态', '状态'];
 
 const NOT_STARTED_STAGES = ['未开始', '未安排', '未排期', '未排班', '待启动'];
-const SOFT_PAUSE_STAGES = ['暂停'];
 const PAUSED_STAGE_PATTERN = /暂停/;
+const PAUSE_RECOVERY_PATTERN = /曾暂停|历史暂停|暂停后(?:恢复|复工|重启|继续|推进)|暂停.*(?:恢复|复工|重启|继续|推进)/;
+const REPAUSED_STAGE_PATTERN = /(?:再次|重新|又).*暂停|(?:恢复|复工|重启|继续|推进)后.*暂停/;
+const CANCELED_STAGE_PATTERN = /取消|已取消|关闭|已关闭/;
 const HARD_STAGE_AT_OR_AFTER_CONSTRUCTION_PATTERN = /施工图|施工整改|待采购|摆场|闭环|已完成|^完成$|点位/;
 const SOFT_STAGE_AT_OR_AFTER_POINT_PATTERN = /点位|软装方案|软装完成|产品清单|待采购|采购|摆场|闭环|^完成$|已完成/;
 const SCHEME_DONE_STATUSES = ['准时完成', '延期完成'];
@@ -95,6 +97,25 @@ export function normalizeCell(value) {
   return String(value).trim();
 }
 
+export function isCurrentPausedWorkflowStageText(stage) {
+  const text = normalizeCell(stage);
+  if (!text || !PAUSED_STAGE_PATTERN.test(text)) {
+    return false;
+  }
+  if (REPAUSED_STAGE_PATTERN.test(text)) {
+    return true;
+  }
+  return !PAUSE_RECOVERY_PATTERN.test(text);
+}
+
+export function isCanceledWorkflowStageText(stage) {
+  return CANCELED_STAGE_PATTERN.test(normalizeCell(stage));
+}
+
+export function isStoppedWorkflowStageText(stage) {
+  return isCanceledWorkflowStageText(stage) || isCurrentPausedWorkflowStageText(stage);
+}
+
 function normalizeFieldKey(value) {
   return normalizeCell(value).toLowerCase();
 }
@@ -132,7 +153,7 @@ export function readRawDisplay(project, fieldNames) {
 }
 
 // 已知阶段的特征关键词，用于过滤非阶段的 progress 回退值（如"等待确认"）
-const KNOWN_STAGE_KEYWORDS = /闭环|完成|摆场|施工|采购|方案|上会|复尺|平面|点位|未开始|未安排|暂停|产品清单/;
+const KNOWN_STAGE_KEYWORDS = /闭环|完成|摆场|施工|采购|方案|上会|复尺|平面|点位|未开始|未安排|暂停|取消|产品清单/;
 function progressFallbackStage(value) {
   const text = normalizeCell(value);
   if (!text || /^\d+(?:\.\d+)?%?$/.test(text)) {
@@ -196,7 +217,7 @@ function isSoftCompletionDone(project) {
 
 function isCompleteText(value) {
   const text = normalizeCell(value);
-  if (!text || /未完成|未开始|未启动|未安排|待|延期中|暂停/.test(text)) {
+  if (!text || /未完成|未开始|未启动|未安排|待|延期中|暂停|取消/.test(text)) {
     return false;
   }
   return /准时完成|延期完成|已完成|完成|闭环/.test(text);
@@ -206,7 +227,9 @@ function hasHardConstructionStartSignal(project) {
   const hardStage = readWorkflowStage(project, { discipline: 'hard' });
   return Boolean(
     readHardDesignCompletionDate(project) ||
-      (hardStage && !PAUSED_STAGE_PATTERN.test(hardStage) && HARD_STAGE_AT_OR_AFTER_CONSTRUCTION_PATTERN.test(hardStage))
+      (hardStage &&
+        !isStoppedWorkflowStageText(hardStage) &&
+        HARD_STAGE_AT_OR_AFTER_CONSTRUCTION_PATTERN.test(hardStage))
   );
 }
 
@@ -217,7 +240,9 @@ function hasPointDesignStartSignal(project) {
   const softStage = readWorkflowStage(project, { discipline: 'soft' });
   return Boolean(
     hasHardConstructionStartSignal(project) ||
-      (softStage && !PAUSED_STAGE_PATTERN.test(softStage) && SOFT_STAGE_AT_OR_AFTER_POINT_PATTERN.test(softStage))
+      (softStage &&
+        !isStoppedWorkflowStageText(softStage) &&
+        SOFT_STAGE_AT_OR_AFTER_POINT_PATTERN.test(softStage))
   );
 }
 
@@ -525,7 +550,7 @@ function matchesNotStartedStage(stage) {
 
 export function isSoftNotStarted(project, { includePause = false } = {}) {
   const stage = readWorkflowStage(project, { discipline: 'soft' });
-  if (includePause && stage && SOFT_PAUSE_STAGES.some((item) => stage.includes(item))) {
+  if (includePause && isCurrentPausedWorkflowStageText(stage)) {
     return true;
   }
   if (hasPointDesignStartSignal(project)) {
@@ -547,11 +572,17 @@ export function isProjectNotStarted(project, { includeSoftPause = false } = {}) 
 
 /** 进行中：硬装或软装任一侧在推进（店态只筛项目，不绑定工种）。 */
 export function isProjectInProgress(project) {
+  if (isProjectStoppedByWorkflow(project)) {
+    return false;
+  }
   return isHardInProgress(project) || isSoftInProgress(project);
 }
 
 export function isHardInProgress(project) {
   const stage = readWorkflowStage(project, { discipline: 'hard' });
+  if (isStoppedWorkflowStageText(stage)) {
+    return false;
+  }
   if (!stage || matchesNotStartedStage(stage)) {
     return false;
   }
@@ -560,14 +591,14 @@ export function isHardInProgress(project) {
 
 export function isSoftInProgress(project) {
   const stage = readWorkflowStage(project, { discipline: 'soft' });
+  if (isStoppedWorkflowStageText(stage)) {
+    return false;
+  }
   if (hasPointDesignStartSignal(project)) {
     return !isSoftDesignClosed(project);
   }
   if (!stage || matchesNotStartedStage(stage)) {
     return false;
-  }
-  if (SOFT_PAUSE_STAGES.some((item) => stage.includes(item))) {
-    return true;
   }
   return !isSoftDesignClosed(project);
 }
@@ -584,6 +615,12 @@ export function isSoftInProgress(project) {
  */
 export function isOpenDelayed(project) {
   return isOpenDesignResponsibilityDelayed(project);
+}
+
+export function isProjectStoppedByWorkflow(project) {
+  const hardStage = readWorkflowStage(project, { discipline: 'hard' });
+  const softStage = readWorkflowStage(project, { discipline: 'soft' });
+  return isStoppedWorkflowStageText(hardStage) || isStoppedWorkflowStageText(softStage);
 }
 
 export function readMetricDate(project, fieldCandidates) {

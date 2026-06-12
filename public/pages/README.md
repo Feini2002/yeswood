@@ -1,6 +1,6 @@
 # pages/
 
-Per-navigation-page modules (`overview`, `franchise`, `direct`, `teams`, `details`, `rules`, `developer-docs`).
+Per-navigation-page modules (`overview`, `franchise`, `direct`, `teams`, `details`, `developer-docs`). Operational rules content lives in `index.html` under the developer docs page; `rules.mjs` only hosts the Deadline info dialog helper.
 
 `profile-shared.mjs` contains shared franchise/direct profile helpers. `owner-review.mjs` is a teams submodule, not a separate nav page.
 

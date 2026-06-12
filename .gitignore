@@ -1,14 +1,18 @@
-# Local secrets and runtime data — see docs/handbook/git-and-data.md
-.env
+# Runtime data — see docs/handbook/git-and-data.md
 data/app.sqlite
 data/dashboard-cache.json
 data/*.sqlite-shm
 data/*.sqlite-wal
+data/precomputed/
+data/read-model/
 
 # Rebuildable local indexes and runtime scratch files.
 .codegraph/
+.codex/config.toml
 .codex/tmp/
+.superpowers/
 .cursor/**/*.tmp.*
+.tmp-*
 tmp-*
 output/
 .tmp/

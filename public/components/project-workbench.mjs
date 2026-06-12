@@ -17,7 +17,7 @@ import {
   readProjectStage,
   readEffectiveWorkflowStage,
   projectStageDisplayItems,
-  isPausedProject,
+  isPausedOrCanceledProject,
   readProjectNodeValue,
   readMeetingPointStatus,
   projectAreaLabel,
@@ -44,7 +44,6 @@ import { renderTeamHeroStat } from '../components/team-hero-stat.mjs';
 import { renderEmptyState } from '../dashboard/empty-state.mjs';
 import {
   renderProjectDetailModal,
-  renderProjectDetailModalLoading,
   renderProjectDetailModalLoadError,
   renderProjectAssignmentAlert,
   hideProjectAssignmentAlert,
@@ -310,7 +309,7 @@ export function renderPausedProjectToggle() {
   const active = Boolean(state.showPausedProjects);
   elements.pausedProjectToggle.classList.toggle('active', active);
   elements.pausedProjectToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
-  elements.pausedProjectToggle.textContent = active ? '只看暂停项目' : '查看暂停项目';
+  elements.pausedProjectToggle.textContent = active ? '只看暂停/取消项目' : '查看暂停/取消项目';
 }
 
 
@@ -329,8 +328,8 @@ export function renderProjectWorkbenchEmptyState(reason = 'filtered') {
       description: '调整搜索或筛选条件后再查看，当前桌面工作台会保留筛选栏状态。',
     },
     paused: {
-      title: '暂无暂停项目',
-      description: '当前筛选范围内没有暂停或沉淀项目，可切回全部项目继续查看。',
+      title: '暂无暂停/取消项目',
+      description: '当前筛选范围内没有暂停或取消项目，可切回全部项目继续查看。',
     },
     incomplete: {
       title: '暂无人员配置待补全项目',
@@ -362,7 +361,7 @@ export function renderProjectWorkbench(projects = []) {
   const viewKey = projectWorkbenchViewKey();
   const view = DETAILS_WORKBENCH_VIEWS[viewKey];
   const baseVisibleProjects = projects.filter((project) =>
-    state.showPausedProjects ? isPausedProject(project) : !isPausedProject(project)
+    state.showPausedProjects ? isPausedOrCanceledProject(project) : !isPausedOrCanceledProject(project)
   );
   const scopedProjects =
     viewKey === 'deadlineExceptions'
@@ -460,8 +459,46 @@ export function openProjectDetailFromRow(row) {
 }
 
 
+function cachedProjectFromDetailEntry(entry) {
+  if (!entry) {
+    return null;
+  }
+  if (entry.project) {
+    const signature = state.projectsCatalogSignature || '';
+    if (entry.signature && signature && entry.signature !== signature) {
+      return null;
+    }
+    return entry.project;
+  }
+  return entry;
+}
+
+function runtimeProjectDetailCacheProjects() {
+  if (!(runtimeStore.projectDetailCache instanceof Map)) {
+    return [];
+  }
+  return Array.from(runtimeStore.projectDetailCache.values())
+    .map(cachedProjectFromDetailEntry)
+    .filter(Boolean);
+}
+
+function teamCompletionDetailProjects(review = state.teamWorkCompletion) {
+  const details = review?.projectDetailsById;
+  if (!details || typeof details !== 'object') {
+    return [];
+  }
+  return Object.values(details).filter(Boolean);
+}
+
 function projectDetailPools(sourceProjects = state.projects) {
-  return [sourceProjects, state.allProjects, state.projects, state.drillModal?.projects].filter(Array.isArray);
+  return [
+    runtimeProjectDetailCacheProjects(),
+    teamCompletionDetailProjects(),
+    sourceProjects,
+    state.allProjects,
+    state.projects,
+    state.drillModal?.projects,
+  ].filter(Array.isArray);
 }
 
 export function projectDetailRichness(project = {}) {
@@ -503,8 +540,9 @@ function projectsMatchingReference({ projectId = '', projectName = '' } = {}, po
         continue;
       }
       const idMatch = id && String(project.id || '') === id;
+      const recordIdMatch = id && String(project.recordMeta?.id || '') === id;
       const nameMatch = name && String(project.name || '') === name;
-      if (!idMatch && !nameMatch) {
+      if (!idMatch && !recordIdMatch && !nameMatch) {
         continue;
       }
       seen.add(project);
@@ -520,7 +558,7 @@ export function findProjectByReference({ projectId = '', projectName = '' } = {}
     return null;
   }
   if (projectId) {
-    const idMatches = matches.filter((item) => item.id === projectId);
+    const idMatches = matches.filter((item) => item.id === projectId || item.recordMeta?.id === projectId);
     if (idMatches.length) {
       return pickRichestProject(idMatches);
     }
@@ -532,16 +570,10 @@ export function findProjectByReference({ projectId = '', projectName = '' } = {}
   return nameMatches.length ? pickRichestProject(nameMatches) : null;
 }
 
-async function warmProjectDetailFromCatalog(reference = {}, sourceProjects = state.projects) {
-  const { fetchProjectCatalog } = await import('../domain/project-catalog.mjs');
-  if (runtimeStore.projectCatalogPromise) {
-    await runtimeStore.projectCatalogPromise.catch(() => {});
-  } else if (!state.projectsCatalogLoaded) {
-    await fetchProjectCatalog().catch(() => {});
-  }
-  return findProjectByReference(reference, sourceProjects);
+function projectMatchesDetailId(project = {}, projectId = '') {
+  const id = String(projectId || '').trim();
+  return Boolean(id && (project.id === id || project.recordMeta?.id === id));
 }
-
 
 export async function openProjectDetailByReference(reference = {}, sourceProjects = state.projects, context = null) {
   const requestId = runtimeStore.projectDetailRequestId + 1;
@@ -563,16 +595,7 @@ export async function openProjectDetailByReference(reference = {}, sourceProject
     renderProjectDetailModal(candidate);
   };
 
-  if (projectNeedsDetailFetch(project)) {
-    renderProjectDetailModalLoading(project);
-    const catalogProject = await warmProjectDetailFromCatalog(reference, sourceProjects);
-    if (catalogProject && !projectNeedsDetailFetch(catalogProject)) {
-      project = catalogProject;
-      renderIfCurrent(project);
-    }
-  } else {
-    renderProjectDetailModal(project);
-  }
+  renderProjectDetailModal(project);
 
   const { fetchProjectDetail } = await import('../domain/project-catalog.mjs');
   try {
@@ -580,7 +603,7 @@ export async function openProjectDetailByReference(reference = {}, sourceProject
     if (requestId !== runtimeStore.projectDetailRequestId) {
       return;
     }
-    if (!fullProject || state.selectedProjectId !== fullProject.id) {
+    if (!fullProject || !projectMatchesDetailId(fullProject, state.selectedProjectId)) {
       return;
     }
     renderProjectDetailModal(fullProject);
@@ -589,7 +612,7 @@ export async function openProjectDetailByReference(reference = {}, sourceProject
     if (requestId !== runtimeStore.projectDetailRequestId) {
       return;
     }
-    if (projectNeedsDetailFetch(project)) {
+    if (!project || !elements.projectDetailModal || elements.projectDetailModal.hidden) {
       renderProjectDetailModalLoadError(project, error);
     }
   }

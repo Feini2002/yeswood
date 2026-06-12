@@ -25,6 +25,7 @@ import * as drillModal from './components/drill-modal.mjs';
 import * as projectWorkbench from './components/project-workbench.mjs';
 import * as projectDetailModal from './components/project-detail-modal.mjs';
 import * as rulesPage from './pages/rules.mjs';
+import * as developerDocsPage from './pages/developer-docs.mjs';
 import * as profileShared from './pages/profile-shared.mjs';
 import * as ownerReviewPage from './pages/owner-review.mjs';
 import * as teamsPage from './pages/teams.mjs';
@@ -101,6 +102,7 @@ const {
   handleTeamCompletionGroupGridClick,
   handleTeamCompletionMemberClick,
   handleTeamCompletionMemberModalClick,
+  handleTeamCompletionProcessingQueueClick,
   handleTeamCompletionMemberModalKeydown,
   handleTeamCompletionMonthClick,
   openTeamCompletionGroupModal,
@@ -149,6 +151,9 @@ const { ensureTeamOwnerOptions, ensureOwnerReviewControls, resolveTeamOwner, res
 const { updateSyncControl, updatePageRefreshControl, isDashboardAutoUpdateEnabled } = syncControls;
 const { loadProfileDashboard, renderProfilePage } = profileShared;
 const { openRulesInfoDialog } = rulesPage;
+const { load: loadDeveloperDocsPage, configureDeveloperDocsPage } = developerDocsPage;
+
+configureDeveloperDocsPage({ currentPageId });
 
 export function bindEvents() {
   const debouncedSoftRefresh = debounce(() => {
@@ -219,6 +224,9 @@ export function bindEvents() {
   }
   if (elements.teamCompletionHeroStats) {
     elements.teamCompletionHeroStats.addEventListener('click', handleTeamCompletionFilterClick);
+  }
+  if (elements.teamCompletionProcessingQueues) {
+    elements.teamCompletionProcessingQueues.addEventListener('click', handleTeamCompletionProcessingQueueClick);
   }
   if (elements.teamCompletionMonthlyChart) {
     elements.teamCompletionMonthlyChart.addEventListener('click', handleTeamCompletionMonthClick);
@@ -293,7 +301,7 @@ async function loadSelectedTeamOwner(owner = elements.teamOwnerSelect.value) {
   resetOwnerReviewForTeamOwnerChange();
   navigateToTeam(owner);
   const dashboardContext = resolveTeamDashboardContext();
-  return loadTeamDashboardScope(owner, dashboardContext || 'all', state.teamWorkCompletionYear);
+  return loadTeamDashboardScope(owner, dashboardContext || 'direct', state.teamWorkCompletionYear);
 }
 
 export async function init() {
@@ -321,6 +329,7 @@ export async function init() {
 }
 
 configureRouter({
+  loadDeveloperDocsPage,
   filterControlsForPage,
   readActiveProjectFilters,
   detailsRouteFiltersChanged,
@@ -400,6 +409,7 @@ export {
   handleTeamCompletionGroupGridClick,
   handleTeamCompletionMemberClick,
   handleTeamCompletionMemberModalClick,
+  handleTeamCompletionProcessingQueueClick,
   handleTeamCompletionMonthClick,
   openTeamCompletionGroupModal,
   openTeamCompletionMemberModal,

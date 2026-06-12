@@ -1,5 +1,5 @@
 import { escapeHtml, displayOrDash } from '../lib/format.mjs';
-import { isProjectWorkflowClosed, readProjectStage, projectStageDisplayItems } from '../domain/project-workflow.mjs';
+import { isPausedOrCanceledProject, isProjectWorkflowClosed, readProjectStage, projectStageDisplayItems } from '../domain/project-workflow.mjs';
 import {
   projectFieldGapReminders,
   resolveProjectKeyDateReminders,
@@ -55,7 +55,7 @@ export function renderProjectStageStack(project) {
 }
 
 export function renderProjectKeyDateStack(project, title = '') {
-  if (isProjectWorkflowClosed(project)) {
+  if (isProjectWorkflowClosed(project) && !isPausedOrCanceledProject(project)) {
     return escapeHtml('--');
   }
 

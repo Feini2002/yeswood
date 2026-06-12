@@ -73,6 +73,9 @@ export function invalidateProjectCaches({ catalog = false, drill = true, details
   if (drill) {
     runtimeStore.drillProjectsCache?.clear();
     runtimeStore.drillResolvePromises?.clear();
+    runtimeStore.drillPreloadKeys?.clear();
+    runtimeStore.overviewLifecycleDrillPreloadKey = '';
+    runtimeStore.overviewLifecycleDrillPreloadPromise = null;
   }
   if (details) {
     runtimeStore.projectDetailCache?.clear();
@@ -121,6 +124,51 @@ export function drillCacheKey(filters = {}) {
 
 export function peekDrillProjectsCache(filters = {}) {
   return ensureDrillCache().get(drillCacheKey(filters)) || null;
+}
+
+export function peekProjectDetailCache(projectId = '') {
+  const id = normalizeText(projectId);
+  if (!id) {
+    return null;
+  }
+  const cached = ensureDetailCache().get(id);
+  const signature = currentCatalogSignature();
+  if (cached?.signature === signature && cached.project) {
+    return cached.project;
+  }
+  return null;
+}
+
+function projectDetailAliasIds(project = {}, aliases = []) {
+  return Array.from(
+    new Set(
+      [...(Array.isArray(aliases) ? aliases : [aliases]), project?.id, project?.recordMeta?.id]
+        .map(normalizeText)
+        .filter(Boolean)
+    )
+  );
+}
+
+export function rememberProjectDetail(project = {}, { signature = currentCatalogSignature(), aliases = [] } = {}) {
+  const ids = projectDetailAliasIds(project, aliases);
+  if (!ids.length) {
+    return;
+  }
+  const detailCache = ensureDetailCache();
+  for (const id of ids) {
+    detailCache.set(id, { signature, project });
+  }
+  pruneLimitedMap(detailCache, PROJECT_DETAIL_CACHE_LIMIT);
+  replaceProjectInCatalog(project, ids);
+}
+
+export function rememberProjectDetails(projectsById = {}, options = {}) {
+  if (!projectsById || typeof projectsById !== 'object') {
+    return;
+  }
+  for (const project of Object.values(projectsById)) {
+    rememberProjectDetail(project, options);
+  }
 }
 
 export function hasComplexProjectFilters(filters = readFilters()) {
@@ -209,15 +257,13 @@ export async function fetchProjectDetail(projectId) {
     return inflight;
   }
 
-  const request = fetchJson(`/api/projects?id=${encodeURIComponent(id)}&view=full`)
+  const request = fetchJson(`/api/projects?id=${encodeURIComponent(id)}&view=full&fallback=readModel`)
     .then((payload) => {
       const item = payload?.item || null;
       if (!item) {
         return null;
       }
-      detailCache.set(id, { signature, project: item });
-      pruneLimitedMap(detailCache, PROJECT_DETAIL_CACHE_LIMIT);
-      replaceProjectInCatalog(item);
+      rememberProjectDetail(item, { signature, aliases: [id] });
       return item;
     })
     .finally(() => {
@@ -230,13 +276,14 @@ export async function fetchProjectDetail(projectId) {
   return request;
 }
 
-export function replaceProjectInCatalog(project) {
+export function replaceProjectInCatalog(project, aliases = []) {
   if (!project?.id) {
     return;
   }
+  const ids = new Set(projectDetailAliasIds(project, aliases));
   const pools = [state.allProjects, state.projects, state.drillModal?.projects].filter(Array.isArray);
   for (const pool of pools) {
-    const index = pool.findIndex((entry) => entry.id === project.id);
+    const index = pool.findIndex((entry) => ids.has(entry.id) || ids.has(entry.recordMeta?.id));
     if (index >= 0) {
       pool[index] = project;
     }
@@ -323,4 +370,31 @@ export async function resolveDrillProjects(filters = {}, { useCache = true } = {
   ensureDrillCache();
   runtimeStore.drillResolvePromises.set(cacheKey, request);
   return request;
+}
+
+export async function preloadDrillProjects(filtersList = [], { concurrency = 3 } = {}) {
+  const pendingFilters = (Array.isArray(filtersList) ? filtersList : [])
+    .filter((filters) => filters && typeof filters === 'object')
+    .filter((filters) => !peekDrillProjectsCache(filters));
+  if (!pendingFilters.length) {
+    return [];
+  }
+
+  const workerCount = Math.max(1, Math.min(Number(concurrency) || 1, pendingFilters.length));
+  const results = [];
+  let cursor = 0;
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (cursor < pendingFilters.length) {
+      const filters = pendingFilters[cursor];
+      cursor += 1;
+      try {
+        const items = await resolveDrillProjects(filters);
+        results.push({ status: 'fulfilled', filters, value: items });
+      } catch (reason) {
+        results.push({ status: 'rejected', filters, reason });
+      }
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }

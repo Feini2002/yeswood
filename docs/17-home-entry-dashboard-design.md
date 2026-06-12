@@ -5,7 +5,7 @@
 > 适用范围：首页新增「年度进店结构」大模块  
 > 关联口径：[看板指标与 Profile 契约](./contracts/dashboard-metrics.md)、[数据权威与钉钉导入契约](./contracts/data-authority.md)、[字段映射契约](./contracts/field-mapping.md)、[当前状态与路线图](./STATUS.md)  
 > V3 实现追溯：[archive/2026-06-10-home-entry-structure-v3-plan.md](./archive/2026-06-10-home-entry-structure-v3-plan.md)  
-> 实现锚点：`src/backend/metrics/fieldSemantics.mjs`（`readStoreNatureKey` / `readStoreNatureLabel` / `readFranchiseScope`）、`src/backend/metrics/pausedProjects.mjs`（`isPausedProject`）、`src/backend/projectStatus.mjs`（`isTerminalProjectStatus`）、`src/backend/metrics/composeDashboard.mjs`（当前年度入口参考）；`public/dashboard/home-director-metrics.mjs` 仅作首页现有口径对齐参考，不作为后端聚合的直接导入对象。
+> 实现锚点：`src/backend/metrics/fieldSemantics.mjs`（`readStoreNatureKey` / `readStoreNatureLabel` / `readFranchiseScope`）、`src/backend/metrics/pausedProjects.mjs`（`isPausedProject` / `isCanceledProject` / `isPausedOrCanceledProject`）、`src/backend/projectStatus.mjs`（`isTerminalProjectStatus`）、`src/backend/metrics/composeDashboard.mjs`（当前年度入口与 `projectBoard` 指挥条参考）；`public/dashboard/home-director-metrics.mjs` 仅作首页兜底对账参考，不作为后端聚合的直接导入对象。
 
 ## 1. 背景与目标
 
@@ -53,8 +53,8 @@
 
 排除规则（见 §2.7 可执行判定）：
 
-- 暂停项目不计入。
-- 取消 / 关闭项目不计入。
+- 当前暂停 / 取消项目暂不计入；曾暂停但当前已恢复的项目按原始 `startDate` 回到对应月份统计。
+- 取消 / 关闭为终态，不做恢复判断。
 - `startDate` 缺失的项目不计入进店量，计入数据质量提示。
 
 未进入主图但仍需显式计数的项目：
@@ -136,9 +136,9 @@
 
 | 类型 | 判定 | 实现参考 |
 | --- | --- | --- |
-| 暂停 | 硬装或软装项目进度含「暂停」 | `isPausedProject`（`pausedProjects.mjs`） |
-| 取消 / 关闭 | `项目状态` ∈ {取消, 已取消, 关闭, 已关闭}，或硬装 / 软装进度文本命中 `/取消\|已取消\|关闭\|已关闭/` | `isTerminalProjectStatus` + 工作流文本匹配；如需与现有首页 helper 完全一致，先抽取共享 `isEntryExcludedProject` |
-| 闭环（仍计入） | 双轨进度为闭环 / 完成 / 已完成，但 `startDate` 落在统计范围内 | 不排除；与「进店事实」一致 |
+| 暂停 | 当前硬装或软装项目进度为暂停；“暂停后恢复 / 曾暂停”不按暂停排除；单轨命中即排除 | `isPausedProject` / `isCurrentPausedWorkflowStage`（`pausedProjects.mjs`） |
+| 取消 / 关闭 | `项目状态` ∈ {取消, 已取消, 关闭, 已关闭}，或硬装 / 软装进度文本命中 `/取消\|已取消\|关闭\|已关闭/`；取消为终态，不做恢复判断 | `isCanceledProject` / `isPausedOrCanceledProject`（`pausedProjects.mjs`） |
+| 闭环（仍计入） | 常规项目硬装或软装任一轨道精确闭环，且 `startDate` 落在统计范围内；睡眠 / 仅硬装项目按硬装单轨闭环 | 不排除；与「进店事实」一致 |
 | scope 无效 | `组别` 无法识别直营或加盟 | 不计入主图，计入 `unclassifiedScope` |
 | 店型未识别 | `readStoreNatureKey === 'other'` | 不计入主图柱，计入 `unclassifiedStoreAge` |
 | 日期无效 | `startDate` 缺失或无法解析为合法日期 | 不计入进店量，计入 `missingStartDate` |
@@ -334,7 +334,7 @@ month.total
 点击省份预留筛选参数：
 
 - `year`、`month`、`province`
-- 排除暂停 / 取消；闭环项目保留
+- 排除当前暂停 / 取消；曾暂停但当前恢复的项目按原始 `startDate` 计回；闭环项目保留
 
 与现有项目列表 hash 参数对齐：`storeNature`、`entryScope`、`excludePaused` 等（见 `public/app.js` 路由筛选）；若复用 `profile` 参数，必须显式区分普通 `department` 全量与本模块 direct/franchise 进店范围。
 
@@ -440,7 +440,7 @@ GET /api/entry-structure?year=2026
 4. 四象限合计 = `month.total`：`directNew + directOld + franchiseNew + franchiseOld`。
 5. 省份贡献 `total` 之和 = 当前时间口径下的有效进店量。
 6. 店态分布 `total` 之和 = 当前时间口径下已填写店态的有效进店量（未填写店态不进入分布，但项目仍保留在明细清单）。
-7. 暂停 / 取消项目在所有层级均排除，并计入 `dataQuality.excludedPaused` / `excludedCanceled`。
+7. 当前暂停 / 取消项目在所有层级均排除，并计入 `dataQuality.excludedPaused` / `excludedCanceled`；曾暂停但当前恢复的项目重新计入。
 8. 闭环项目在所有层级均保留（只要 `startDate` 命中范围）。
 9. hover、月份详情、区域排行、店态分布共享同一批月份项目 ID 集合。
 10. 首页指挥条 `currentYearEntry` 与本模块 `totals.entry` 在同 year、同 scope 下数值一致（或文档化唯一允许差异并写测试）。
@@ -488,7 +488,7 @@ GET /api/entry-structure?year=2026
 至少覆盖（建议新建 `tests/annualEntryStructure.test.mjs`，并对齐 `tests/homeDirectorMetrics.test.mjs` 风格）：
 
 - scope 为 other 的项目不计入 `entry`，计入 `unclassifiedScope`。
-- 暂停 / 取消不计入；闭环仍计入。
+- 当前暂停 / 取消不计入；曾暂停但当前恢复重新计入；闭环仍计入。
 - 12 个月之和 = `totals.entry`。
 - 当前时间口径：主图、弹窗项目清单、省份贡献、店态分布的项目集合口径一致；未填写店态只从店态分布分类中隐藏。
 - 新店 / 老店柱内直营 + 加盟 = 柱总量。

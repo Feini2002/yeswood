@@ -8,7 +8,7 @@ export const LIFECYCLE_STAGE_ORDER = [
   { key: 'purchase', label: '采购推进' },
   { key: 'site', label: '摆场交付' },
   { key: 'closed', label: '闭环完成' },
-  { key: 'paused', label: '暂停' },
+  { key: 'paused', label: '暂停/取消' },
 ];
 
 const LIFECYCLE_STAGE_LABELS = Object.fromEntries(LIFECYCLE_STAGE_ORDER.map((stage) => [stage.key, stage.label]));
@@ -19,6 +19,7 @@ const FIELD_ALIASES = {
   storeTier: ['店态'],
   businessType: ['业态'],
   businessGroup: ['组别'],
+  status: ['项目状态', '状态'],
   projectName: ['项目名称', '门店名称'],
   meetingDate: ['上会时间', '上会日期'],
   measureDate: ['复尺时间', '复尺日期'],
@@ -30,11 +31,12 @@ const FIELD_ALIASES = {
   pointDone: ['点位完成时间'],
   softSchemeStart: ['软装方案开始时间'],
   softCompletion: ['软装完成情况'],
-  softDoneTime: ['软装完成时间', '软装发项目群时间'],
-  productListSent: ['产品清单发出时间'],
+  softDoneTime: ['软装完成时间', '软装发项目群时间', '软装发群/完成时间'],
+  productListSent: ['产品清单发出时间', '产品清单接收时间', '流程记录：产品清单接收时间'],
   purchaseTime: ['采购时间'],
   purchaseStatus: ['采购完成情况', '采购情况'],
   displayFileSent: ['摆场文件发出时间(项目群）', '摆场文件发出时间（项目群）'],
+  displayStart: ['摆场开始时间', '摆场时间', '现场摆场时间'],
   displayTime: ['摆场时间', '现场摆场时间'],
 };
 
@@ -128,7 +130,7 @@ function hasHardLifecycleEvidence(project) {
 
 function isCompleteText(value) {
   const text = normalizeText(value);
-  if (!text || /未完成|未开始|未启动|未安排|待|延期中|暂停/.test(text)) {
+  if (!text || /未完成|未开始|未启动|未安排|待|延期中|暂停|取消/.test(text)) {
     return false;
   }
   return /已完成|完成|准时/.test(text);
@@ -151,6 +153,7 @@ function hasSoftLifecycleEvidence(project, softStage = readNode(project, 'softSt
         'purchaseTime',
         'purchaseStatus',
         'displayFileSent',
+        'displayStart',
         'displayTime',
       ])
   );
@@ -170,27 +173,52 @@ function isCompanyClosedStage(stage) {
   return normalizeText(stage) === '闭环';
 }
 
+const PAUSED_STAGE_PATTERN = /暂停/;
+const CANCELED_STAGE_PATTERN = /取消|已取消|关闭|已关闭/;
+const PAUSE_RECOVERY_PATTERN = /曾暂停|历史暂停|暂停后(?:恢复|复工|重启|继续|推进)|暂停.*(?:恢复|复工|重启|继续|推进)/;
+const REPAUSED_STAGE_PATTERN = /(?:再次|重新|又).*暂停|(?:恢复|复工|重启|继续|推进)后.*暂停/;
+
+function isCurrentPausedStage(stage) {
+  const text = normalizeText(stage);
+  if (!PAUSED_STAGE_PATTERN.test(text)) {
+    return false;
+  }
+  if (REPAUSED_STAGE_PATTERN.test(text)) {
+    return true;
+  }
+  return !PAUSE_RECOVERY_PATTERN.test(text);
+}
+
+function isCanceledStage(stage) {
+  return CANCELED_STAGE_PATTERN.test(normalizeText(stage));
+}
+
 function isPausedStage(hardStage, softStage) {
-  return /暂停/.test(`${hardStage} ${softStage}`);
+  return isCurrentPausedStage(hardStage) || isCurrentPausedStage(softStage);
+}
+
+function isStoppedStage(hardStage, softStage) {
+  return isCanceledStage(hardStage) || isCanceledStage(softStage) || isPausedStage(hardStage, softStage);
 }
 
 function hasHardConstructionStartSignal(project, hardStage = readNode(project, 'hardStage')) {
   const text = normalizeText(hardStage);
   return (
     hasAnyNode(project, ['floorPlanFinish', 'constructionDraft', 'constructionReview']) ||
-    (text && !isPausedStage(text, '') && HARD_CONSTRUCTION_START_PATTERN.test(text))
+    (text && !isStoppedStage(text, '') && HARD_CONSTRUCTION_START_PATTERN.test(text))
   );
 }
 
 function hasSoftPointStartSignal(softStage) {
   const text = normalizeText(softStage);
-  return Boolean(text && !isNotStartedStage(text) && SOFT_POINT_START_PATTERN.test(text));
+  return Boolean(text && !isStoppedStage('', text) && !isNotStartedStage(text) && SOFT_POINT_START_PATTERN.test(text));
 }
 
 export function deriveProjectWorkflowFacts(project) {
   const hardStage = readNode(project, 'hardStage');
   const softStage = readNode(project, 'softStage');
-  const paused = isPausedStage(hardStage, softStage);
+  const status = readRawFieldDisplay(project, FIELD_ALIASES.status) || normalizeText(project?.status);
+  const paused = isStoppedStage(hardStage, softStage) || isCanceledStage(status);
   const sleepStore = isSleepStoreProject(project);
   const hardConstructionStarted = hasHardConstructionStartSignal(project, hardStage);
   const pointCompleted =
@@ -281,7 +309,7 @@ function softLifecycleStage(project, softStage) {
   const pointStarted = /点位/.test(text) || hasAnyNode(project, ['pointStatus', 'pointDone']);
   const schemeStarted = /软装方案|方案/.test(text) || hasNode(project, 'softSchemeStart') || Boolean(readNode(project, 'softCompletion'));
   const purchaseStarted = /待采购|采购/.test(text) || hasAnyNode(project, ['purchaseTime', 'purchaseStatus']);
-  const displayStarted = (/摆场|白场|进场/.test(text) && !/未安排摆场/.test(text)) || hasAnyNode(project, ['displayFileSent', 'displayTime']);
+  const displayStarted = (/摆场|白场|进场/.test(text) && !/未安排摆场/.test(text)) || hasAnyNode(project, ['displayFileSent', 'displayStart', 'displayTime']);
   if (displayStarted) {
     return { key: 'site', label: lifecycleStageLabel('site') };
   }
@@ -322,7 +350,7 @@ export function classifyProjectLifecycleStage(project) {
     return hardLifecycleStage(project, hardStage);
   }
 
-  if (isCompanyClosedStage(hardStage) && isCompanyClosedStage(softStage)) {
+  if (isCompanyClosedStage(hardStage) || isCompanyClosedStage(softStage)) {
     return { key: 'closed', label: lifecycleStageLabel('closed') };
   }
 

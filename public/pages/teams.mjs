@@ -48,6 +48,7 @@ import {
   handleTeamCompletionMemberModalClick,
   handleTeamCompletionMemberModalKeydown,
   handleTeamCompletionMonthClick,
+  handleTeamCompletionProcessingQueueClick,
   openTeamCompletionGroupModal,
   openTeamCompletionMemberModal,
   openTeamCompletionMonthModal,
@@ -62,10 +63,16 @@ import {
   rememberTeamWorkCompletion as rememberStoredTeamWorkCompletion,
   pruneTeamWorkCompletionCache as pruneStoredTeamWorkCompletionCache,
   teamWorkCompletionCacheKey as storedTeamWorkCompletionCacheKey,
+  teamWorkCompletionReviewMatchesOwner,
 } from '../domain/team-work-completion-store.mjs';
 import { runtimeStore } from '../lib/runtime-flags.mjs';
 import { teamOwnerDisplayName } from '../domain/personnel.mjs';
-import { OWNER_REVIEW_CACHE_LIMIT, TEAM_OWNER_STORAGE_KEY } from '../lib/constants.mjs';
+import {
+  DEFAULT_TEAM_DASHBOARD_CONTEXT,
+  OWNER_REVIEW_CACHE_LIMIT,
+  resolveTeamPageDashboardContext,
+  TEAM_OWNER_STORAGE_KEY,
+} from '../lib/constants.mjs';
 import { enhanceTeamOwnerSelect, renderFilterSelect } from '../components/filter-bar.mjs';
 import { closeProjectDetailModal } from '../components/project-detail-modal.mjs';
 
@@ -79,6 +86,7 @@ export {
   handleTeamCompletionMemberModalClick,
   handleTeamCompletionMemberModalKeydown,
   handleTeamCompletionMonthClick,
+  handleTeamCompletionProcessingQueueClick,
   openTeamCompletionGroupModal,
   openTeamCompletionMemberModal,
   openTeamCompletionMonthModal,
@@ -202,7 +210,7 @@ export function pruneTeamWorkCompletionCache(maxEntries) {
 
 export async function loadTeamDashboardSessionBundle(
   owner = resolveTeamOwner(),
-  dashboardContext = resolveTeamDashboardContext() || 'all',
+  dashboardContext = resolveTeamDashboardContext() || DEFAULT_TEAM_DASHBOARD_CONTEXT,
   year = resolveTeamWorkCompletionYear()
 ) {
   if (!owner) {
@@ -215,9 +223,16 @@ export async function loadTeamDashboardSessionBundle(
   params.set('year', String(normalizedYear));
   const payload = await fetchJson(`${DASHBOARD_SESSION_ENDPOINT}?${params}`, { timeoutMs: 15_000 });
   if (payload?.status === 'preparing' && !payload.team) {
+    const previousReview = state.teamWorkCompletion?.owner ? state.teamWorkCompletion : null;
+    const preserveReview = teamWorkCompletionReviewMatchesOwner(previousReview, owner);
+    state.teamWorkCompletion = preserveReview ? previousReview : null;
+    state.teamWorkCompletionYear = normalizedYear;
+    state.teamWorkCompletionLoading = !preserveReview;
+    state.teamWorkCompletionError = '';
     state.selectedTeamOwner = owner;
     state.teamWorkCompletionRefreshStatus = 'preparing';
     state.teamWorkCompletionRefreshError = payload.reason || '';
+    state.teamWorkCompletionSwitchTarget = preserveReview ? '' : owner;
     return {
       status: 'preparing',
       reason: payload.reason || payload.status,
@@ -655,13 +670,12 @@ export async function loadTeamWorkCompletion(
     abortPendingTeamWorkCompletionRequests();
   }
   const previousReview = state.teamWorkCompletion?.owner ? state.teamWorkCompletion : null;
-  const staleReview = !cachedReview && !background ? previousReview : null;
+  const previousReviewMatchesOwner = teamWorkCompletionReviewMatchesOwner(previousReview, owner);
+  const staleReview = !cachedReview && !background && previousReviewMatchesOwner ? previousReview : null;
   const visibleReview = cachedReview || staleReview;
-  const switchingOwner = Boolean(staleReview && staleReview.owner && staleReview.owner !== owner);
+  const switchingOwner = Boolean(previousReview && String(owner || '').trim() && !previousReviewMatchesOwner);
   if (!background) {
-    if (visibleReview) {
-      state.teamWorkCompletion = visibleReview;
-    }
+    state.teamWorkCompletion = visibleReview || null;
     state.teamWorkCompletionYear = normalizedYear;
     state.teamWorkCompletionLoading = !cachedReview;
     state.teamWorkCompletionError = '';
@@ -799,21 +813,22 @@ function navigateTeamWorkCompletion(owner, dashboardContext, year) {
 }
 
 
-function normalizeTeamDashboardScopeContext(dashboardContext = 'all') {
-  return dashboardContext === 'all' ? '' : dashboardContext;
+function normalizeTeamDashboardScopeContext(dashboardContext = DEFAULT_TEAM_DASHBOARD_CONTEXT) {
+  return resolveTeamPageDashboardContext(dashboardContext);
 }
 
 
 export async function loadTeamDashboardScope(
   owner = resolveTeamOwner(),
-  dashboardContext = 'all',
+  dashboardContext = DEFAULT_TEAM_DASHBOARD_CONTEXT,
   year = resolveTeamWorkCompletionYear()
 ) {
   if (!owner) {
     return null;
   }
 
-  const sessionBundle = await loadTeamDashboardSessionBundle(owner, dashboardContext || 'all', year).catch((error) => {
+  const resolvedDashboardContext = resolveTeamPageDashboardContext(dashboardContext);
+  const sessionBundle = await loadTeamDashboardSessionBundle(owner, resolvedDashboardContext, year).catch((error) => {
     console.warn('Team dashboard session bundle load failed', error);
     return null;
   });
@@ -838,10 +853,10 @@ export async function loadTeamDashboardScope(
     return [{ status: 'fulfilled', value: sessionBundle }];
   }
 
-  const routeContext = normalizeTeamDashboardScopeContext(dashboardContext);
+  const routeContext = normalizeTeamDashboardScopeContext(resolvedDashboardContext);
   const results = await Promise.allSettled([
     loadTeamMetrics(owner, routeContext),
-    loadTeamWorkCompletion(owner, dashboardContext, year),
+    loadTeamWorkCompletion(owner, resolvedDashboardContext, year),
     loadOwnerResponsibilityReview(owner, routeContext),
   ]);
   const failed = results.find((result) => result.status === 'rejected');
@@ -859,7 +874,7 @@ export function handleTeamWorkCompletionContextClick(event) {
   }
   event.preventDefault();
 
-  const dashboardContext = button.dataset.teamCompletionContext || 'all';
+  const dashboardContext = resolveTeamPageDashboardContext(button.dataset.teamCompletionContext);
   const owner = resolveTeamOwner();
   const year = resolveTeamWorkCompletionYear();
   syncTeamCompletionControls(state.teamWorkCompletion, dashboardContext);
@@ -874,7 +889,7 @@ export function handleTeamWorkCompletionContextClick(event) {
 
 export function handleTeamWorkCompletionYearChange() {
   const owner = resolveTeamOwner();
-  const dashboardContext = resolveTeamDashboardContext() || 'all';
+  const dashboardContext = resolveTeamDashboardContext() || DEFAULT_TEAM_DASHBOARD_CONTEXT;
   const year = Number(elements.teamCompletionYearSelect?.value || new Date().getFullYear());
   state.teamWorkCompletionYear = year;
   navigateTeamWorkCompletion(owner, normalizeTeamDashboardScopeContext(dashboardContext), year);

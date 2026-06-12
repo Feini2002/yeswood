@@ -62,7 +62,6 @@ export function currentPageRefreshCopy(pageId = currentPageId()) {
       teams: '小组页面',
       'owner-review': '小组页面',
       details: '项目页面',
-      rules: '规则页面',
       'developer-docs': '开发文档',
     }[pageId] || '当前页面';
   return {

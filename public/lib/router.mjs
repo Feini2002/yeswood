@@ -4,7 +4,9 @@ import { elements } from './dom.mjs';
 import {
   DEVELOPMENT_ONLY_PAGES,
   FILTERABLE_PAGES,
+  DEFAULT_TEAM_DASHBOARD_CONTEXT,
   normalizeDashboardContext,
+  resolveTeamPageDashboardContext,
   contextLabel,
 } from './constants.mjs';
 
@@ -60,7 +62,8 @@ export function applyDevelopmentDocumentationVisibility() {
 
 export function parsePageHash() {
   const raw = window.location.hash.replace('#', '') || 'overview';
-  const [page, queryString] = raw.split('?');
+  const [pageRaw, queryString] = raw.split('?');
+  const page = pageRaw.startsWith('developer-docs/') ? 'developer-docs' : pageRaw;
   const params = new URLSearchParams(queryString || '');
   const validPages = developmentAllowedPages();
   const legacyOwnerReview = page === 'owner-review';
@@ -93,6 +96,20 @@ export function parsePageHash() {
 
 export function currentPageId() {
   return parsePageHash().pageId;
+}
+
+export function normalizeLegacyRulesRoute() {
+  const raw = window.location.hash.replace('#', '');
+  const [page] = raw.split('?');
+  if (page !== 'rules' && !page.startsWith('rules/')) {
+    return;
+  }
+  const nextHash = '#developer-docs/dev-doc-rules-layers';
+  if (window.history?.replaceState) {
+    window.history.replaceState(null, '', nextHash);
+  } else {
+    window.location.hash = nextHash;
+  }
 }
 
 export function normalizeLegacyOwnerReviewRoute() {
@@ -166,6 +183,7 @@ export function applyHashSearch() {
 }
 
 export function showPage(pageId = currentPageId(), options = {}) {
+  normalizeLegacyRulesRoute();
   normalizeLegacyOwnerReviewRoute();
   applyDevelopmentDocumentationVisibility();
   pageId = currentPageId();
@@ -207,7 +225,10 @@ export function showPage(pageId = currentPageId(), options = {}) {
     routerHooks.ensureTeamOwnerOptions?.();
     routerHooks.ensureOwnerReviewControls?.();
     const owner = routerHooks.resolveTeamOwner?.() || parsePageHash().owner || '';
-    const dashboardContext = routerHooks.resolveTeamDashboardContext?.() || parsePageHash().dashboardContext || 'all';
+    const dashboardContext =
+      routerHooks.resolveTeamDashboardContext?.() ||
+      resolveTeamPageDashboardContext(parsePageHash().dashboardContext) ||
+      DEFAULT_TEAM_DASHBOARD_CONTEXT;
     const year = routerHooks.resolveTeamWorkCompletionYear?.() || Number(parsePageHash().year || 0) || undefined;
     routerHooks
       .loadTeamDashboardSession?.({ owner, dashboardContext, year })
@@ -264,6 +285,10 @@ export function showPage(pageId = currentPageId(), options = {}) {
         console.warn('Profile dashboard load failed', error);
         routerHooks.renderProfilePage?.(pageId);
       });
+  }
+
+  if (pageId === 'developer-docs') {
+    routerHooks.loadDeveloperDocsPage?.();
   }
 }
 

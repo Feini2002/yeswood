@@ -444,12 +444,10 @@ test('development-only documentation routes are hidden from intranet mode', asyn
   const app = await loadPublicAppHarness();
   app.elements.pageSections = [
     { dataset: { page: 'overview' }, hidden: false, classList: fakeElement().classList },
-    { dataset: { page: 'rules' }, hidden: false, classList: fakeElement().classList },
     { dataset: { page: 'developer-docs' }, hidden: false, classList: fakeElement().classList },
   ];
   app.elements.navItems = [
     { dataset: { page: 'overview' }, hidden: false, classList: fakeElement().classList, setAttribute() {} },
-    { dataset: { page: 'rules' }, hidden: false, classList: fakeElement().classList, setAttribute() {} },
     { dataset: { page: 'developer-docs' }, hidden: false, classList: fakeElement().classList, setAttribute() {} },
   ];
 
@@ -460,7 +458,6 @@ test('development-only documentation routes are hidden from intranet mode', asyn
   assert.equal(app.currentPageId(), 'overview');
   app.applyDevelopmentDocumentationVisibility();
   assert.equal(app.elements.navItems[1].hidden, true);
-  assert.equal(app.elements.navItems[2].hidden, true);
 
   app.state.snapshot = { developerDocumentationVisible: true };
 
@@ -468,7 +465,150 @@ test('development-only documentation routes are hidden from intranet mode', asyn
   assert.equal(app.currentPageId(), 'developer-docs');
   app.applyDevelopmentDocumentationVisibility();
   assert.equal(app.elements.navItems[1].hidden, false);
-  assert.equal(app.elements.navItems[2].hidden, false);
+});
+
+test('developer docs internal navigation switches subpages without section scrolling', async () => {
+  const classList = (initial = []) => {
+    const values = new Set(initial);
+    return {
+      add(...names) {
+        names.forEach((name) => values.add(name));
+      },
+      remove(...names) {
+        names.forEach((name) => values.delete(name));
+      },
+      toggle(name, force) {
+        if (force === true) {
+          values.add(name);
+          return true;
+        }
+        if (force === false) {
+          values.delete(name);
+          return false;
+        }
+        if (values.has(name)) {
+          values.delete(name);
+          return false;
+        }
+        values.add(name);
+        return true;
+      },
+      contains(name) {
+        return values.has(name);
+      },
+    };
+  };
+
+  const link = (target) => {
+    const listeners = new Map();
+    const attributes = new Map();
+    return {
+      dataset: { devDocTarget: target },
+      classList: classList(),
+      addEventListener(type, listener) {
+        listeners.set(type, listener);
+      },
+      click() {
+        listeners.get('click')?.({ preventDefault() {} });
+      },
+      setAttribute(name, value) {
+        attributes.set(name, String(value));
+      },
+      getAttribute(name) {
+        return attributes.get(name) || null;
+      },
+      removeAttribute(name) {
+        attributes.delete(name);
+      },
+    };
+  };
+
+  const page = (key, active = false) => ({
+    dataset: { devDocPage: key },
+    hidden: !active,
+    classList: classList(active ? ['is-active'] : []),
+  });
+
+  const homeLink = link('home');
+  const rulesLink = link('rules');
+  const homePage = page('home', true);
+  const rulesPage = page('rules');
+  const content = { scrollTop: 18 };
+  const shell = {
+    querySelector(selector) {
+      return selector === '.dev-prd-content' ? content : null;
+    },
+    querySelectorAll(selector) {
+      if (selector === '[data-dev-doc-target]') {
+        return [homeLink, rulesLink];
+      }
+      if (selector === '[data-dev-doc-page]') {
+        return [homePage, rulesPage];
+      }
+      if (selector === '.dev-prd-section[id]' || selector === '[data-dev-doc-section]') {
+        return [];
+      }
+      return [];
+    },
+  };
+
+  let scrollIntoViewCalls = 0;
+  const location = { hash: '#developer-docs/dev-doc-rules-layers' };
+  const history = {
+    replaceState(_state, _title, url) {
+      location.hash = String(url || '');
+    },
+  };
+  const listeners = new Map();
+  globalThis.window = {
+    location,
+    history,
+    addEventListener(type, listener) {
+      listeners.set(type, listener);
+    },
+  };
+  globalThis.history = history;
+  globalThis.document = {
+    querySelector(selector) {
+      return selector === '.dev-prd-shell' ? shell : null;
+    },
+    getElementById() {
+      return {
+        scrollIntoView() {
+          scrollIntoViewCalls += 1;
+        },
+      };
+    },
+  };
+  globalThis.IntersectionObserver = class {
+    observe() {}
+  };
+  globalThis.requestAnimationFrame = (callback) => callback();
+
+  const moduleUrl = new URL('../public/pages/developer-docs.mjs', import.meta.url);
+  moduleUrl.searchParams.set('subpage-test', String(Date.now()));
+  const docsPage = await import(moduleUrl.href);
+
+  docsPage.configureDeveloperDocsPage({ currentPageId: () => 'developer-docs' });
+  docsPage.load();
+
+  assert.equal(homePage.hidden, true);
+  assert.equal(rulesPage.hidden, false);
+  assert.equal(rulesLink.getAttribute('aria-current'), 'page');
+  assert.equal(scrollIntoViewCalls, 0);
+
+  homeLink.click();
+  assert.equal(homePage.hidden, false);
+  assert.equal(rulesPage.hidden, true);
+  assert.equal(homeLink.getAttribute('aria-current'), 'page');
+  assert.equal(location.hash, '#developer-docs/home');
+
+  rulesLink.click();
+  assert.equal(homePage.hidden, true);
+  assert.equal(rulesPage.hidden, false);
+  assert.equal(rulesLink.getAttribute('aria-current'), 'page');
+  assert.equal(location.hash, '#developer-docs/rules');
+  assert.equal(content.scrollTop, 0);
 });
 
 test('owner responsibility review borrow toggle derives a consistent visible model', async () => {
@@ -581,6 +721,8 @@ test('team work completion module is the clean primary teams surface', async () 
   assert.ok(sectionMatch, 'team dashboard section should exist in index.html');
   const teamSection = sectionMatch[0];
 
+  assert.match(teamSection, /id="teamCompletionProcessingQueues"/);
+  assert.match(teamSection, /id="teamCompletionProcessingQueues"[\s\S]*class="[^"]*team-completion-overview-module/);
   assert.match(teamSection, /id="teamWorkCompletionModule"[\s\S]*团队工作完成情况/);
   assert.match(
     teamSection,
@@ -737,9 +879,6 @@ test('team work completion renders in the teams context with explicit owner, con
   assert.match(app.elements.teamCompletionHeroStats.innerHTML, /data-team-completion-filter="lifecycle:completed"/);
   assert.match(app.elements.teamCompletionHeroStats.innerHTML, /项目总闭环情况[\s\S]*1/);
   assert.match(app.elements.teamCompletionMonthlyChart.innerHTML, /data-team-completion-chart-host/);
-  assert.match(app.elements.teamCompletionChartInsight.textContent, /直营口径下的平面方案/);
-  assert.match(app.elements.teamCompletionChartInsight.textContent, /平面方案、方案摆场和项目总闭环/);
-  assert.doesNotMatch(app.elements.teamCompletionChartInsight.textContent, /不含项目总闭环/);
   assert.doesNotMatch(app.elements.teamCompletionMonthlyChart.innerHTML, /team-completion-month-buttons/);
   assert.doesNotMatch(app.elements.teamCompletionMonthlyChart.innerHTML, /data-team-completion-month=/);
   assert.match(app.elements.teamCompletionGroupGrid.innerHTML, /直营1组/);
@@ -752,6 +891,160 @@ test('team work completion renders in the teams context with explicit owner, con
   assert.equal(app.elements.teamCompletionMemberGrid.innerHTML, '');
   assert.match(app.elements.teamCompletionDataQuality.innerHTML, /1 条/);
   assert.match(app.elements.teamCompletionDataQuality.innerHTML, /稳定 id/);
+});
+
+test('team work completion processing queues show fixed top five lists and expand urgent projects only', async () => {
+  const app = await loadPublicAppHarness();
+  app.elements.teamCompletionProcessingQueues = fakeElement();
+  app.state.teamWorkCompletion = {
+    owner: '苏佳蕾',
+    requestedOwner: '苏佳蕾',
+    dashboardContext: 'direct',
+    year: 2026,
+    team: { owner: '苏佳蕾', groupCount: 1, memberCount: 1 },
+    summary: {
+      floorPlan: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+      display: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+      lifecycle: { completedCount: 0, inProgressCount: 12, missingDateCount: 0 },
+    },
+    monthly: { months: [] },
+    groups: [],
+    members: [],
+    processingQueues: {
+      urgent: {
+        label: '紧急项目',
+        totalCount: 6,
+        topProjects: [
+          {
+            id: 'urgent-1',
+            name: '急一',
+            status: '紧急',
+            stage: '（施工中）施工图完成审核 / 未安排摆场',
+            actionStage: '待摆场',
+            storeStatus: '常规店',
+            areaLabel: '980㎡',
+            teamGroupText: '直营1组 · 组长：陈菲菲',
+            teamDesignerText: '设计师：陈菲菲（硬装）',
+            startDate: '2026-06-01',
+            targetDate: '2026-06-03',
+            windowDays: 2,
+            windowLabel: '2天',
+          },
+          { id: 'urgent-2', name: '急二', status: '紧急', storeStatus: '常规店', startDate: '2026-06-01', targetDate: '2026-06-04', windowDays: 3, windowLabel: '3天' },
+          { id: 'urgent-3', name: '急三', status: '紧急', storeStatus: '常规店', startDate: '2026-06-01', targetDate: '2026-06-05', windowDays: 4, windowLabel: '4天' },
+          { id: 'urgent-4', name: '急四', status: '紧急', storeStatus: '常规店', startDate: '2026-06-01', targetDate: '2026-06-06', windowDays: 5, windowLabel: '5天' },
+          { id: 'urgent-5', name: '急五', status: '紧急', storeStatus: '常规店', startDate: '2026-06-01', targetDate: '2026-06-07', windowDays: 6, windowLabel: '6天' },
+        ],
+        projects: [
+          {
+            id: 'urgent-1',
+            name: '急一',
+            status: '紧急',
+            stage: '（施工中）施工图完成审核 / 未安排摆场',
+            actionStage: '待摆场',
+            storeStatus: '常规店',
+            areaLabel: '980㎡',
+            teamGroupText: '直营1组 · 组长：陈菲菲',
+            teamDesignerText: '设计师：陈菲菲（硬装）',
+            startDate: '2026-06-01',
+            targetDate: '2026-06-03',
+            windowDays: 2,
+            windowLabel: '2天',
+          },
+          { id: 'urgent-2', name: '急二', status: '紧急', storeStatus: '常规店', startDate: '2026-06-01', targetDate: '2026-06-04', windowDays: 3, windowLabel: '3天' },
+          { id: 'urgent-3', name: '急三', status: '紧急', storeStatus: '常规店', startDate: '2026-06-01', targetDate: '2026-06-05', windowDays: 4, windowLabel: '4天' },
+          { id: 'urgent-4', name: '急四', status: '紧急', storeStatus: '常规店', startDate: '2026-06-01', targetDate: '2026-06-06', windowDays: 5, windowLabel: '5天' },
+          { id: 'urgent-5', name: '急五', status: '紧急', storeStatus: '常规店', startDate: '2026-06-01', targetDate: '2026-06-07', windowDays: 6, windowLabel: '6天' },
+          { id: 'urgent-6', name: '急六', status: '紧急', storeStatus: '常规店', startDate: '2026-06-01', targetDate: '2026-06-08', windowDays: 7, windowLabel: '7天' },
+        ],
+      },
+      normal: {
+        label: '非紧急项目',
+        totalCount: 3,
+        topProjects: [
+          { id: 'normal-1', name: '普通一', status: '一般', storeStatus: '常规店', startDate: '2026-06-01', targetDate: '2026-06-02', windowDays: 1, windowLabel: '1天' },
+          { id: 'normal-2', name: '普通二', status: '一般', storeStatus: '常规店', startDate: '2026-06-01', targetDate: '2026-06-03', windowDays: 2, windowLabel: '2天' },
+          { id: 'normal-3', name: '普通三', status: '   ', storeStatus: '', startDate: '2026-06-01', targetDate: '', windowDays: null, windowLabel: '' },
+        ],
+      },
+    },
+    dataQuality: { notes: [], unmappedMemberCount: 0, missingDateCompletionCount: 0, weakProjectKeyCount: 0 },
+  };
+
+  app.renderTeamWorkCompletionDashboard(app.state.teamWorkCompletion);
+  const html = app.elements.teamCompletionProcessingQueues.innerHTML;
+  assert.match(html, /data-team-processing-queue="urgent"/);
+  assert.match(html, /data-team-processing-queue="normal"/);
+  assert.match(html, /data-team-processing-queue-open="urgent"/);
+  assert.doesNotMatch(html, /data-team-processing-queue-open="normal"/);
+  assert.match(html, /急一/);
+  assert.match(html, /店态：常规店 · 面积：980㎡/);
+  assert.match(html, /当前阶段：待摆场/);
+  assert.match(html, /团队：直营1组 · 组长：陈菲菲/);
+  assert.match(html, /设计师：陈菲菲（硬装）/);
+  assert.match(html, /交付窗口：2天/);
+  assert.match(html, /周期：启动：2026-06-01 → 目标：2026-06-03/);
+  assert.match(html, /店态：店态待核对/);
+  assert.match(html, /当前阶段：阶段待核对/);
+  assert.match(html, /交付窗口：日期待核对/);
+  assert.match(html, /周期：启动：2026-06-01 → 目标：待核对/);
+  assert.match(html, /is-date-missing/);
+  assert.doesNotMatch(html, /急六/);
+  assert.match(html, /普通一/);
+  assert.doesNotMatch(html, /普通六/);
+  assert.match(html, /team-completion-processing-placeholder/);
+  assert.equal(typeof app.handleTeamCompletionProcessingQueueClick, 'function');
+
+  app.handleTeamCompletionProcessingQueueClick({
+    target: {
+      closest: (selector) =>
+        selector === '[data-team-processing-queue-open]'
+          ? { dataset: { teamProcessingQueueOpen: 'urgent' } }
+          : null,
+    },
+  });
+  assert.equal(app.elements.teamCompletionMemberModal.hidden, false);
+  assert.match(app.elements.teamCompletionMemberModalBody.innerHTML, /全部进行中的紧急项目/);
+  assert.match(app.elements.teamCompletionMemberModalBody.innerHTML, /急六/);
+
+  app.handleTeamCompletionProcessingQueueClick({
+    target: {
+      closest: (selector) =>
+        selector === '[data-team-processing-project-id], [data-team-processing-project-name]'
+          ? { dataset: { teamProcessingProjectId: 'urgent-1', teamProcessingProjectName: '急一' } }
+          : null,
+    },
+  });
+  assert.equal(app.state.selectedProjectId, 'urgent-1');
+});
+
+test('team work completion processing queues show model state instead of zero when read model lacks queues', async () => {
+  const app = await loadPublicAppHarness();
+  app.elements.teamCompletionProcessingQueues = fakeElement();
+  app.state.teamWorkCompletion = {
+    owner: '苏佳蕾',
+    requestedOwner: '苏佳蕾',
+    dashboardContext: 'direct',
+    year: 2026,
+    team: { owner: '苏佳蕾', groupCount: 1, memberCount: 1 },
+    summary: {
+      floorPlan: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+      display: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+      lifecycle: { completedCount: 0, inProgressCount: 7, missingDateCount: 0 },
+    },
+    monthly: { months: [] },
+    groups: [],
+    members: [],
+    dataQuality: { notes: [], unmappedMemberCount: 0, missingDateCompletionCount: 0, weakProjectKeyCount: 0 },
+  };
+
+  app.renderTeamWorkCompletionDashboard(app.state.teamWorkCompletion);
+  const html = app.elements.teamCompletionProcessingQueues.innerHTML;
+
+  assert.match(html, /队列模型准备中/);
+  assert.match(html, /data-team-processing-queue="urgent"/);
+  assert.doesNotMatch(html, />0<[\s\S]*?<small>项<\/small>/);
+  assert.doesNotMatch(html, /team-completion-processing-placeholder/);
 });
 
 test('team work completion scope note explains owner responsibility closed-loop gap', async () => {
@@ -1521,7 +1814,7 @@ test('team work completion controls switch context year and render transient sta
   app.state.teamWorkCompletionYear = 2026;
   app.window.location.hash = '#teams?owner=苏佳蕾&dashboardContext=direct&year=2026';
   const sectionShells = attachTeamCompletionSectionShells(app);
-  const completionContextTabs = ['all', 'direct', 'franchise'].map((context) => {
+  const completionContextTabs = ['direct', 'franchise'].map((context) => {
     const classes = new Set();
     const button = fakeElement();
     button.dataset.teamCompletionContext = context;
@@ -1659,6 +1952,122 @@ test('team dashboard scope switch keeps session preparing from falling back to m
   assert.match(requested[0], /^\/api\/dashboard-session\?/);
   assert.equal(app.state.teamWorkCompletion.owner, 'Owner A');
   assert.equal(app.state.teamWorkCompletionRefreshStatus, 'preparing');
+});
+
+test('team dashboard session preparing shows target owner loading instead of stale owner data', async () => {
+  const requested = [];
+  const app = await loadPublicAppHarness({
+    fetchImpl: async (url) => {
+      requested.push(String(url));
+      return {
+        ok: true,
+        json: async () => ({
+          ok: false,
+          status: 'preparing',
+          readModel: true,
+          reason: 'team work completion read model is missing',
+        }),
+      };
+    },
+  });
+  app.elements.pageSections = [
+    { dataset: { page: 'teams' }, classList: fakeElement().classList },
+  ];
+  app.window.location.hash = '#teams?owner=Owner%20B&dashboardContext=direct&year=2026';
+  attachTeamCompletionSectionShells(app);
+  app.state.selectedTeamOwner = 'Owner A';
+  app.state.teamWorkCompletion = {
+    owner: 'Owner A',
+    requestedOwner: 'Owner A',
+    dashboardContext: 'direct',
+    year: 2026,
+    projectCount: 1,
+    summary: {
+      floorPlan: { completedCount: 11, inProgressCount: 0, missingDateCount: 0 },
+      display: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+      lifecycle: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+    },
+    monthly: { months: [] },
+    groups: [{ id: 'owner-a-group', name: 'Owner A Group', leadDisplay: 'Lead', memberNames: [], projectCount: 1, summary: {} }],
+    members: [],
+    dataQualitySummary: { notesCount: 0, unmappedMemberCount: 0, missingDateCompletionCount: 0, weakProjectKeyCount: 0 },
+    readOnly: true,
+  };
+  app.renderTeamWorkCompletionDashboard(app.state.teamWorkCompletion);
+
+  await app.loadTeamDashboardScope('Owner B', 'direct', 2026);
+
+  assert.equal(requested.length, 1);
+  assert.match(requested[0], /^\/api\/dashboard-session\?/);
+  assert.equal(app.state.teamWorkCompletion, null);
+  assert.equal(app.state.teamWorkCompletionLoading, true);
+  assert.equal(app.state.teamWorkCompletionRefreshStatus, 'preparing');
+  assert.match(app.elements.teamCompletionHeroStats.innerHTML, /Owner B/);
+  assert.doesNotMatch(app.elements.teamCompletionHeroStats.innerHTML, /Owner A/);
+  assert.doesNotMatch(app.elements.teamCompletionGroupGrid.innerHTML, /Owner A Group/);
+});
+
+test('team subpage render guards block stale owner completion and load payloads', async () => {
+  const app = await loadPublicAppHarness();
+  app.elements.pageSections = [
+    { dataset: { page: 'teams' }, classList: fakeElement().classList },
+  ];
+  app.window.location.hash = '#teams?owner=Owner%20B&dashboardContext=direct&year=2026';
+  attachTeamCompletionSectionShells(app);
+
+  app.state.selectedTeamOwner = 'Owner B';
+  app.state.teamWorkCompletion = {
+    owner: 'Owner A',
+    requestedOwner: 'Owner A',
+    dashboardContext: 'direct',
+    year: 2026,
+    team: { owner: 'Owner A', groupCount: 1, memberCount: 1 },
+    summary: {
+      floorPlan: { completedCount: 11, inProgressCount: 0, missingDateCount: 0 },
+      display: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+      lifecycle: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+    },
+    monthly: { months: [] },
+    groups: [{ id: 'owner-a-group', name: 'Owner A Group', leadDisplay: 'Lead', memberNames: [], projectCount: 1, summary: {} }],
+    members: [],
+    projectsById: {},
+    dataQuality: { notes: [], unmappedMemberCount: 0, missingDateCompletionCount: 0, weakProjectKeyCount: 0 },
+  };
+
+  app.state.ownerReview = {
+    owner: 'Owner A',
+    dashboardContext: 'direct',
+    team: { owner: 'Owner A', groups: [{ name: 'Owner A Load Group', members: ['Alice'] }] },
+    executionScope: { description: 'stale owner guard test' },
+    summary: { peopleCount: 1, externalSupportCount: 0, borrowedOutCount: 0 },
+    memberLoads: [
+      {
+        name: 'Alice',
+        displayName: 'Alice',
+        groupName: 'Owner A Load Group',
+        summary: {
+          floorPlanActiveCount: 1,
+          floorPlanCompletedCount: 0,
+          displayActiveCount: 0,
+          displayCompletedCount: 0,
+          associatedProjectCount: 1,
+        },
+        associatedProjects: [],
+      },
+    ],
+    people: [],
+    disciplines: [],
+  };
+
+  app.renderTeamWorkCompletionDashboard();
+  app.renderOwnerReviewDashboard();
+
+  assert.equal(app.state.teamWorkCompletion, null);
+  assert.match(app.elements.teamCompletionHeroStats.innerHTML, /Owner B/);
+  assert.doesNotMatch(app.elements.teamCompletionGroupGrid.innerHTML, /Owner A Group/);
+  assert.equal(app.state.ownerReview, null);
+  assert.match(app.elements.ownerReviewHeadline.innerHTML || app.elements.ownerReviewTeamStructure.innerHTML, /Owner B/);
+  assert.doesNotMatch(app.elements.ownerReviewPersonRows.innerHTML, /Alice|Owner A/);
 });
 
 test('team work completion franchise context is kept as a data-audit empty state', async () => {
@@ -2055,7 +2464,7 @@ test('team work completion keeps current dashboard visible while switching uncac
     dataQuality: { notes: [], unmappedMemberCount: 0, missingDateCompletionCount: 0, weakProjectKeyCount: 0 },
   };
   app.renderTeamWorkCompletionDashboard();
-  const completionContextTabs = ['all', 'direct', 'franchise'].map((context) => {
+  const completionContextTabs = ['direct', 'franchise'].map((context) => {
     const classes = new Set(context === 'direct' ? ['is-active'] : []);
     const button = fakeElement();
     button.dataset.teamCompletionContext = context;
@@ -2135,6 +2544,84 @@ test('team work completion keeps current dashboard visible while switching uncac
   assert.equal(pendingFranchiseTab.classList.contains('is-active'), true);
   assert.equal(pendingDirectTab.classList.contains('is-active'), false);
   assert.match(app.elements.teamCompletionGroupGrid.innerHTML, /Franchise Group/);
+});
+
+test('team work completion shows target owner loading instead of stale owner data while switching uncached owners', async () => {
+  let resolveFetch;
+  const fetchPromise = new Promise((resolve) => {
+    resolveFetch = resolve;
+  });
+  const app = await loadPublicAppHarness({
+    fetchImpl: async (url) => {
+      if (String(url).startsWith('/api/team-work-completion')) {
+        return fetchPromise;
+      }
+      return { ok: true, json: async () => ({}) };
+    },
+  });
+  app.window.location.hash = '#teams?owner=Owner%20B&dashboardContext=direct&year=2026';
+  app.elements.pageSections = [
+    { dataset: { page: 'teams' }, classList: fakeElement().classList },
+  ];
+  attachTeamCompletionSectionShells(app);
+  app.state.selectedTeamOwner = 'Owner A';
+  app.state.teamWorkCompletion = {
+    owner: 'Owner A',
+    requestedOwner: 'Owner A',
+    dashboardContext: 'direct',
+    year: 2026,
+    team: { owner: 'Owner A', groupCount: 1, memberCount: 1 },
+    summary: {
+      floorPlan: { completedCount: 11, inProgressCount: 0, missingDateCount: 0 },
+      display: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+      lifecycle: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+    },
+    monthly: { months: [] },
+    groups: [{ id: 'owner-a-group', name: 'Owner A Group', leadDisplay: 'Lead', memberNames: [], projectCount: 1, summary: {} }],
+    members: [],
+    projectsById: {},
+    dataQuality: { notes: [], unmappedMemberCount: 0, missingDateCompletionCount: 0, weakProjectKeyCount: 0 },
+  };
+  app.renderTeamWorkCompletionDashboard(app.state.teamWorkCompletion);
+
+  const switchPromise = app.loadTeamWorkCompletion('Owner B', 'direct', 2026);
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const pendingHeroHtml = app.elements.teamCompletionHeroStats.innerHTML;
+    const pendingGroupHtml = app.elements.teamCompletionGroupGrid.innerHTML;
+
+    assert.equal(app.state.teamWorkCompletionLoading, true);
+    assert.equal(app.state.teamWorkCompletion, null);
+    assert.match(pendingHeroHtml, /Owner B/);
+    assert.doesNotMatch(pendingHeroHtml, /Owner A/);
+    assert.doesNotMatch(pendingGroupHtml, /Owner A Group/);
+  } finally {
+    resolveFetch({
+      ok: true,
+      json: async () => ({
+        owner: 'Owner B',
+        requestedOwner: 'Owner B',
+        dashboardContext: 'direct',
+        year: 2026,
+        team: { owner: 'Owner B', groupCount: 1, memberCount: 1 },
+        summary: {
+          floorPlan: { completedCount: 2, inProgressCount: 0, missingDateCount: 0 },
+          display: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+          lifecycle: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+        },
+        monthly: { months: [] },
+        groups: [{ id: 'owner-b-group', name: 'Owner B Group', leadDisplay: 'Lead', memberNames: [], projectCount: 2, summary: {} }],
+        members: [],
+        projectsById: {},
+        dataQuality: { notes: [], unmappedMemberCount: 0, missingDateCompletionCount: 0, weakProjectKeyCount: 0 },
+        readOnly: true,
+      }),
+    });
+    await switchPromise.catch(() => null);
+  }
+
+  assert.equal(app.state.teamWorkCompletion.owner, 'Owner B');
+  assert.match(app.elements.teamCompletionGroupGrid.innerHTML, /Owner B Group/);
 });
 
 test('team work completion uses cached results by default and force refreshes explicitly', async () => {
@@ -2233,6 +2720,66 @@ test('initial teams route loads dashboard session and preloads current detail wi
   assert.equal(app.state.ownerReview.owner, 'Owner A');
 });
 
+test('initial teams route honors the last stored owner before personnel options load', async () => {
+  const requested = [];
+  const storedValues = new Map([['teamDashboardOwner', 'Owner B']]);
+  const app = await loadPublicAppHarness({
+    fetchImpl: async (url) => {
+      const path = String(url);
+      requested.push(path);
+      if (path.startsWith('/api/dashboard-session')) {
+        const owner = new URL(path, 'http://local').searchParams.get('owner') || 'Owner A';
+        const payload = sampleDashboardSession({ owner, dashboardContext: 'all', year: 2026 });
+        payload.metrics.personnel.roles = [
+          { key: 'cdOwner', people: [{ name: 'Owner A', displayName: 'Owner A' }] },
+          { key: 'cdOwner', people: [{ name: 'Owner B', displayName: 'Owner B' }] },
+        ];
+        return {
+          ok: true,
+          json: async () => payload,
+        };
+      }
+      if (path.startsWith('/api/team-work-completion') && path.includes('view=detail')) {
+        return {
+          ok: true,
+          json: async () => ({ status: 'preparing', reason: 'detail-read-model-building' }),
+        };
+      }
+      throw new Error(`stored owner cold start should not fetch ${path}`);
+    },
+  });
+  globalThis.localStorage = {
+    getItem(key) {
+      return storedValues.get(key) || '';
+    },
+    setItem(key, value) {
+      storedValues.set(key, String(value));
+    },
+    removeItem(key) {
+      storedValues.delete(key);
+    },
+  };
+  app.elements.pageSections = [
+    { dataset: { page: 'overview' }, classList: fakeElement().classList },
+    { dataset: { page: 'teams' }, classList: fakeElement().classList },
+  ];
+  app.elements.navItems = [
+    { dataset: { page: 'overview' }, classList: fakeElement().classList, setAttribute() {} },
+    { dataset: { page: 'teams' }, classList: fakeElement().classList, setAttribute() {} },
+  ];
+  app.window.location.hash = '#teams';
+
+  await app.init();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(requested[0], '/api/dashboard-session?owner=Owner+B&context=direct&year=2026');
+  assert.equal(app.elements.teamOwnerSelect.value, 'Owner B');
+  assert.equal(app.state.teamMetrics.owner, 'Owner B');
+  assert.equal(app.state.teamWorkCompletion.owner, 'Owner B');
+  assert.equal(app.state.ownerReview.owner, 'Owner B');
+  assert.equal(storedValues.get('teamDashboardOwner'), 'Owner B');
+});
+
 test('teams page switch loads dashboard session and preloads current detail without module fanout', async () => {
   const requested = [];
   const app = await loadPublicAppHarness({
@@ -2314,9 +2861,36 @@ test('initial profile route uses dashboard session without profile fanout', asyn
   await app.init();
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assert.deepEqual(requested, ['/api/dashboard-session?context=all&year=2026']);
+  assert.deepEqual(requested, ['/api/dashboard-session?context=direct&year=2026']);
   assert.equal(app.state.profileMetrics.direct.profile, 'direct');
   assert.equal(app.state.profileProjects.direct.length, 1);
+});
+
+test('initial dashboard session preparing retries before rendering overview', async () => {
+  let sessionCalls = 0;
+  const app = await loadPublicAppHarness({
+    fetchImpl: async (url) => {
+      const path = String(url);
+      if (path.startsWith('/api/dashboard-session')) {
+        sessionCalls += 1;
+        return {
+          ok: true,
+          json: async () =>
+            sessionCalls === 1
+              ? { status: 'preparing', reason: 'read-model-building' }
+              : sampleDashboardSession({ owner: 'Owner A', dashboardContext: 'direct', year: 2026 }),
+        };
+      }
+      throw new Error(`initial dashboard preparing recovery should not fetch ${path}`);
+    },
+  });
+  app.window.location.hash = '#overview';
+
+  await app.init();
+
+  assert.equal(sessionCalls, 2);
+  assert.equal(app.state.snapshot.source, 'mock');
+  assert.doesNotMatch(app.elements.kpiGrid.innerHTML, /is-error/);
 });
 
 test('dashboard session clears stale department profile when the bundle omits it', async () => {
@@ -2334,6 +2908,277 @@ test('dashboard session clears stale department profile when the bundle omits it
   assert.equal(app.state.profileMetrics.department, null);
   assert.equal(app.state.annualEntryStructure, null);
   assert.equal(app.state.metrics.summary.totalProjects, 1);
+});
+
+test('dashboard session keeps backend project board when profile dashboard is partial', async () => {
+  const app = await loadPublicAppHarness({
+    fetchImpl: async () => ({ ok: true, json: async () => ({}) }),
+  });
+  const { applyDashboardSessionPayload } = await import('../public/lib/dashboard-loader.mjs');
+  const payload = sampleDashboardSession({ owner: 'Owner A', dashboardContext: 'direct', year: 2026 });
+  payload.departmentMetrics = {
+    profile: 'department',
+    projectBoard: {
+      year: 2026,
+      previousYear: 2025,
+      currentYearEntryTotal: 385,
+      currentYearEntryDirect: 174,
+      currentYearEntryFranchise: 211,
+      pausedOrCanceled: 27,
+      closedProjectTotal: 236,
+      previousYearUnclosedTotal: 10,
+    },
+    annualEntryStructure: sampleAnnualEntryStructure(2026),
+  };
+  payload.profileDashboards.department = {
+    metrics: {
+      profile: 'department',
+      summary: { scopeCount: 999 },
+      totals: { inProgress: 999 },
+    },
+    projects: [],
+    readOnly: true,
+  };
+
+  applyDashboardSessionPayload(payload);
+
+  assert.equal(app.state.profileMetrics.department.summary.scopeCount, 999);
+  assert.equal(app.state.profileMetrics.department.projectBoard.currentYearEntryTotal, 385);
+  assert.equal(app.state.profileMetrics.department.projectBoard.pausedOrCanceled, 27);
+  assert.equal(app.state.annualEntryStructure.year, 2026);
+});
+
+test('dashboard session seeds visible overview projects from bundled catalog', async () => {
+  const app = await loadPublicAppHarness({
+    fetchImpl: async () => ({ ok: true, json: async () => ({}) }),
+  });
+  const { applyDashboardSessionPayload } = await import('../public/lib/dashboard-loader.mjs');
+  app.window.location.hash = '#overview';
+  app.state.projects = [];
+
+  applyDashboardSessionPayload(sampleDashboardSession({ owner: 'Owner A', dashboardContext: 'direct', year: 2026 }));
+
+  assert.equal(app.state.projectsCatalogLoaded, true);
+  assert.deepEqual(app.state.projects.map((project) => project.id), ['direct-1']);
+});
+
+test('overview dashboard preloads lifecycle drill caches after first render', async () => {
+  const requested = [];
+  const app = await loadPublicAppHarness({
+    fetchImpl: async (url) => {
+      const path = String(url);
+      requested.push(path);
+      if (path.startsWith('/api/dashboard-session')) {
+        return {
+          ok: true,
+          json: async () => sampleDashboardSession({ owner: 'Owner A', dashboardContext: 'direct', year: 2026 }),
+        };
+      }
+      if (path.startsWith('/api/projects') && path.includes('fields=ids')) {
+        return {
+          ok: true,
+          json: async () => ({ ids: ['direct-1'], total: 1, readOnly: true }),
+        };
+      }
+      throw new Error(`overview drill preload should not fetch ${path}`);
+    },
+  });
+  app.elements.pageSections = [
+    { dataset: { page: 'overview' }, classList: fakeElement().classList },
+    { dataset: { page: 'teams' }, classList: fakeElement().classList },
+  ];
+  app.elements.navItems = [
+    { dataset: { page: 'overview' }, classList: fakeElement().classList, setAttribute() {} },
+    { dataset: { page: 'teams' }, classList: fakeElement().classList, setAttribute() {} },
+  ];
+  app.window.location.hash = '#overview';
+  app.showPage('overview', { skipPageDataLoad: true });
+
+  const { loadDashboard } = await import('../public/lib/dashboard-loader.mjs');
+  await loadDashboard();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const { LIFECYCLE_STAGE_ORDER } = await import('../public/dashboard/project-lifecycle.mjs');
+  const preloadedStages = requested
+    .filter((path) => path.startsWith('/api/projects') && path.includes('fields=ids'))
+    .map((path) => new URL(path, 'http://local').searchParams.get('lifecycleStage'))
+    .filter(Boolean);
+
+  assert.deepEqual(preloadedStages.sort(), LIFECYCLE_STAGE_ORDER.map((stage) => stage.key).sort());
+});
+
+test('rendered drill affordances preload through the shared drill cache', async () => {
+  const requested = [];
+  const app = await loadPublicAppHarness({
+    fetchImpl: async (url) => {
+      const path = String(url);
+      requested.push(path);
+      if (path.startsWith('/api/dashboard-session')) {
+        return {
+          ok: true,
+          json: async () => sampleDashboardSession({ owner: 'Owner A', dashboardContext: 'all', year: 2026 }),
+        };
+      }
+      if (path.startsWith('/api/projects') && path.includes('fields=ids')) {
+        return {
+          ok: true,
+          json: async () => ({ ids: ['direct-1'], total: 1, readOnly: true }),
+        };
+      }
+      throw new Error(`visible drill preload should not fetch ${path}`);
+    },
+  });
+  globalThis.document.querySelectorAll = (selector) =>
+    selector === '[data-drill]'
+      ? [
+          { dataset: { drill: JSON.stringify({ metric: 'totalProjects' }) } },
+          { getAttribute: () => JSON.stringify({ profile: 'direct', metric: 'openDelayed' }) },
+        ]
+      : [];
+  app.elements.pageSections = [
+    { dataset: { page: 'overview' }, classList: fakeElement().classList },
+    { dataset: { page: 'teams' }, classList: fakeElement().classList },
+  ];
+  app.elements.navItems = [
+    { dataset: { page: 'overview' }, classList: fakeElement().classList, setAttribute() {} },
+    { dataset: { page: 'teams' }, classList: fakeElement().classList, setAttribute() {} },
+  ];
+  app.window.location.hash = '#overview';
+  app.showPage('overview', { skipPageDataLoad: true });
+
+  const { loadDashboard } = await import('../public/lib/dashboard-loader.mjs');
+  await loadDashboard();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const idRequests = requested.filter((path) => path.startsWith('/api/projects') && path.includes('fields=ids'));
+  assert.ok(idRequests.some((path) => new URL(path, 'http://local').searchParams.get('metric') === 'totalProjects'));
+  assert.ok(
+    idRequests.some((path) => {
+      const params = new URL(path, 'http://local').searchParams;
+      return params.get('profile') === 'direct' && params.get('metric') === 'openDelayed';
+    })
+  );
+});
+
+test('overview dashboard preloads team work completion detail for first teams modal', async () => {
+  const requested = [];
+  const app = await loadPublicAppHarness({
+    fetchImpl: async (url) => {
+      const path = String(url);
+      requested.push(path);
+      if (path.startsWith('/api/dashboard-session')) {
+        return {
+          ok: true,
+          json: async () => sampleDashboardSession({ owner: 'Owner A', dashboardContext: 'all', year: 2026 }),
+        };
+      }
+      if (path.startsWith('/api/projects') && path.includes('fields=ids')) {
+        return {
+          ok: true,
+          json: async () => ({ ids: ['direct-1'], total: 1, readOnly: true }),
+        };
+      }
+      if (path.startsWith('/api/team-work-completion') && path.includes('view=detail')) {
+        return {
+          ok: true,
+          json: async () => ({
+            owner: 'Owner A',
+            dashboardContext: 'all',
+            year: 2026,
+            detailReady: true,
+            projectsById: { 'direct-1': { id: 'direct-1', name: 'Direct project detail' } },
+            sourceProjects: [{ id: 'direct-1', name: 'Direct project detail' }],
+          }),
+        };
+      }
+      throw new Error(`team detail preload should not fetch ${path}`);
+    },
+  });
+  app.elements.pageSections = [
+    { dataset: { page: 'overview' }, classList: fakeElement().classList },
+    { dataset: { page: 'teams' }, classList: fakeElement().classList },
+  ];
+  app.elements.navItems = [
+    { dataset: { page: 'overview' }, classList: fakeElement().classList, setAttribute() {} },
+    { dataset: { page: 'teams' }, classList: fakeElement().classList, setAttribute() {} },
+  ];
+  app.window.location.hash = '#overview';
+  app.showPage('overview', { skipPageDataLoad: true });
+
+  const { loadDashboard } = await import('../public/lib/dashboard-loader.mjs');
+  await loadDashboard();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const detailRequests = requested.filter((path) => path.startsWith('/api/team-work-completion') && path.includes('view=detail'));
+  assert.equal(detailRequests.length, 1);
+  assert.match(detailRequests[0], /owner=Owner\+A/);
+  assert.match(detailRequests[0], /context=direct/);
+  assert.match(detailRequests[0], /fallback=readModel/);
+  assert.ok(app.state.teamWorkCompletion.detailReady);
+});
+
+test('overview dashboard cached team bundle makes first teams switch local', async () => {
+  const requested = [];
+  const app = await loadPublicAppHarness({
+    fetchImpl: async (url) => {
+      const path = String(url);
+      requested.push(path);
+      if (path.startsWith('/api/dashboard-session')) {
+        return {
+          ok: true,
+          json: async () => sampleDashboardSession({ owner: 'Owner A', dashboardContext: 'direct', year: 2026 }),
+        };
+      }
+      if (path.startsWith('/api/projects') && path.includes('fields=ids')) {
+        return {
+          ok: true,
+          json: async () => ({ ids: ['direct-1'], total: 1, readOnly: true }),
+        };
+      }
+      if (path.startsWith('/api/team-work-completion') && path.includes('view=detail')) {
+        return {
+          ok: true,
+          json: async () => ({ status: 'preparing', reason: 'detail-read-model-building' }),
+        };
+      }
+      throw new Error(`cached teams switch should not fetch ${path}`);
+    },
+  });
+  app.elements.pageSections = [
+    { dataset: { page: 'overview' }, classList: fakeElement().classList },
+    { dataset: { page: 'teams' }, classList: fakeElement().classList },
+  ];
+  app.elements.navItems = [
+    { dataset: { page: 'overview' }, classList: fakeElement().classList, setAttribute() {} },
+    { dataset: { page: 'teams' }, classList: fakeElement().classList, setAttribute() {} },
+  ];
+  app.window.location.hash = '#overview';
+  app.showPage('overview', { skipPageDataLoad: true });
+
+  const { loadDashboard } = await import('../public/lib/dashboard-loader.mjs');
+  await loadDashboard();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  app.window.location.hash = '#teams?owner=Owner%20A&dashboardContext=direct&year=2026';
+  app.showPage('teams');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(
+    requested.filter((path) => path.startsWith('/api/dashboard-session')),
+    ['/api/dashboard-session?context=direct&year=2026']
+  );
+  assert.deepEqual(
+    requested.filter(
+      (path) =>
+        path.startsWith('/api/team-metrics') ||
+        (path.startsWith('/api/team-work-completion') && !path.includes('view=detail')) ||
+        path.startsWith('/api/team-responsibility-review')
+    ),
+    []
+  );
+  assert.equal(app.state.teamMetrics.owner, 'Owner A');
+  assert.equal(app.state.teamWorkCompletion.owner, 'Owner A');
+  assert.equal(app.state.ownerReview.owner, 'Owner A');
 });
 
 test('dashboard session work completion detail skips background detail preload', async () => {
@@ -3571,7 +4416,7 @@ function project(rawFields = {}, overrides = {}) {
   };
 }
 
-test('project key date requires actual meeting and measure dates before advancing hard reminders', async () => {
+test('project key date can advance from downstream hard stage text while exact dates remain field facts', async () => {
   const app = await loadPublicAppHarness();
 
   const measureDelayed = app.resolveProjectKeyDate(
@@ -3591,8 +4436,8 @@ test('project key date requires actual meeting and measure dates before advancin
       上会情况: '准时完成',
     })
   );
-  assert.equal(meetingStatusOnly.label, '上会');
-  assert.equal(meetingStatusOnly.message, '待上会');
+  assert.equal(meetingStatusOnly.label, '复尺');
+  assert.equal(meetingStatusOnly.message, '待复尺');
 
   const measureStatusOnly = app.resolveProjectKeyDate(
     project({
@@ -3606,7 +4451,7 @@ test('project key date requires actual meeting and measure dates before advancin
   assert.equal(measureStatusOnly.message, '待复尺');
 });
 
-test('soft progress does not hide missing hard-node dates in next reminder', async () => {
+test('soft progress advances the main reminder while hard-node gaps remain separate field gaps', async () => {
   const app = await loadPublicAppHarness();
 
   const reminder = app.resolveProjectKeyDate(
@@ -3617,8 +4462,8 @@ test('soft progress does not hide missing hard-node dates in next reminder', asy
     })
   );
 
-  assert.equal(reminder.label, '上会');
-  assert.equal(reminder.message, '待上会');
+  assert.equal(reminder.label, '软装方案');
+  assert.equal(reminder.message, '待软装方案');
 });
 
 test('floor plan handoff shows parallel construction drawing and point design work', async () => {
@@ -3740,6 +4585,68 @@ test('system hard deadline reminder drives project next reminder and detail expl
   assert.doesNotMatch(html, /系统提醒与判断依据/);
   assert.match(html, /平面超期/);
   assert.match(html, /系统平面 Deadline 已延期/);
+});
+
+test('paused and canceled projects show only status reminder in detail instead of deadline or overtime copy', async () => {
+  const app = await loadPublicAppHarness();
+  const deadlineFields = {
+    硬装项目进度: '暂停',
+    软装项目进度: '软装方案',
+    复尺时间: '2026-06-01',
+    面积: '280',
+    平面开始时间: '2026-06-02',
+    硬装方案情况: '进行中',
+  };
+  const deadlinePayload = {
+    hardDeadline: {
+      ruleVersion: 'hard-decoration-deadline-v2026-06-12',
+      status: 'calculated',
+      measureDate: '2026-06-01',
+      areaBucket: { key: 'lt300', label: 'mini店：≤300㎡' },
+      floorPlan: {
+        startDueDate: '2026-06-02',
+        warnDueDate: '2026-06-05',
+        dueDate: '2026-06-09',
+        startStatus: 'on_time_start',
+        completionStatus: 'delayed_open',
+        efficiencyStatus: 'overtime_open',
+        efficiencySummary: '按实际启动顺延后仍未完成，效率已超时。',
+      },
+    },
+    primaryReminder: {
+      discipline: 'hard',
+      nodeKey: 'floorPlanDue',
+      type: 'overdue',
+      severity: 'critical',
+      label: '平面超期',
+      title: '系统平面 Deadline 已延期',
+      message: '确认平面延期原因、预计完成时间和是否需要调度支援。',
+      dueDate: '2026-06-09',
+      source: 'system_deadline',
+    },
+  };
+  const pausedProject = project(deadlineFields, { id: 'paused-deadline', name: '暂停店', ...deadlinePayload });
+  const canceledProject = project(
+    { ...deadlineFields, 硬装项目进度: '施工图', 软装项目进度: '取消' },
+    { id: 'canceled-deadline', name: '取消店', ...deadlinePayload }
+  );
+
+  assert.equal(app.resolveProjectKeyDate(pausedProject).label, '暂停');
+  assert.equal(app.resolveProjectKeyDate(pausedProject).message, '项目暂停中');
+  app.renderProjectDetailModal(pausedProject);
+  let html = app.elements.projectDetailModalBody.innerHTML;
+  assert.match(html, /项目暂停中/);
+  assert.doesNotMatch(html, /平面超期/);
+  assert.doesNotMatch(html, /系统平面 Deadline 已延期/);
+  assert.doesNotMatch(html, /效率已超时/);
+
+  assert.equal(app.resolveProjectKeyDate(canceledProject).label, '取消');
+  assert.equal(app.resolveProjectKeyDate(canceledProject).message, '项目已取消');
+  app.renderProjectDetailModal(canceledProject);
+  html = app.elements.projectDetailModalBody.innerHTML;
+  assert.match(html, /项目已取消/);
+  assert.doesNotMatch(html, /平面超期/);
+  assert.doesNotMatch(html, /系统平面 Deadline 已延期/);
 });
 
 test('deadline exception falls back to workflow next reminder instead of hard deadline copy', async () => {
@@ -3885,7 +4792,7 @@ test('updated construction stage starts point design even when floor plan handof
   assert.doesNotMatch(stage, /软装：未开始/);
 
   const reminders = app.resolveProjectKeyDateReminders(stageUpdatedProject);
-  assert.deepEqual(JSON.parse(JSON.stringify(reminders.map((item) => item.label))), ['施工图初稿', '点位完成']);
+  assert.deepEqual(JSON.parse(JSON.stringify(reminders.map((item) => item.label))), ['施工图审核', '点位完成']);
   assert.match(app.readProjectKeyDate(stageUpdatedProject), /待点位完成/);
 });
 
@@ -3909,27 +4816,29 @@ test('paused workflow keeps pause as the only project key reminder after handoff
   assert.deepEqual(JSON.parse(JSON.stringify(app.resolveProjectKeyDateReminders(hardPaused).map((item) => item.label))), ['暂停']);
 });
 
-test('completed soft point status asks for missing completion time instead of point follow-up', async () => {
+test('completed soft point status advances the main reminder while missing time remains a data gap', async () => {
   const app = await loadPublicAppHarness();
 
   const stageReminder = app.resolveProjectKeyDate(
     project({
-      硬装项目进度: '闭环',
+      硬装项目进度: '施工图',
       软装项目进度: '点位已完成',
+      施工图完成审核时间: '2026-05-01',
     })
   );
-  assert.equal(stageReminder.label, '点位完成');
-  assert.equal(stageReminder.message, '待点位完成');
+  assert.equal(stageReminder.label, '软装方案');
+  assert.equal(stageReminder.message, '待软装方案');
 
   const statusReminder = app.resolveProjectKeyDate(
     project({
-      硬装项目进度: '闭环',
+      硬装项目进度: '施工图',
       软装项目进度: '点位待跟进',
       点位完成情况: '准时完成',
+      施工图完成审核时间: '2026-05-01',
     })
   );
-  assert.equal(statusReminder.label, '点位完成');
-  assert.equal(statusReminder.message, '待点位完成');
+  assert.equal(statusReminder.label, '软装方案');
+  assert.equal(statusReminder.message, '待软装方案');
 });
 
 test('field gap reminders track completed stage evidence without changing workflow reminders', async () => {
@@ -3937,8 +4846,9 @@ test('field gap reminders track completed stage evidence without changing workfl
 
   const gaps = app.projectFieldGapReminders(
     project({
-      硬装项目进度: '闭环',
+      硬装项目进度: '施工图',
       软装项目进度: '点位已完成',
+      施工图完成审核时间: '2026-05-01',
       点位设计师: '马琳琳',
       硬装方案情况: '延期完成',
       CD设计师: '李雷',
@@ -3970,8 +4880,9 @@ test('field gap reminders track completed stage evidence without changing workfl
 
   const html = app.renderProjectFieldGapReminder(
     project({
-      硬装项目进度: '闭环',
+      硬装项目进度: '施工图',
       软装项目进度: '点位已完成',
+      施工图完成审核时间: '2026-05-01',
       点位设计师: '马琳琳',
     })
   );
@@ -4057,6 +4968,30 @@ test('closed lifecycle projects suppress missing-time and follow-up prompts in t
   assert.doesNotMatch(modalHtml, /完成 · 缺日期|缺时间/);
 });
 
+test('single-track lifecycle closure shows a detail note without reopening follow-up reminders', async () => {
+  const app = await loadPublicAppHarness();
+  const singleTrackClosedProject = project(
+    {
+      硬装项目进度: '闭环',
+      软装项目进度: '待采购',
+      CD设计师: '李雷',
+      点位设计师: '马琳琳',
+    },
+    {
+      id: 'single-track-closed',
+      name: '单轨闭环店',
+      storeStatus: '常规店',
+    }
+  );
+
+  app.renderProjectDetailModal(singleTrackClosedProject);
+  const detailHtml = app.elements.projectDetailModalBody.innerHTML;
+
+  assert.match(detailHtml, /单轨闭环提醒/);
+  assert.match(detailHtml, /另一轨道可能漏填写或未更新/);
+  assert.doesNotMatch(detailHtml, /下一提醒/);
+});
+
 test('field gap reminders do not flag incomplete statuses or completed evidence dates', async () => {
   const app = await loadPublicAppHarness();
 
@@ -4089,18 +5024,20 @@ test('downstream soft stages require missing point evidence without reverting wo
 
   const reminder = app.resolveProjectKeyDate(
     project({
-      硬装项目进度: '闭环',
+      硬装项目进度: '施工图',
       软装项目进度: '待采购',
+      施工图完成审核时间: '2026-05-01',
     })
   );
-  assert.equal(reminder.label, '点位完成');
-  assert.equal(reminder.message, '待点位完成');
+  assert.equal(reminder.label, '采购完成');
+  assert.equal(reminder.message, '待采购完成');
 
   assert.deepEqual(
     JSON.parse(JSON.stringify(app.projectFieldGapReminders(
       project({
-        硬装项目进度: '闭环',
+        硬装项目进度: '施工图',
         软装项目进度: '摆场',
+        施工图完成审核时间: '2026-05-01',
       })
     ).map((item) => ({
       key: item.key,
@@ -4122,8 +5059,9 @@ test('point completion time without completion status is a data gap', async () =
 
   const gaps = app.projectFieldGapReminders(
     project({
-      硬装项目进度: '闭环',
+      硬装项目进度: '施工图',
       软装项目进度: '点位已完成',
+      施工图完成审核时间: '2026-05-01',
       点位完成时间: '2026-05-09',
       点位设计师: '马琳琳',
     })
@@ -4152,8 +5090,9 @@ test('soft completion status does not short-circuit follow-up reminders', async 
 
   const reminder = app.resolveProjectKeyDate(
     project({
-      硬装项目进度: '闭环',
+      硬装项目进度: '施工图',
       软装项目进度: '待采购',
+      施工图完成审核时间: '2026-05-01',
       点位完成情况: '已完成',
       点位完成时间: '2026-05-01',
       软装方案开始时间: '2026-05-02',
@@ -4162,8 +5101,8 @@ test('soft completion status does not short-circuit follow-up reminders', async 
     })
   );
 
-  assert.equal(reminder.label, '产品清单接收');
-  assert.equal(reminder.message, '待产品清单接收');
+  assert.equal(reminder.label, '采购完成');
+  assert.equal(reminder.message, '待采购完成');
 });
 
 test('design responsibility completion does not close company follow-up reminders', async () => {
@@ -4171,8 +5110,9 @@ test('design responsibility completion does not close company follow-up reminder
 
   const reminder = app.resolveProjectKeyDate(
     project({
-      硬装项目进度: '闭环',
+      硬装项目进度: '施工图',
       躺平内部审核结束时间: '2026-05-12',
+      施工图完成审核时间: '2026-05-13',
       软装项目进度: '完成',
       软装方案开始时间: '2026-05-02',
       点位完成情况: '已完成',
@@ -4190,8 +5130,9 @@ test('soft completion reminder does not treat unfinished status as completed', a
 
   const reminder = app.resolveProjectKeyDate(
     project({
-      硬装项目进度: '闭环',
+      硬装项目进度: '施工图',
       软装项目进度: '软装方案中',
+      施工图完成审核时间: '2026-05-01',
       点位完成情况: '已完成',
       点位完成时间: '2026-05-01',
       软装方案开始时间: '2026-05-02',

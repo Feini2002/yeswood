@@ -76,7 +76,7 @@ export const DEFAULT_DATE_FIELDS = {
   productListVolume: ['产品清单发出时间'],
   schemeVolume: ['软装方案开始时间'],
   purchaseVolume: ['采购时间'],
-  siteVolume: ['摆场文件发出时间(项目群）', '摆场时间', '现场摆场时间'],
+  siteVolume: ['摆场文件发出时间(项目群）', '摆场开始时间', '摆场时间', '现场摆场时间'],
 };
 
 /**
@@ -99,13 +99,13 @@ export const TIER_DATE_FIELDS = {
     schemeDoneYtd: ['躺平内部审核结束时间', '上会日期', '施工图初稿完成时间（外包首次提供图纸的时间）', '复尺时间'],
     schemeDelayDoneYtd: ['上会日期', '躺平内部审核结束时间', 'updatedAt'],
     schemeDelayDoneMonth: ['updatedAt', '上会日期'],
-    siteVolume: ['摆场文件发出时间(项目群）', '摆场时间', '现场摆场时间'],
+    siteVolume: ['摆场文件发出时间(项目群）', '摆场开始时间', '摆场时间', '现场摆场时间'],
   },
   sinking: {
     schemeDoneYtd: ['上会日期', '复尺时间', '躺平内部审核结束时间', '施工图初稿完成时间（外包首次提供图纸的时间）'],
     schemeDelayDoneYtd: ['上会日期', 'updatedAt'],
     schemeDelayDoneMonth: ['updatedAt', '上会日期'],
-    siteVolume: ['摆场文件发出时间(项目群）', '摆场时间', '现场摆场时间'],
+    siteVolume: ['摆场文件发出时间(项目群）', '摆场开始时间', '摆场时间', '现场摆场时间'],
   },
 };
 
@@ -163,13 +163,13 @@ export function getMetricDefinitions() {
     notStarted: {
       title: '未开始',
       definition:
-        '同店态下，硬装与软装项目进度均为未开始/未安排（或为空）；负责人月度盘可将软装「暂停」计入软装侧未开始。',
+        '同店态下，硬装与软装项目进度均为未开始/未安排（或为空）；当前暂停项目单独列示，不按未开始统计，曾暂停但当前恢复的项目回到当前流程阶段。',
       fields: ['店态', '软装项目进度', '硬装项目进度'],
     },
     inProgress: {
       title: '进行中',
       definition:
-        '同店态下，硬装或软装任一侧在推进（非未开始/未安排/闭环/完成；硬装含暂停、施工图等，软装含暂停）。',
+        '同店态下，硬装或软装任一侧在推进（非未开始/未安排/当前暂停/闭环/完成）；曾暂停但当前恢复的项目按恢复后的阶段统计。',
       fields: ['店态', '硬装项目进度', '软装项目进度'],
       excludeRules: ['不使用项目状态(紧急/一般)判断流程', '店态不绑定单一工种'],
     },
@@ -233,8 +233,8 @@ export function getMetricDefinitions() {
     },
     siteVolume: {
       title: '摆场交付',
-      definition: '公司协同阶段的进度为摆场，且摆场文件发出或现场摆场时间在本月；不计入设计责任制完成口径。',
-      fields: ['软装项目进度', '摆场文件发出时间(项目群）', '摆场时间', '现场摆场时间'],
+      definition: '公司协同阶段的进度为摆场，且摆场开始、摆场文件发出或现场摆场时间在本月；不计入设计责任制完成口径。',
+      fields: ['软装项目进度', '摆场开始时间', '摆场文件发出时间(项目群）', '摆场时间', '现场摆场时间'],
     },
     priorityStatus: {
       title: '项目状态（优先级）',

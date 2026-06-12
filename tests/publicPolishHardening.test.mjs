@@ -38,7 +38,7 @@ test('details workbench empty states explain the current desktop filter context'
 
   assert.match(filtered, /暂无匹配项目/);
   assert.match(filtered, /调整搜索或筛选条件/);
-  assert.match(paused, /暂无暂停项目/);
+  assert.match(paused, /暂无暂停\/取消项目/);
   assert.match(incomplete, /暂无人员配置待补全项目/);
 });
 

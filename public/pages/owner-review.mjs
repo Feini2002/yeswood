@@ -1958,7 +1958,41 @@ export function closeOwnerReviewMemberModal() {
 }
 
 
+function ownerReviewMatchesOwner(review = null, owner = '') {
+  const requestedOwner = String(owner || '').trim();
+  if (!review || !requestedOwner) {
+    return false;
+  }
+  return [
+    review.owner,
+    review.requestedOwner,
+    review.team?.owner,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .includes(requestedOwner);
+}
+
+
+function clearStaleOwnerReviewForCurrentOwner() {
+  const owner = resolveOwnerReviewOwner() || state.selectedTeamOwner || '';
+  const review = state.ownerReview;
+  if (!review?.owner || !owner || ownerReviewMatchesOwner(review, owner)) {
+    return false;
+  }
+  state.ownerReview = null;
+  state.ownerReviewLoading = true;
+  state.ownerReviewError = '';
+  state.ownerReviewRefreshStatus = 'switching';
+  state.ownerReviewRefreshError = '';
+  state.selectedOwnerReviewPerson = '';
+  state.selectedOwnerReviewMember = '';
+  return true;
+}
+
+
 export function renderOwnerReviewDashboard() {
+  clearStaleOwnerReviewForCurrentOwner();
   ensureOwnerReviewControls();
   renderOwnerReviewTeamStructure();
   syncOwnerReviewLoadControls();
