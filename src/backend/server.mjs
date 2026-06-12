@@ -39,7 +39,11 @@ import {
   readPrecomputedTeamWorkCompletion,
   readPrecomputedTeamWorkCompletionDetail,
 } from './precomputeTeamDashboards.mjs';
-import { REQUIRED_READ_MODEL_FEATURES, readDashboardSessionReadModel } from './readModelRepository.mjs';
+import {
+  REQUIRED_READ_MODEL_FEATURES,
+  readDashboardSessionReadModel,
+  readTeamWorkCompletionDetailReadModel,
+} from './readModelRepository.mjs';
 import { attachDepartmentOperations, buildTeamMetricsPayload, resolveTeamForOwner } from './teamMetricsPayload.mjs';
 
 let activeApiRequest = null;
@@ -215,6 +219,17 @@ function publicSyncPayload(snapshot) {
     fieldCount: Array.isArray(snapshot.fieldCatalog) ? snapshot.fieldCatalog.length : 0,
     readOnly: true,
   };
+}
+
+async function ensureSyncedDashboardReadModel(snapshot, config = {}) {
+  const manifest = await ensureDashboardPrecompute(snapshot, config);
+  if (config.precomputeEnabled === false) {
+    return manifest;
+  }
+  if (!manifest || !REQUIRED_READ_MODEL_FEATURES.every((feature) => manifest.features?.includes(feature))) {
+    throw new Error('Dashboard read model warmup did not publish a complete manifest');
+  }
+  return manifest;
 }
 
 function publicSnapshotPayload(snapshot, config = {}) {
@@ -784,9 +799,14 @@ async function handleApiRequest(request, response, url, config) {
 
     try {
       const snapshot = await syncProjects({ config, source });
+      const warmup = await ensureSyncedDashboardReadModel(snapshot, config);
       gate.commit?.();
       logger.info('Dashboard data synced', { source: snapshot.source, totalRecords: snapshot.totalRecords });
-      await sendJson(response, 200, publicSyncPayload(snapshot));
+      await sendJson(response, 200, {
+        ...publicSyncPayload(snapshot),
+        warmed: Boolean(warmup),
+        features: warmup?.features || [],
+      });
       return true;
     } catch (error) {
       gate.release?.();
@@ -814,9 +834,14 @@ async function handleApiRequest(request, response, url, config) {
 
     try {
       const snapshot = await syncProjects({ config, source: config.mode });
+      const warmup = await ensureSyncedDashboardReadModel(snapshot, config);
       gate.commit?.();
       logger.info('Dashboard data synced from browser', { source: snapshot.source, totalRecords: snapshot.totalRecords });
-      await sendJson(response, 200, publicSyncPayload(snapshot));
+      await sendJson(response, 200, {
+        ...publicSyncPayload(snapshot),
+        warmed: Boolean(warmup),
+        features: warmup?.features || [],
+      });
       return true;
     } catch (error) {
       gate.release?.();
@@ -1143,8 +1168,51 @@ async function handleApiRequest(request, response, url, config) {
     const forceRefresh = ['1', 'true', 'yes', 'on'].includes(
       String(url.searchParams.get('forceRefresh') || '').trim().toLowerCase()
     );
-    const shouldComputeMissingDetail =
-      view === 'detail' && String(url.searchParams.get('fallback') || '').trim().toLowerCase() === 'compute';
+    const fallbackMode = String(url.searchParams.get('fallback') || '').trim().toLowerCase();
+    const shouldComputeMissingDetail = view === 'detail' && fallbackMode === 'compute';
+    if (!forceRefresh && view === 'detail' && fallbackMode === 'readmodel') {
+      const readModel = readTeamWorkCompletionDetailReadModel(config, {
+        owner: ownerParam,
+        requestedOwner: ownerParam,
+        dashboardContext,
+        year,
+      });
+      const readModelHit = readModel.status === 'ready' || readModel.status === 'stale';
+      const perf = {
+        route: '/api/team-work-completion',
+        owner: ownerParam,
+        dashboardContext,
+        year,
+        startedAt,
+        snapshotMs: 0,
+        readModelHit,
+        precomputedFileHit: readModelHit,
+        fallbackComputed: false,
+        precomputeActive: precomputeActive(config),
+      };
+      if (readModelHit) {
+        await sendJson(response, 200, readModel.payload, perf);
+        return true;
+      }
+
+      triggerDashboardPrecomputeFromCurrentSnapshot(config, '/api/team-work-completion');
+      await sendJson(
+        response,
+        202,
+        {
+          ok: false,
+          status: 'preparing',
+          readModel: true,
+          view,
+          owner: ownerParam,
+          dashboardContext,
+          year,
+          reason: readModel.reason || `${view} team work completion read model is missing`,
+        },
+        { ...perf, precomputeActive: precomputeActive(config) }
+      );
+      return true;
+    }
     const snapshotStart = Date.now();
     const snapshot = await getSnapshot(config);
     const snapshotMs = elapsedMs(snapshotStart);

@@ -730,6 +730,8 @@ test('frontend exposes a desktop rules catalog page seeded with delay reminder r
   assert.match(html, /mini店：≤300㎡/);
   assert.match(html, /中小店：300～450㎡/);
   assert.match(html, /超体店：1500～2000㎡/);
+  assert.match(html, /超体店：2000㎡以上（暂按1500～2000㎡）/);
+  assert.doesNotMatch(html, /2000㎡以上暂不在本矩阵内/);
   assert.doesNotMatch(html, /<span role="columnheader">项目判断<\/span>/);
   assert.match(html, /id="rulesDeadlineInfoDialog"/);
   assert.match(html, /data-rules-info-open/);

@@ -4,6 +4,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import { paths } from './config.mjs';
+import { mergeTeamWorkCompletionDetailPayload } from './teamWorkCompletionPayload.mjs';
 
 export const READ_MODEL_SCHEMA_VERSION = 5;
 const CURRENT_READ_MODEL_SCHEMA_VERSIONS = new Set([READ_MODEL_SCHEMA_VERSION]);
@@ -192,10 +193,21 @@ function readTeamPayloads(dir, { owner, dashboardContext, year }) {
 }
 
 function ownerFromManifest(manifest, owner) {
-  if (owner) {
-    return owner;
+  const requestedOwner = String(owner || '').trim();
+  const owners = Array.isArray(manifest?.owners) ? manifest.owners : [];
+  if (requestedOwner) {
+    const matchedOwner = owners.find((entry) => {
+      if (!entry) {
+        return false;
+      }
+      if (entry.owner === requestedOwner || entry.key === requestedOwner) {
+        return true;
+      }
+      return Array.isArray(entry.aliases) && entry.aliases.includes(requestedOwner);
+    });
+    return matchedOwner?.owner || requestedOwner;
   }
-  const firstOwner = Array.isArray(manifest?.owners) ? manifest.owners[0] : null;
+  const firstOwner = owners[0] || null;
   return firstOwner?.owner || '';
 }
 
@@ -252,6 +264,7 @@ function buildReadModelResult(dir, params = {}, { stale = false, currentUnavaila
   if (owner && !team.responsibilityReview) {
     return { status: 'incomplete', payload: null, reason: 'team responsibility review read model is missing' };
   }
+  const workCompletion = mergeTeamWorkCompletionDetailPayload(team.workCompletion, team.workCompletionDetail);
 
   return {
     status: stale ? 'stale' : 'ready',
@@ -270,10 +283,41 @@ function buildReadModelResult(dir, params = {}, { stale = false, currentUnavaila
         dashboardContext,
         year,
         metrics: team.metrics,
-        workCompletion: team.workCompletion,
+        workCompletion,
         responsibilityReview: team.responsibilityReview,
       },
     },
+  };
+}
+
+function buildTeamWorkCompletionDetailReadModelResult(
+  dir,
+  params = {},
+  { stale = false, currentUnavailableReason = '' } = {}
+) {
+  const manifest = readManifest(dir);
+  if (!manifest) {
+    return { status: 'missing', payload: null, reason: 'read model manifest is missing' };
+  }
+  if (!manifestIsComplete(manifest)) {
+    return { status: 'incomplete', payload: null, reason: 'read model manifest is incomplete' };
+  }
+
+  const owner = ownerFromManifest(manifest, params.owner || '');
+  const dashboardContext = params.dashboardContext || 'all';
+  const year = Number(params.year || new Date().getFullYear());
+  const team = readTeamPayloads(dir, { owner, dashboardContext, year });
+  if (!owner || !team.workCompletionDetail) {
+    return { status: 'incomplete', payload: null, reason: 'team work completion detail read model is missing' };
+  }
+  const payload = mergeTeamWorkCompletionDetailPayload(team.workCompletion || {}, team.workCompletionDetail);
+  return {
+    status: stale ? 'stale' : 'ready',
+    payload:
+      params.requestedOwner && payload?.requestedOwner !== params.requestedOwner
+        ? { ...payload, requestedOwner: params.requestedOwner }
+        : payload,
+    reason: currentUnavailableReason || undefined,
   };
 }
 
@@ -285,6 +329,23 @@ export function readDashboardSessionReadModel(config = {}, params = {}) {
   }
 
   const stale = buildReadModelResult(lastKnownGoodReadModelDir(config), readParams, {
+    stale: true,
+    currentUnavailableReason: current.reason || current.status,
+  });
+  if (stale.status === 'stale') {
+    return stale;
+  }
+  return current;
+}
+
+export function readTeamWorkCompletionDetailReadModel(config = {}, params = {}) {
+  const readParams = { ...params, config };
+  const current = buildTeamWorkCompletionDetailReadModelResult(currentReadModelDir(config), readParams);
+  if (current.status === 'ready') {
+    return current;
+  }
+
+  const stale = buildTeamWorkCompletionDetailReadModelResult(lastKnownGoodReadModelDir(config), readParams, {
     stale: true,
     currentUnavailableReason: current.reason || current.status,
   });

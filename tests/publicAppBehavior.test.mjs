@@ -69,7 +69,36 @@ function sampleAnnualEntryStructure(year = 2026) {
   };
 }
 
-function sampleDashboardSession({ owner = 'Owner A', dashboardContext = 'direct', year = 2026 } = {}) {
+function sampleDashboardSession({
+  owner = 'Owner A',
+  dashboardContext = 'direct',
+  year = 2026,
+  workCompletionDetail = false,
+} = {}) {
+  const workCompletion = {
+    owner,
+    requestedOwner: owner,
+    dashboardContext,
+    year,
+    team: { owner, groupCount: 1, memberCount: 1 },
+    summary: {
+      floorPlan: { completedCount: 1, inProgressCount: 0, missingDateCount: 0 },
+      display: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+      lifecycle: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+    },
+    monthly: { months: [] },
+    groups: [],
+    members: [],
+    dataQuality: { notes: [], unmappedMemberCount: 0, missingDateCompletionCount: 0, weakProjectKeyCount: 0 },
+    readOnly: true,
+  };
+  if (workCompletionDetail) {
+    workCompletion.detailReady = true;
+    workCompletion.detailStatus = 'ready';
+    workCompletion.projectsById = { 'direct-1': { id: 'direct-1', name: 'Direct project', province: 'Zhejiang' } };
+    workCompletion.sourceProjects = [{ id: 'direct-1', name: 'Direct project', province: 'Zhejiang' }];
+  }
+
   return {
     schemaVersion: 1,
     readOnly: true,
@@ -136,23 +165,7 @@ function sampleDashboardSession({ owner = 'Owner A', dashboardContext = 'direct'
         benchmark: {},
         insights: { modules: {} },
       },
-      workCompletion: {
-        owner,
-        requestedOwner: owner,
-        dashboardContext,
-        year,
-        team: { owner, groupCount: 1, memberCount: 1 },
-        summary: {
-          floorPlan: { completedCount: 1, inProgressCount: 0, missingDateCount: 0 },
-          display: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
-          lifecycle: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
-        },
-        monthly: { months: [] },
-        groups: [],
-        members: [],
-        dataQuality: { notes: [], unmappedMemberCount: 0, missingDateCompletionCount: 0, weakProjectKeyCount: 0 },
-        readOnly: true,
-      },
+      workCompletion,
       responsibilityReview: {
         owner,
         dashboardContext,
@@ -2323,6 +2336,33 @@ test('dashboard session clears stale department profile when the bundle omits it
   assert.equal(app.state.metrics.summary.totalProjects, 1);
 });
 
+test('dashboard session work completion detail skips background detail preload', async () => {
+  const requested = [];
+  const app = await loadPublicAppHarness({
+    fetchImpl: async (url) => {
+      requested.push(String(url));
+      return { ok: true, json: async () => ({}) };
+    },
+  });
+  const { applyDashboardSessionPayload } = await import('../public/lib/dashboard-loader.mjs');
+  app.window.location.hash = '#teams?owner=Owner%20A&dashboardContext=direct&year=2026';
+
+  applyDashboardSessionPayload(
+    sampleDashboardSession({
+      owner: 'Owner A',
+      dashboardContext: 'direct',
+      year: 2026,
+      workCompletionDetail: true,
+    })
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const detailRequests = requested.filter((path) => path.startsWith('/api/team-work-completion') && path.includes('view=detail'));
+  assert.deepEqual(detailRequests, []);
+  assert.equal(app.state.teamWorkCompletion.detailReady, true);
+  assert.ok(app.state.teamWorkCompletion.projectsById?.['direct-1']);
+});
+
 test('profile dashboard uses cached results by default and force refreshes explicitly', async () => {
   const requested = [];
   const app = await loadPublicAppHarness({
@@ -3628,7 +3668,7 @@ test('system hard deadline reminder drives project next reminder and detail expl
       id: 'system-deadline-floor',
       name: '系统规则延期平面店',
       hardDeadline: {
-        ruleVersion: 'hard-decoration-deadline-v2026-06-04',
+        ruleVersion: 'hard-decoration-deadline-v2026-06-12',
         status: 'calculated',
         measureDate: '2026-06-01',
         area: 280,

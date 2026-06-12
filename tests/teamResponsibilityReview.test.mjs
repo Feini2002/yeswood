@@ -436,7 +436,7 @@ test('buildTeamResponsibilityReview attaches hard decoration deadline reminders 
   const floorItem = review.memberLoads.find((item) => item.name === '陈晶晶')?.floorPlan.active[0];
   assert.ok(floorItem);
   assert.equal(floorItem.status, '进行中');
-  assert.equal(floorItem.hardDeadline.ruleVersion, 'hard-decoration-deadline-v2026-06-04');
+  assert.equal(floorItem.hardDeadline.ruleVersion, 'hard-decoration-deadline-v2026-06-12');
   assert.equal(floorItem.hardDeadline.areaBucket.label, 'mini店：≤300㎡');
   assert.equal(floorItem.hardDeadline.floorPlan.dueDate, '2026-06-09');
   assert.equal(floorItem.hardDeadline.floorPlan.completionStatus, 'delayed_open');

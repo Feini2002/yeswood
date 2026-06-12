@@ -1,4 +1,4 @@
-export const HARD_DECORATION_DEADLINE_RULE_VERSION = 'hard-decoration-deadline-v2026-06-04';
+export const HARD_DECORATION_DEADLINE_RULE_VERSION = 'hard-decoration-deadline-v2026-06-12';
 
 import { createRequire } from 'node:module';
 
@@ -42,6 +42,7 @@ export const HARD_DECORATION_DEADLINE_MATRIX = [
   row('800-1000', '大店：800～1000㎡', 800, 1000, [1, 13, 15, 16, 23, 23, 26, 30]),
   row('1000-1500', '旗舰店：1000～1500㎡', 1000, 1500, [1, 13, 15, 16, 22, 22, 25, 30]),
   row('1500-2000', '超体店：1500～2000㎡', 1500, 2000, [1, 13, 15, 16, 23, 23, 26, 31]),
+  row('gte2000', '超体店：2000㎡以上（暂按1500～2000㎡）', 2000, null, [1, 13, 15, 16, 23, 23, 26, 31]),
 ];
 
 function row(key, label, minArea, maxArea, values) {
@@ -57,6 +58,15 @@ function row(key, label, minArea, maxArea, values) {
 function offsetsFromValues(values) {
   const keys = Object.keys(DEADLINE_LABELS);
   return Object.fromEntries(keys.map((key, index) => [key, values[index]]));
+}
+
+function areaBucketContains(value, bucket) {
+  const reachesMin = value >= bucket.minArea;
+  const belowMax =
+    bucket.maxArea === null ||
+    value < bucket.maxArea ||
+    (bucket.key === 'lt300' && value === bucket.maxArea);
+  return reachesMin && belowMax;
 }
 
 function normalizeText(value) {
@@ -318,7 +328,7 @@ function resolveAreaBucket(area) {
     return null;
   }
   const value = Number(area);
-  return HARD_DECORATION_DEADLINE_MATRIX.find((bucket) => value >= bucket.minArea && value < bucket.maxArea) || null;
+  return HARD_DECORATION_DEADLINE_MATRIX.find((bucket) => areaBucketContains(value, bucket)) || null;
 }
 
 export function resolveHardDecorationRule({ area } = {}) {
@@ -333,7 +343,7 @@ export function resolveHardDecorationRule({ area } = {}) {
       areaBucket: null,
       urgency,
       offsets: null,
-      reason: areaValue >= 2000 ? 'area_over_2000_pending_rule' : 'missing_or_invalid_area',
+      reason: 'missing_or_invalid_area',
     };
   }
 

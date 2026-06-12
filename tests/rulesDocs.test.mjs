@@ -23,10 +23,15 @@ test('operational rulebook keeps key sections and executable rule references', a
   assert.match(rulebook, /HARD_DECORATION_DEADLINE_MATRIX/);
   assert.match(rulebook, /data\/rules\/china-workday-calendar-2026\.json/);
   assert.match(rulebook, /面积与店态 Deadline 矩阵/);
+  assert.match(rulebook, /面积 <= 300/);
+  assert.match(rulebook, /超体店：2000㎡以上（暂按1500～2000㎡）/);
   assert.match(rulebook, /平面方案效率判断/);
   assert.match(rulebook, /延期完成但效率OK/);
   assert.match(rulebook, /软装提醒规则/);
   assert.match(rulebook, /摆场提醒规则/);
+  assert.doesNotMatch(rulebook, /300 <= 面积 < 450/);
+  assert.doesNotMatch(rulebook, /2000 平方米以上项目暂不在本矩阵内/);
+  assert.doesNotMatch(rulebook, /2000 平方米以上项目是否新增面积档/);
   assert.doesNotMatch(rulebook, /项目判断/);
   assert.doesNotMatch(rulebook, /\| [^|\n]* \| 紧急 \|/);
 });

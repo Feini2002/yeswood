@@ -79,7 +79,7 @@ test('enrichProjectsForDisplay attaches unified hard decoration deadline reminde
     hardDecorationCalendar: { timezone: 'Asia/Shanghai', holidays: [], workdays: [] },
   });
 
-  assert.equal(enriched.hardDeadline.ruleVersion, 'hard-decoration-deadline-v2026-06-04');
+  assert.equal(enriched.hardDeadline.ruleVersion, 'hard-decoration-deadline-v2026-06-12');
   assert.equal(enriched.hardDeadline.areaBucket.label, 'mini店：≤300㎡');
   assert.equal(enriched.hardDeadline.floorPlan.dueDate, '2026-06-09');
   assert.equal(enriched.hardDeadline.floorPlan.completionStatus, 'delayed_open');

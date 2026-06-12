@@ -227,6 +227,31 @@ test('/api/team-work-completion returns preparing when read model is missing wit
   });
 });
 
+test('/api/team-work-completion detail read model fallback prepares without requiring snapshot data', async () => {
+  await withTestServer(
+    async (port) => {
+      const payload = await getJson(
+        port,
+        `/api/team-work-completion?owner=${encodeURIComponent(
+          personnelArchitecture.teams[0].owner
+        )}&context=direct&year=2026&view=detail&fallback=readModel`
+      );
+
+      assert.equal(payload.status, 202);
+      assert.equal(payload.body.status, 'preparing');
+      assert.equal(payload.body.readModel, true);
+      assert.equal(payload.body.view, 'detail');
+    },
+    {
+      beforeListen: async ({ config, tempDir }) => {
+        config.precomputeEnabled = false;
+        config.personnelArchitectureFile = path.join(tempDir, 'broken-personnel-architecture.json');
+        await fs.writeFile(config.personnelArchitectureFile, '{', 'utf8');
+      },
+    }
+  );
+});
+
 test('/api/team-work-completion computes missing detail payload when fallback is explicitly allowed', async () => {
   await withTestServer(async (port) => {
     const payload = await getJson(

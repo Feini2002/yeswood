@@ -57,6 +57,7 @@ import {
 import { loadProfileMetrics, loadProfileDashboard, renderProfilePage } from '../pages/profile-shared.mjs';
 import { renderOwnerReviewDashboard } from '../pages/owner-review.mjs';
 import { queueTeamWorkCompletionDetailPreload } from '../pages/team-work-completion.mjs';
+import { teamWorkCompletionHasDetail } from '../domain/team-work-completion-store.mjs';
 import {
   currentCatalogSignature,
   fetchProjectCatalog,
@@ -252,9 +253,9 @@ export function applyDashboardSessionPayload(payload = {}) {
     state.teamWorkCompletionRefreshStatus = '';
     state.teamWorkCompletionRefreshError = '';
     rememberTeamWorkCompletion(team.workCompletion, owner, dashboardContext, year);
-    if (currentPageId() === 'teams') {
+    if (currentPageId() === 'teams' && !teamWorkCompletionHasDetail(team.workCompletion)) {
       queueTeamWorkCompletionDetailPreload(team.workCompletion, {
-        reason: 'dashboard-session',
+        reason: 'dashboard-session-missing-detail',
         allowCompute: false,
       });
     }

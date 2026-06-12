@@ -248,6 +248,9 @@ test('precomputeTeamDashboards writes dashboard session and responsibility revie
   assert.equal(session.team.owner, owner);
   assert.equal(session.team.metrics.owner, owner);
   assert.equal(session.team.workCompletion.owner, owner);
+  assert.equal(session.team.workCompletion.detailReady, true);
+  assert.equal(session.team.workCompletion.detailStatus, 'ready');
+  assert.ok(Object.keys(session.team.workCompletion.projectsById || {}).length > 0);
   assert.equal(session.team.responsibilityReview.owner, owner);
 
   const responsibility = readPrecomputedTeamResponsibilityReview(config, sourceSnapshot, personnelArchitecture, {

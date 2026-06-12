@@ -9,6 +9,7 @@ import {
   READ_MODEL_SCHEMA_VERSION,
   publishReadModelDirectory,
   readDashboardSessionReadModel,
+  readTeamWorkCompletionDetailReadModel,
 } from '../src/backend/readModelRepository.mjs';
 
 function ownerKey(owner) {
@@ -134,9 +135,27 @@ test('readDashboardSessionReadModel reads the current hard read model without a 
   assert.equal(result.payload.team.owner, 'Owner A');
   assert.equal(result.payload.team.metrics.owner, 'Owner A');
   assert.equal(result.payload.team.workCompletion.year, 2026);
+  assert.equal(result.payload.team.workCompletion.detailReady, true);
+  assert.equal(result.payload.team.workCompletion.detailStatus, 'ready');
+  assert.deepEqual(result.payload.team.workCompletion.projectsById, { p1: { id: 'p1', name: 'P1' } });
   assert.equal(result.payload.team.responsibilityReview.dashboardContext, 'direct');
   assert.equal(result.payload.profileDashboards.direct.metrics.profile, 'direct');
   assert.equal(result.payload.projectCatalog.items.length, 1);
+});
+
+test('readTeamWorkCompletionDetailReadModel tolerates trimmed owner input on the fast path', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir);
+
+  const result = readTeamWorkCompletionDetailReadModel(
+    { readModelDir: tempDir },
+    { owner: ' Owner A ', dashboardContext: 'direct', year: 2026 }
+  );
+
+  assert.equal(result.status, 'ready');
+  assert.equal(result.payload.owner, 'Owner A');
+  assert.equal(result.payload.detailReady, true);
+  assert.deepEqual(result.payload.projectsById, { p1: { id: 'p1', name: 'P1' } });
 });
 
 test('readDashboardSessionReadModel rejects non-current schema read models', async () => {

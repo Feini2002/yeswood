@@ -160,6 +160,75 @@ test('hard decoration matrix ignores urgent form status and uses the normal area
   assert.equal(urgentRule.areaBucket.label, 'mini店：≤300㎡');
 });
 
+test('hard decoration stores at or above 2000 square meters temporarily reuse ultra store deadlines', () => {
+  const ultraRule = resolveHardDecorationRule({ area: 1700 });
+
+  for (const area of [2000, 2200]) {
+    const rule = resolveHardDecorationRule({ area });
+
+    assert.equal(rule.areaBucket.key, 'gte2000');
+    assert.equal(rule.areaBucket.label, '超体店：2000㎡以上（暂按1500～2000㎡）');
+    assert.equal(rule.areaBucket.maxArea, null);
+    assert.deepEqual(rule.offsets, ultraRule.offsets);
+    assert.equal(rule.floorPlanEfficiencyBudgetWorkdays, ultraRule.floorPlanEfficiencyBudgetWorkdays);
+    assert.equal(rule.reason, undefined);
+  }
+});
+
+test('hard decoration area boundaries follow the displayed matrix rows', () => {
+  const cases = [
+    [300, 'mini店：≤300㎡'],
+    [450, '中店：450～650㎡'],
+    [650, '中大店：650～800㎡'],
+    [800, '大店：800～1000㎡'],
+    [1000, '旗舰店：1000～1500㎡'],
+    [1500, '超体店：1500～2000㎡'],
+    [2000, '超体店：2000㎡以上（暂按1500～2000㎡）'],
+  ];
+
+  for (const [area, label] of cases) {
+    assert.equal(resolveHardDecorationRule({ area }).areaBucket.label, label);
+  }
+});
+
+test('hard decoration record calculates text areas above 2000 without manual review', async () => {
+  const calendar = await loadOfficialCalendar();
+  const baseFields = {
+    复尺时间: raw('2026-06-01'),
+    平面开始时间: raw('2026-06-02'),
+  };
+  const ultraRecord = calculateHardDecorationDeadlineRecord(
+    {
+      id: 'ultra-1700',
+      name: '超体基准店',
+      rawFields: {
+        ...baseFields,
+        面积: raw('1700㎡'),
+      },
+    },
+    { calendar, today: '2026-06-03' }
+  );
+  const gte2000Record = calculateHardDecorationDeadlineRecord(
+    {
+      id: 'ultra-2200',
+      name: '2000以上临时超体店',
+      rawFields: {
+        ...baseFields,
+        面积: raw('2,200㎡'),
+      },
+    },
+    { calendar, today: '2026-06-03' }
+  );
+
+  assert.equal(gte2000Record.status, 'calculated');
+  assert.equal(gte2000Record.area, 2200);
+  assert.deepEqual(gte2000Record.areaBucket, {
+    key: 'gte2000',
+    label: '超体店：2000㎡以上（暂按1500～2000㎡）',
+  });
+  assert.deepEqual(gte2000Record.deadlines, ultraRecord.deadlines);
+});
+
 test('hard decoration downstream offsets derive from floor plan due dates', () => {
   const cases = [
     [280, 'mini店：≤300㎡', 4, 6, 7, 10],

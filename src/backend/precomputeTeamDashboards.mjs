@@ -9,6 +9,7 @@ import { DASHBOARD_CONTEXTS, resolveCanonicalOwner } from './metrics/projectScop
 import { readProjectOwnerNames, splitPersonnelNames } from './personnelNames.mjs';
 import { createFilterOptions, filterProjects } from './projectData.mjs';
 import { publishReadModelDirectory } from './readModelRepository.mjs';
+import { mergeTeamWorkCompletionDetailPayload } from './teamWorkCompletionPayload.mjs';
 import { buildTeamMetricsPayload, resolveTeamForOwner } from './teamMetricsPayload.mjs';
 import { buildTeamOwnerRates } from './teamInsights.mjs';
 import { buildTeamResponsibilityReview } from './teamResponsibilityReview.mjs';
@@ -962,7 +963,13 @@ export function readPrecomputedDashboardSession(config = {}, snapshot = {}, arch
     owners: [owner],
     dashboardContext,
   });
-  const workCompletion = readPrecomputedTeamWorkCompletion(config, snapshot, architecture, {
+  const workCompletionSummary = readPrecomputedTeamWorkCompletion(config, snapshot, architecture, {
+    owner,
+    requestedOwner: params.requestedOwner || owner,
+    dashboardContext,
+    year,
+  });
+  const workCompletionDetail = readPrecomputedTeamWorkCompletionDetail(config, snapshot, architecture, {
     owner,
     requestedOwner: params.requestedOwner || owner,
     dashboardContext,
@@ -972,9 +979,10 @@ export function readPrecomputedDashboardSession(config = {}, snapshot = {}, arch
     owner,
     dashboardContext,
   });
-  if (!metrics || !workCompletion || !responsibilityReview) {
+  if (!metrics || !workCompletionSummary || !responsibilityReview) {
     return null;
   }
+  const workCompletion = mergeTeamWorkCompletionDetailPayload(workCompletionSummary, workCompletionDetail);
 
   return {
     ...payload,

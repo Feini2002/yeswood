@@ -31,7 +31,7 @@ async function withTestServer(configOverrides, run) {
   const baseUrl = `http://127.0.0.1:${port}`;
 
   try {
-    await run(baseUrl);
+    await run(baseUrl, config);
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));
@@ -96,6 +96,33 @@ test('enabled same-origin dashboard sync refreshes the backend cache without fro
   const publicApp = await readFile(path.join(process.cwd(), 'public', 'app.js'), 'utf8');
   assert.doesNotMatch(publicApp, /x-sync-key/i);
   assert.doesNotMatch(publicApp, /SYNC_API_KEY/);
+});
+
+test('enabled browser dashboard sync waits for read model warmup before reporting success', async () => {
+  await withTestServer(
+    {
+      dashboardSyncEnabled: true,
+      precomputeScheduler: () => {},
+    },
+    async (baseUrl, config) => {
+      const response = await fetch(`${baseUrl}/api/dashboard-sync`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          origin: baseUrl,
+          'x-dashboard-action': 'sync',
+        },
+      });
+      const payload = await response.json();
+
+      assert.equal(response.status, 200);
+      assert.equal(payload.source, 'mock');
+      const manifestPath = path.join(path.dirname(config.precomputeDir), 'read-model', 'current', 'manifest.json');
+      const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+      assert.equal(manifest.readModel, true);
+      assert.ok(manifest.features.includes('team-work-completion-detail'));
+    }
+  );
 });
 
 test('failed admin sync does not consume the next successful retry rate limit', async () => {
