@@ -9,6 +9,7 @@ import {
 import { compactProjectForDetailReadModel } from './projectDetailPayload.mjs';
 import { buildProjectTeamAssociations, buildTeamRoster } from './teamProjectAssociations.mjs';
 import { teamWithStaticGroups } from './teamStructureFallbacks.mjs';
+import { chinaToday } from './hardDecorationDeadlineRules.mjs';
 
 export const TEAM_WORK_COMPLETION_DATA_QUALITY_NOTE_LIMIT = 32;
 export const TEAM_WORK_COMPLETION_PROCESSING_QUEUE_LIMIT = 5;
@@ -21,12 +22,40 @@ const METRICS = [
 
 const PRIORITY_STATUS_FIELDS = ['项目状态', '状态', '紧急程度', '项目优先级', '优先级'];
 const QUEUE_START_DATE_FIELDS = ['启动时间', '启动日期', '开始日期'];
-const QUEUE_DELIVERY_DATE_FIELDS = ['商场交付时间', '商场交付日期', '商场交付'];
 const QUEUE_DUE_DATE_FIELDS = ['计划开业时间', '计划完成日期', '截止日期'];
 const QUEUE_AREA_FIELDS = ['面积', '门店面积'];
 const URGENT_TEXT_PATTERN = /紧急/;
 const NON_URGENT_TEXT_PATTERN = /不紧急|非紧急|一般/;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const DELIVERY_RISK_RANK = {
+  overdue: 0,
+  due_today: 1,
+  due_soon: 2,
+  near_deadline: 3,
+  future: 4,
+  date_missing: 5,
+};
+const STAGE_LAG_RANKS = {
+  severe: new Set([
+    PROJECT_STAGE_KEYS.meeting,
+    PROJECT_STAGE_KEYS.measured,
+    PROJECT_STAGE_KEYS.floorPlanInProgress,
+    PROJECT_STAGE_KEYS.floorPlanDone,
+    PROJECT_STAGE_KEYS.constructionInProgress,
+    PROJECT_STAGE_KEYS.constructionReviewDone,
+    PROJECT_STAGE_KEYS.pointInProgress,
+    PROJECT_STAGE_KEYS.pointDone,
+    PROJECT_STAGE_KEYS.softInProgress,
+  ]),
+  moderate: new Set([
+    PROJECT_STAGE_KEYS.softDone,
+    PROJECT_STAGE_KEYS.productListReady,
+    PROJECT_STAGE_KEYS.purchaseInProgress,
+    PROJECT_STAGE_KEYS.purchaseDone,
+    PROJECT_STAGE_KEYS.displayInProgress,
+    PROJECT_STAGE_KEYS.displayFinished,
+  ]),
+};
 const PROCESSING_QUEUE_ACTION_STAGE_KEYS = new Set([
   PROJECT_STAGE_KEYS.meeting,
   PROJECT_STAGE_KEYS.measured,
@@ -159,6 +188,18 @@ function dateTimestamp(dateText = '') {
   return Date.UTC(year, month - 1, day);
 }
 
+function resolveAsOfDate(options = {}) {
+  const today = normalizeQueueDate(options.today);
+  if (today) {
+    return today;
+  }
+  const now = normalizeQueueDate(options.now);
+  if (now) {
+    return now;
+  }
+  return chinaToday();
+}
+
 function readQueueRawDate(project = {}, fieldNames = [], fallbackValue = '', fallbackLabel = '') {
   for (const fieldName of fieldNames) {
     const value = readRawDisplay(project, [fieldName]);
@@ -172,10 +213,6 @@ function readQueueRawDate(project = {}, fieldNames = [], fallbackValue = '', fal
 }
 
 function readQueueTargetDate(project = {}) {
-  const delivery = readQueueRawDate(project, QUEUE_DELIVERY_DATE_FIELDS);
-  if (delivery.date) {
-    return delivery;
-  }
   return readQueueRawDate(project, QUEUE_DUE_DATE_FIELDS, project.dueDate, '计划开业时间');
 }
 
@@ -264,7 +301,116 @@ function resolveProcessingQueueActionStage(project = {}, states = {}) {
   return stageReminder.currentStage?.label || states.lifecycle?.status || '阶段待核对';
 }
 
-function buildProcessingQueueProject(project = {}, projectId = '', states = {}, association = {}, roster = {}) {
+function resolveProcessingQueueDateQuality({ startDate = '', targetDate = '', windowDays = null } = {}) {
+  if (!targetDate) {
+    return 'missing_target';
+  }
+  if (!startDate) {
+    return 'missing_start';
+  }
+  if (typeof windowDays === 'number' && Number.isFinite(windowDays) && windowDays < 0) {
+    return 'anomaly';
+  }
+  return 'ok';
+}
+
+function resolveDeliveryRisk(targetDate = '', asOfDate = '') {
+  const targetMs = dateTimestamp(targetDate);
+  const asOfMs = dateTimestamp(asOfDate);
+  if (targetMs === null || asOfMs === null) {
+    return {
+      targetDeltaDays: null,
+      riskStatus: 'date_missing',
+      riskLabel: '目标待核对',
+    };
+  }
+  const targetDeltaDays = Math.round((targetMs - asOfMs) / DAY_MS);
+  if (targetDeltaDays < 0) {
+    return {
+      targetDeltaDays,
+      riskStatus: 'overdue',
+      riskLabel: `逾期${Math.abs(targetDeltaDays)}天`,
+    };
+  }
+  if (targetDeltaDays === 0) {
+    return {
+      targetDeltaDays,
+      riskStatus: 'due_today',
+      riskLabel: '今日交付',
+    };
+  }
+  if (targetDeltaDays <= 7) {
+    return {
+      targetDeltaDays,
+      riskStatus: 'due_soon',
+      riskLabel: `剩余${targetDeltaDays}天`,
+    };
+  }
+  if (targetDeltaDays <= 14) {
+    return {
+      targetDeltaDays,
+      riskStatus: 'near_deadline',
+      riskLabel: `剩余${targetDeltaDays}天`,
+    };
+  }
+  return {
+    targetDeltaDays,
+    riskStatus: 'future',
+    riskLabel: `剩余${targetDeltaDays}天`,
+  };
+}
+
+function resolveStageLagLevel(stageKey = '', risk = {}) {
+  if (risk.riskStatus === 'date_missing' || risk.targetDeltaDays === null || risk.targetDeltaDays > 14) {
+    return 0;
+  }
+  const severe = STAGE_LAG_RANKS.severe.has(stageKey);
+  const moderate = STAGE_LAG_RANKS.moderate.has(stageKey);
+  if (risk.targetDeltaDays < 0 || risk.targetDeltaDays <= 7) {
+    if (severe) {
+      return 3;
+    }
+    if (moderate) {
+      return 2;
+    }
+    return 0;
+  }
+  if (risk.targetDeltaDays <= 14) {
+    if (severe) {
+      return 2;
+    }
+    if (moderate) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+function buildRiskReasons({ risk = {}, actionStage = '', stageLagLevel = 0, dateQualityStatus = 'ok' } = {}) {
+  const reasons = [];
+  if (risk.riskStatus === 'overdue') {
+    reasons.push('逾期未闭环');
+  } else if (risk.riskStatus === 'due_today') {
+    reasons.push('今日交付');
+  } else if (risk.riskStatus === 'due_soon') {
+    reasons.push('临期交付');
+  } else if (risk.riskStatus === 'near_deadline') {
+    reasons.push('交付观察');
+  }
+  if (stageLagLevel > 0 && actionStage) {
+    reasons.push(`${risk.targetDeltaDays < 0 ? '逾期' : '临期'}且${actionStage}`);
+  }
+  if (dateQualityStatus === 'missing_target') {
+    reasons.push('目标待核对');
+  } else if (dateQualityStatus === 'missing_start') {
+    reasons.push('启动待核对');
+  } else if (dateQualityStatus === 'anomaly') {
+    reasons.push('周期异常');
+  }
+  return Array.from(new Set(reasons));
+}
+
+function buildProcessingQueueProject(project = {}, projectId = '', states = {}, association = {}, roster = {}, asOfDate = chinaToday()) {
   const start = readQueueRawDate(project, QUEUE_START_DATE_FIELDS, project.startDate, '启动时间');
   const target = readQueueTargetDate(project);
   const startMs = dateTimestamp(start.date);
@@ -272,6 +418,11 @@ function buildProcessingQueueProject(project = {}, projectId = '', states = {}, 
   const windowDays = startMs === null || targetMs === null ? null : Math.round((targetMs - startMs) / DAY_MS);
   const urgent = isUrgentProcessingProject(project);
   const stage = states.lifecycle?.status || [project?.hardProgressStage, project?.softProgressStage].filter(Boolean).join(' / ');
+  const stageReminder = resolveProjectStageReminder(project);
+  const actionStage = resolveProcessingQueueActionStage(project, states);
+  const risk = resolveDeliveryRisk(target.date, asOfDate);
+  const stageLagLevel = resolveStageLagLevel(stageReminder.currentStage?.key, risk);
+  const dateQualityStatus = resolveProcessingQueueDateQuality({ startDate: start.date, targetDate: target.date, windowDays });
   const assignment = buildProcessingQueueAssignment(association, roster);
   return {
     id: projectId,
@@ -282,13 +433,20 @@ function buildProcessingQueueProject(project = {}, projectId = '', states = {}, 
     areaLabel: formatQueueAreaLabel(project),
     status: project?.status || '',
     stage,
-    actionStage: resolveProcessingQueueActionStage(project, states),
+    actionStage,
     startDate: start.date,
     startDateSource: start.source,
     targetDate: target.date,
     targetDateSource: target.source,
     windowDays,
     windowLabel: windowDays === null ? '日期待核对' : `${windowDays}天`,
+    asOfDate,
+    targetDeltaDays: risk.targetDeltaDays,
+    riskStatus: risk.riskStatus,
+    riskLabel: risk.riskLabel,
+    stageLagLevel,
+    dateQualityStatus,
+    riskReasons: buildRiskReasons({ risk, actionStage, stageLagLevel, dateQualityStatus }),
     urgent,
     memberNames: association.memberNames?.slice?.() || [],
     groupNames: association.groupNames?.slice?.() || [],
@@ -312,13 +470,18 @@ function shouldIncludeProcessingQueueProject(project = {}, states = {}) {
 }
 
 function compareProcessingQueueProjects(a, b) {
-  const aMissing = a.windowDays === null ? 1 : 0;
-  const bMissing = b.windowDays === null ? 1 : 0;
-  if (aMissing !== bMissing) {
-    return aMissing - bMissing;
+  const aRisk = DELIVERY_RISK_RANK[a.riskStatus] ?? DELIVERY_RISK_RANK.date_missing;
+  const bRisk = DELIVERY_RISK_RANK[b.riskStatus] ?? DELIVERY_RISK_RANK.date_missing;
+  if (aRisk !== bRisk) {
+    return aRisk - bRisk;
   }
-  if (a.windowDays !== b.windowDays) {
-    return Number(a.windowDays ?? Number.POSITIVE_INFINITY) - Number(b.windowDays ?? Number.POSITIVE_INFINITY);
+  const aDelta = Number(a.targetDeltaDays);
+  const bDelta = Number(b.targetDeltaDays);
+  if (Number.isFinite(aDelta) && Number.isFinite(bDelta) && aDelta !== bDelta) {
+    return aDelta - bDelta;
+  }
+  if (a.stageLagLevel !== b.stageLagLevel) {
+    return Number(b.stageLagLevel || 0) - Number(a.stageLagLevel || 0);
   }
   const aTarget = dateTimestamp(a.targetDate) ?? Number.POSITIVE_INFINITY;
   const bTarget = dateTimestamp(b.targetDate) ?? Number.POSITIVE_INFINITY;
@@ -349,13 +512,24 @@ function buildProcessingQueues(items = []) {
   };
 }
 
-function addMetricState(scope, metricKey, state, projectId) {
+function shouldCountCompletedStateForYear(state, selectedYear) {
+  if (!state.completed) {
+    return false;
+  }
+  if (state.missingDate) {
+    return true;
+  }
+  const parsed = parseYearMonth(state.completedAt);
+  return !parsed || parsed.year === selectedYear;
+}
+
+function addMetricState(scope, metricKey, state, projectId, selectedYear) {
   const metric = scope.metrics[metricKey];
   if (!metric || state.state === 'none') {
     return;
   }
   metric.projectIds.add(projectId);
-  if (state.completed) {
+  if (shouldCountCompletedStateForYear(state, selectedYear)) {
     metric.completedProjectIds.add(projectId);
   }
   if (state.inProgress) {
@@ -369,19 +543,19 @@ function addMetricState(scope, metricKey, state, projectId) {
 function addProjectToScope(scope, project, projectId, states, selectedYear) {
   scope.projectIds.add(projectId);
   for (const metric of METRICS) {
-    addMetricState(scope, metric.key, states[metric.key], projectId);
+    addMetricState(scope, metric.key, states[metric.key], projectId, selectedYear);
     addMonthlyMetricState(scope.monthly, metric, states[metric.key], project, projectId, selectedYear);
   }
 }
 
 function addMonthlyMetricState(monthly, metric, state, project, projectId, selectedYear) {
-  if (!state.completed && !state.inProgress) {
+  if (!state.completed || state.monthlyEligible === false) {
     return;
   }
-  const monthKey = state.completed ? metric.monthlyKey : metric.inProgressMonthlyKey;
-  const projectIdsKey = state.completed ? metric.key : metric.inProgressMonthlyKey;
-  const parsed = parseYearMonth(state.completed ? state.completedAt : project?.updatedAt);
-  if (state.completed && state.missingDate) {
+  const monthKey = metric.monthlyKey;
+  const projectIdsKey = metric.key;
+  const parsed = parseYearMonth(state.completedAt);
+  if (state.missingDate) {
     return;
   }
   if (!parsed || parsed.year !== selectedYear || parsed.month < 1 || parsed.month > 12) {
@@ -501,6 +675,7 @@ export function buildTeamWorkCompletionReview(allProjects = [], team = {}, optio
   const personnelArchitecture = options.personnelArchitecture || {};
   const selectedYear = Number(options.year) || new Date().getFullYear();
   const dashboardContext = options.dashboardContext || 'all';
+  const asOfDate = resolveAsOfDate(options);
   const reviewTeam = teamWithStaticGroups(team || {}, { fillMissingLeads: true });
   const roster = buildTeamRoster(reviewTeam, personnelArchitecture);
   const teamScope = createScopeAccumulator();
@@ -551,7 +726,7 @@ export function buildTeamWorkCompletionReview(allProjects = [], team = {}, optio
     projectDetailsById[projectId] = compactProjectForDetailReadModel({ ...project, id: projectId });
     addProjectToScope(teamScope, project, projectId, states, selectedYear);
     if (shouldIncludeProcessingQueueProject(project, states)) {
-      processingQueueProjects.push(buildProcessingQueueProject(project, projectId, states, association, roster));
+      processingQueueProjects.push(buildProcessingQueueProject(project, projectId, states, association, roster, asOfDate));
     }
 
     for (const groupId of association.groupIds) {
@@ -584,6 +759,7 @@ export function buildTeamWorkCompletionReview(allProjects = [], team = {}, optio
     displayName: reviewTeam.displayName || reviewTeam.owner || roster.owner,
     dashboardContext,
     year: selectedYear,
+    asOfDate,
     team: {
       owner: roster.owner,
       groupCount: roster.groupCount,

@@ -154,7 +154,7 @@
 | tier | 同 notStarted |
 | fieldBindings | `scheme` |
 | predicate | `scheme` 含「延期完成」 |
-| dateField | 同 schemeDoneYtd |
+| dateField | 仅使用可信硬装方案完成日期：`硬装方案完成时间`、`躺平内部审核结束时间`、`内部审核结束时间` |
 | excludeRules | 仅认 scheme 字段，不用 `isDelayed` 回退 |
 
 ### schemeDelayDoneMonth — 本月方案延期完成
@@ -165,7 +165,7 @@
 | tier | 同 notStarted |
 | fieldBindings | `scheme` |
 | predicate | `scheme` 含「延期完成」 |
-| dateField | 优先 `updatedAt` 与上会/方案相关时间列 |
+| dateField | 仅使用可信硬装方案完成日期：`硬装方案完成时间`、`躺平内部审核结束时间`、`内部审核结束时间`；不得使用 `updatedAt`、`dueDate`、`startDate` 或 `上会日期` 兜底 |
 | excludeRules | dateField 年月 = 当前自然月；不用 `isDelayed` 回退 |
 
 ## monthlyOps — 本月运转量

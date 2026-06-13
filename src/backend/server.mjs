@@ -20,6 +20,7 @@ import { DASHBOARD_CONTEXTS, resolveCanonicalOwner } from './metrics/projectScop
 import { splitPersonnelNames } from './personnelNames.mjs';
 import { buildTeamResponsibilityReview } from './teamResponsibilityReview.mjs';
 import { buildTeamWorkCompletionReview } from './teamWorkCompletionReview.mjs';
+import { chinaToday } from './hardDecorationDeadlineRules.mjs';
 import { buildTeamOwnerRates } from './teamInsights.mjs';
 import {
   clearSnapshotCache,
@@ -39,10 +40,16 @@ import {
   readPrecomputedTeamResponsibilityReview,
   readPrecomputedTeamWorkCompletion,
   readPrecomputedTeamWorkCompletionDetail,
+  repairProjectDetailReadModelSidecars,
+  repairTeamWorkCompletionReadModelSidecars,
 } from './precomputeTeamDashboards.mjs';
 import {
+  READ_MODEL_SCHEMA_VERSION,
   REQUIRED_READ_MODEL_FEATURES,
+  currentReadModelDir,
+  readDashboardSessionShellReadModel,
   readDashboardSessionReadModel,
+  readProjectCatalogSummaryReadModel,
   readProjectDetailReadModel,
   readTeamWorkCompletionDetailReadModel,
 } from './readModelRepository.mjs';
@@ -155,7 +162,7 @@ function elapsedMs(startedAt) {
 }
 
 function precomputeActive(config = {}) {
-  return Boolean(config.precomputeScheduledHashes?.size || config.precomputePromises?.size);
+  return Boolean(config.precomputeScheduledHashes?.size || config.precomputePromises?.size || config.readModelRepairPromises?.size);
 }
 
 function logApiPerformance(perf = {}, { jsonStringifyMs = 0, gzipMs = 0, payloadKb = 0 } = {}) {
@@ -179,6 +186,122 @@ function logApiPerformance(perf = {}, { jsonStringifyMs = 0, gzipMs = 0, payload
   });
 }
 
+function requestMethod(response) {
+  const request = response.__dashboardRequest || activeApiRequest;
+  return String(request?.method || 'GET').toUpperCase();
+}
+
+function requestAcceptsGzip(response) {
+  const request = response.__dashboardRequest || activeApiRequest;
+  return String(request?.headers['accept-encoding'] || '').includes('gzip');
+}
+
+function weakReadModelEtag({ relativePath = '', jsonStat = null, gzipStat = null } = {}) {
+  const token = crypto
+    .createHash('sha1')
+    .update(
+      JSON.stringify({
+        relativePath,
+        jsonSize: jsonStat?.size || 0,
+        jsonMtimeMs: Math.round(jsonStat?.mtimeMs || 0),
+        gzipSize: gzipStat?.size || 0,
+        gzipMtimeMs: Math.round(gzipStat?.mtimeMs || 0),
+      })
+    )
+    .digest('hex');
+  return `W/"${token}"`;
+}
+
+async function sendPrecompressedJson(response, statusCode, { jsonPath, gzipPath, relativePath, perf = {} } = {}) {
+  if (!jsonPath || !gzipPath || !requestAcceptsGzip(response)) {
+    return false;
+  }
+  try {
+    const [jsonStat, gzipStat] = await Promise.all([fsp.stat(jsonPath), fsp.stat(gzipPath)]);
+    const etag = weakReadModelEtag({ relativePath, jsonStat, gzipStat });
+    const request = response.__dashboardRequest || activeApiRequest;
+    const headers = {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-cache',
+      'content-encoding': 'gzip',
+      'content-length': gzipStat.size,
+      vary: 'Accept-Encoding',
+      etag,
+      'x-read-model-transport': 'precompressed',
+    };
+    const payloadKb = Math.round((jsonStat.size / 1024) * 10) / 10;
+    if (String(request?.headers['if-none-match'] || '') === etag) {
+      response.writeHead(304, {
+        'cache-control': headers['cache-control'],
+        vary: headers.vary,
+        etag,
+        'x-read-model-transport': headers['x-read-model-transport'],
+      });
+      response.end();
+      logApiPerformance(perf, { jsonStringifyMs: 0, gzipMs: 0, payloadKb });
+      return true;
+    }
+    response.writeHead(statusCode, headers);
+    if (requestMethod(response) === 'HEAD') {
+      response.end();
+    } else {
+      response.end(await fsp.readFile(gzipPath));
+    }
+    logApiPerformance(perf, { jsonStringifyMs: 0, gzipMs: 0, payloadKb });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readJsonIfExists(filePath) {
+  try {
+    return JSON.parse(await fsp.readFile(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+async function countReadModelGzipSidecars(dir) {
+  const counts = {
+    jsonFiles: 0,
+    gzipFiles: 0,
+    missing: 0,
+  };
+  async function walk(currentDir) {
+    let entries;
+    try {
+      entries = await fsp.readdir(currentDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    await Promise.all(
+      entries.map(async (entry) => {
+        const entryPath = path.join(currentDir, entry.name);
+        if (entry.isDirectory()) {
+          await walk(entryPath);
+          return;
+        }
+        if (!entry.isFile()) {
+          return;
+        }
+        if (entry.name.endsWith('.json.gz')) {
+          counts.gzipFiles += 1;
+          return;
+        }
+        if (entry.name.endsWith('.json')) {
+          counts.jsonFiles += 1;
+          if (!fs.existsSync(`${entryPath}.gz`)) {
+            counts.missing += 1;
+          }
+        }
+      })
+    );
+  }
+  await walk(dir);
+  return counts;
+}
+
 async function sendJson(response, statusCode, payload, perf = {}) {
   const stringifyStart = Date.now();
   const body = JSON.stringify(payload);
@@ -196,13 +319,17 @@ async function sendJson(response, statusCode, payload, perf = {}) {
     headers.vary = 'Accept-Encoding';
     response.writeHead(statusCode, headers);
     const gzipStart = Date.now();
-    response.end(await gzipAsync(body));
+    if (requestMethod(response) === 'HEAD') {
+      response.end();
+    } else {
+      response.end(await gzipAsync(body));
+    }
     logApiPerformance(perf, { jsonStringifyMs, gzipMs: elapsedMs(gzipStart), payloadKb });
     return;
   }
 
   response.writeHead(statusCode, headers);
-  response.end(body);
+  response.end(requestMethod(response) === 'HEAD' ? undefined : body);
   logApiPerformance(perf, { jsonStringifyMs, gzipMs: 0, payloadKb });
 }
 
@@ -312,9 +439,10 @@ function resolveTeamWorkCompletionReview(config, snapshot, architecture, team, o
   const owner = team?.owner || options.requestedOwner || '';
   const dashboardContext = options.dashboardContext || 'all';
   const year = Number(options.year) || new Date().getFullYear();
+  const today = options.today || config.today || chinaToday();
   const skipPrecomputed = options.forceRefresh === true || options.skipPrecomputed === true;
   const cache = teamWorkCompletionCacheForConfig(config);
-  const cacheKey = `${teamMetricsSnapshotHash(snapshot, architecture)}:${dashboardContext}:${year}:${owner}`;
+  const cacheKey = `${teamMetricsSnapshotHash(snapshot, architecture)}:${dashboardContext}:${year}:${owner}:${today}`;
   if (!skipPrecomputed && cache.has(cacheKey)) {
     return cache.get(cacheKey);
   }
@@ -327,11 +455,13 @@ function resolveTeamWorkCompletionReview(config, snapshot, architecture, team, o
           requestedOwner: options.requestedOwner,
           dashboardContext,
           year,
+          today,
         })) ||
     buildTeamWorkCompletionReview(snapshot.projects || [], team, {
       ...options,
       dashboardContext,
       year,
+      today,
     });
   if (!skipPrecomputed) {
     cache.set(cacheKey, payload);
@@ -367,6 +497,173 @@ function triggerDashboardPrecomputeFromCurrentSnapshot(config = {}, route = '') 
     .catch((error) => {
       logger.warn('Dashboard background precompute failed', {
         route,
+        message: error?.message || String(error),
+      });
+    });
+  return true;
+}
+
+function teamWorkCompletionRepairKey(snapshot = {}, architecture = {}, params = {}) {
+  const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
+  return [
+    snapshotHash,
+    String(params.owner || '').trim(),
+    String(params.dashboardContext || 'all').trim(),
+    Number(params.year || new Date().getFullYear()),
+    String(params.today || params.asOfDate || ''),
+  ].join('\0');
+}
+
+function triggerTeamWorkCompletionReadModelRepair(snapshot, config = {}, params = {}, route = '') {
+  if (config.precomputeEnabled === false) {
+    return false;
+  }
+  const architecture = snapshot.personnelArchitecture || {};
+  const owner = String(params.owner || '').trim();
+  if (!owner) {
+    return false;
+  }
+  if (!config.readModelRepairPromises) {
+    config.readModelRepairPromises = new Map();
+  }
+  const key = teamWorkCompletionRepairKey(snapshot, architecture, params);
+  if (config.readModelRepairPromises.has(key)) {
+    return true;
+  }
+  const promise = repairTeamWorkCompletionReadModelSidecars(snapshot, {
+    config,
+    owner,
+    requestedOwner: params.requestedOwner || owner,
+    dashboardContext: params.dashboardContext,
+    year: params.year,
+    today: params.today,
+    asOfDate: params.asOfDate,
+    now: params.now,
+  })
+    .then((result) => {
+      if (result?.repaired === false) {
+        if (result.reason === 'matching read model directory is missing') {
+          return ensureDashboardPrecompute(snapshot, config);
+        }
+        logger.warn('Scoped read model repair skipped', {
+          route,
+          reason: result.reason || 'unknown',
+          owner,
+          dashboardContext: params.dashboardContext,
+          year: params.year,
+        });
+      }
+      return result;
+    })
+    .catch((error) => {
+      logger.warn('Scoped read model repair failed', {
+        route,
+        owner,
+        dashboardContext: params.dashboardContext,
+        year: params.year,
+        message: error?.message || String(error),
+      });
+    })
+    .finally(() => {
+      config.readModelRepairPromises?.delete?.(key);
+    });
+  config.readModelRepairPromises.set(key, promise);
+  return true;
+}
+
+function triggerTeamWorkCompletionReadModelRepairFromCurrentSnapshot(config = {}, params = {}, route = '') {
+  if (config.precomputeEnabled === false) {
+    return false;
+  }
+  void getSnapshot(config)
+    .then((snapshot) => {
+      const architecture = snapshot.personnelArchitecture || {};
+      const owner = resolveCanonicalOwner(params.owner || params.requestedOwner || '', architecture);
+      return triggerTeamWorkCompletionReadModelRepair(
+        snapshot,
+        config,
+        {
+          ...params,
+          owner,
+          requestedOwner: params.requestedOwner || params.owner,
+        },
+        route
+      );
+    })
+    .catch((error) => {
+      logger.warn('Scoped read model repair failed', {
+        route,
+        owner: params.owner || '',
+        dashboardContext: params.dashboardContext,
+        year: params.year,
+        message: error?.message || String(error),
+      });
+    });
+  return true;
+}
+
+function projectDetailRepairKey(snapshot = {}, architecture = {}, projectId = '') {
+  const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
+  return [snapshotHash, 'project-detail', String(projectId || '').trim()].join('\0');
+}
+
+function triggerProjectDetailReadModelRepair(snapshot, config = {}, projectId = '', route = '') {
+  if (config.precomputeEnabled === false) {
+    return false;
+  }
+  const normalizedProjectId = String(projectId || '').trim();
+  if (!normalizedProjectId) {
+    return false;
+  }
+  const architecture = snapshot.personnelArchitecture || {};
+  if (!config.readModelRepairPromises) {
+    config.readModelRepairPromises = new Map();
+  }
+  const key = projectDetailRepairKey(snapshot, architecture, normalizedProjectId);
+  if (config.readModelRepairPromises.has(key)) {
+    return true;
+  }
+  const promise = repairProjectDetailReadModelSidecars(snapshot, {
+    config,
+    projectId: normalizedProjectId,
+  })
+    .then((result) => {
+      if (result?.repaired === false) {
+        if (result.reason === 'matching project detail read model directory is missing') {
+          return ensureDashboardPrecompute(snapshot, config);
+        }
+        logger.warn('Scoped project detail repair skipped', {
+          route,
+          reason: result.reason || 'unknown',
+          projectId: normalizedProjectId,
+        });
+      }
+      return result;
+    })
+    .catch((error) => {
+      logger.warn('Scoped project detail repair failed', {
+        route,
+        projectId: normalizedProjectId,
+        message: error?.message || String(error),
+      });
+    })
+    .finally(() => {
+      config.readModelRepairPromises?.delete?.(key);
+    });
+  config.readModelRepairPromises.set(key, promise);
+  return true;
+}
+
+function triggerProjectDetailReadModelRepairFromCurrentSnapshot(config = {}, projectId = '', route = '') {
+  if (config.precomputeEnabled === false) {
+    return false;
+  }
+  void getSnapshot(config)
+    .then((snapshot) => triggerProjectDetailReadModelRepair(snapshot, config, projectId, route))
+    .catch((error) => {
+      logger.warn('Scoped project detail repair failed', {
+        route,
+        projectId,
         message: error?.message || String(error),
       });
     });
@@ -615,6 +912,32 @@ function resolveDashboardSession(config, snapshot, architecture, owner, dashboar
       metrics: metricsBatch?.metricsByOwner?.[owner] || null,
       workCompletion,
       responsibilityReview,
+    },
+  };
+}
+
+function resolveDashboardSessionShell(config, snapshot, architecture, dashboardContext, year) {
+  const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
+  return {
+    schemaVersion: 1,
+    readOnly: true,
+    readModel: false,
+    shellOnly: true,
+    snapshotHash,
+    snapshot: publicSnapshotPayload(snapshot, config),
+    filters: snapshot.filters || createFilterOptions(snapshot.projects || []),
+    metrics: resolveDashboardMetrics(config, snapshot, {}),
+    departmentMetrics: composeDashboardMetrics(snapshot.projects || [], 'department', {
+      dashboardContext: 'all',
+      personnelArchitecture: architecture,
+    }),
+    team: {
+      owner: '',
+      dashboardContext,
+      year,
+      metrics: null,
+      workCompletion: null,
+      responsibilityReview: null,
     },
   };
 }
@@ -897,6 +1220,41 @@ async function handleApiRequest(request, response, url, config) {
     return true;
   }
 
+  if (url.pathname === '/api/read-model/status') {
+    const currentDir = currentReadModelDir(config);
+    const manifest = await readJsonIfExists(path.join(currentDir, 'manifest.json'));
+    const gzipSidecars = await countReadModelGzipSidecars(currentDir);
+    const missingFeatures = REQUIRED_READ_MODEL_FEATURES.filter((feature) => !manifest?.features?.includes(feature));
+    const coreExists = fs.existsSync(path.join(currentDir, 'dashboard-session', 'core.json'));
+    const status = !manifest
+      ? 'missing'
+      : manifest.schemaVersion !== READ_MODEL_SCHEMA_VERSION
+        ? 'schema-mismatch'
+        : missingFeatures.length || !coreExists || gzipSidecars.missing
+          ? 'incomplete'
+          : 'ready';
+    await sendJson(response, status === 'ready' ? 200 : 202, {
+      ok: status === 'ready',
+      readModel: true,
+      status,
+      current: manifest
+        ? {
+            schemaVersion: manifest.schemaVersion,
+            snapshotHash: manifest.snapshotHash || '',
+            generatedAt: manifest.generatedAt || manifest.createdAt || '',
+            features: manifest.features || [],
+            years: manifest.years || [],
+            excludedYears: manifest.excludedYears || [],
+          }
+        : null,
+      missingFeatures,
+      coreExists,
+      gzipSidecars,
+      precomputeActive: precomputeActive(config),
+    });
+    return true;
+  }
+
   if (url.pathname === '/api/snapshot') {
     const snapshot = await getSnapshot(config);
     await sendJson(response, 200, publicSnapshotPayload(snapshot, config));
@@ -913,11 +1271,20 @@ async function handleApiRequest(request, response, url, config) {
       url.searchParams.getAll('owner')[0] ||
       url.searchParams.getAll('owners').flatMap((value) => splitPersonnelNames(value))[0] ||
       '';
-    const readModel = readDashboardSessionReadModel(config, {
-      owner: rawOwner,
-      dashboardContext,
-      year,
-    });
+    const hasRequestedOwner = Boolean(String(rawOwner || '').trim());
+    const today = config.today || chinaToday();
+    const readModel = hasRequestedOwner
+      ? readDashboardSessionReadModel(config, {
+          owner: rawOwner,
+          dashboardContext,
+          year,
+          today,
+        })
+      : readDashboardSessionShellReadModel(config, {
+          dashboardContext,
+          year,
+          today,
+        });
     const perf = {
       route: '/api/dashboard-session',
       owner: rawOwner,
@@ -931,10 +1298,53 @@ async function handleApiRequest(request, response, url, config) {
       precomputeActive: precomputeActive(config),
     };
     if (readModel.status === 'ready' || readModel.status === 'stale') {
+      if (!hasRequestedOwner && readModel.payload?.shellOnly === true) {
+        const shellPath = path.join(currentReadModelDir(config), 'dashboard-session', 'shell.json');
+        const servedPrecompressed = await sendPrecompressedJson(response, 200, {
+          jsonPath: shellPath,
+          gzipPath: `${shellPath}.gz`,
+          relativePath: 'dashboard-session/shell.json',
+          perf,
+        });
+        if (servedPrecompressed) {
+          return true;
+        }
+      }
       await sendJson(response, 200, readModel.payload, perf);
       return true;
     }
-    triggerDashboardPrecomputeFromCurrentSnapshot(config, '/api/dashboard-session');
+    if (!hasRequestedOwner) {
+      const snapshotStartedAt = Date.now();
+      const snapshot = await getSnapshot(config);
+      const architecture = snapshot.personnelArchitecture || {};
+      const snapshotMs = elapsedMs(snapshotStartedAt);
+      triggerDashboardPrecompute(snapshot, config, '/api/dashboard-session');
+      await sendJson(
+        response,
+        200,
+        resolveDashboardSessionShell(config, snapshot, architecture, dashboardContext, year),
+        {
+          ...perf,
+          snapshotMs,
+          readModelHit: false,
+          precomputedFileHit: false,
+          fallbackComputed: true,
+          precomputeActive: precomputeActive(config),
+        }
+      );
+      return true;
+    }
+    triggerTeamWorkCompletionReadModelRepairFromCurrentSnapshot(
+      config,
+      {
+        owner: rawOwner,
+        requestedOwner: rawOwner,
+        dashboardContext,
+        year,
+        today,
+      },
+      '/api/dashboard-session'
+    );
     await sendJson(
       response,
       202,
@@ -1003,6 +1413,10 @@ async function handleApiRequest(request, response, url, config) {
     const fallback = String(url.searchParams.get('fallback') || (view === 'full' ? 'readModel' : 'compute'))
       .trim()
       .toLowerCase();
+    const fields = String(url.searchParams.get('fields') || 'items').trim().toLowerCase();
+    const filters = apiFiltersFromUrl(url);
+    const hasProjectFilters = Object.values(filters).some((value) => String(value || '').trim());
+    const forceComputeCatalog = url.searchParams.has('fallback') && fallback === 'compute';
 
     if (projectId && view === 'full' && fallback !== 'compute') {
       const readModel = readProjectDetailReadModel(config, { projectId });
@@ -1019,7 +1433,7 @@ async function handleApiRequest(request, response, url, config) {
         await sendJson(response, 404, { error: 'Project not found', readModel: true });
         return true;
       }
-      triggerDashboardPrecomputeFromCurrentSnapshot(config, '/api/projects');
+      triggerProjectDetailReadModelRepairFromCurrentSnapshot(config, projectId, '/api/projects');
       await sendJson(
         response,
         202,
@@ -1032,6 +1446,34 @@ async function handleApiRequest(request, response, url, config) {
         { route: '/api/projects', readModelHit: false, precomputeActive: precomputeActive(config) }
       );
       return true;
+    }
+
+    if (!projectId && view === 'summary' && fields === 'items' && !hasProjectFilters && !forceComputeCatalog) {
+      const readModel = readProjectCatalogSummaryReadModel(config);
+      if (readModel.status === 'ready' || readModel.status === 'stale') {
+        await sendJson(response, 200, {
+          ...readModel.payload,
+          readOnly: true,
+          readModel: true,
+          stale: readModel.status === 'stale',
+        });
+        return true;
+      }
+      triggerDashboardPrecomputeFromCurrentSnapshot(config, '/api/projects');
+      if (fallback === 'readmodel') {
+        await sendJson(
+          response,
+          202,
+          {
+            ok: false,
+            status: 'preparing',
+            readModel: true,
+            reason: readModel.reason || readModel.status,
+          },
+          { route: '/api/projects', readModelHit: false, precomputeActive: precomputeActive(config) }
+        );
+        return true;
+      }
     }
 
     const snapshot = await getSnapshot(config);
@@ -1049,12 +1491,10 @@ async function handleApiRequest(request, response, url, config) {
       return true;
     }
 
-    const projects = filterProjects(snapshot.projects || [], apiFiltersFromUrl(url), {
+    const projects = filterProjects(snapshot.projects || [], filters, {
       personnelArchitecture: snapshot.personnelArchitecture,
     });
-    const fields = String(url.searchParams.get('fields') || 'items').trim().toLowerCase();
     if (fields === 'ids') {
-      const filters = apiFiltersFromUrl(url);
       const cache = projectsIdsCacheForConfig(config);
       const cacheKey = snapshotMetricsCacheKey(snapshot, filters);
       if (cache.has(cacheKey)) {
@@ -1210,11 +1650,13 @@ async function handleApiRequest(request, response, url, config) {
     const fallbackMode = String(url.searchParams.get('fallback') || '').trim().toLowerCase();
     const shouldComputeMissingDetail = view === 'detail' && fallbackMode === 'compute';
     if (!forceRefresh && view === 'detail' && fallbackMode === 'readmodel') {
+      const today = config.today || chinaToday();
       const readModel = readTeamWorkCompletionDetailReadModel(config, {
         owner: ownerParam,
         requestedOwner: ownerParam,
         dashboardContext,
         year,
+        today,
       });
       const readModelHit = readModel.status === 'ready';
       const perf = {
@@ -1234,7 +1676,17 @@ async function handleApiRequest(request, response, url, config) {
         return true;
       }
 
-      triggerDashboardPrecomputeFromCurrentSnapshot(config, '/api/team-work-completion');
+      triggerTeamWorkCompletionReadModelRepairFromCurrentSnapshot(
+        config,
+        {
+          owner: ownerParam,
+          requestedOwner: ownerParam,
+          dashboardContext,
+          year,
+          today,
+        },
+        '/api/team-work-completion'
+      );
       await sendJson(
         response,
         202,
@@ -1270,6 +1722,7 @@ async function handleApiRequest(request, response, url, config) {
       fallbackComputed: false,
       precomputeActive: precomputeActive(config),
     };
+    const today = config.today || chinaToday();
     const precomputed = forceRefresh
       ? null
       : readTeamWorkCompletionReadModel(config, snapshot, architecture, {
@@ -1278,6 +1731,7 @@ async function handleApiRequest(request, response, url, config) {
           dashboardContext,
           year,
           view,
+          today,
         });
     if (precomputed) {
       await sendJson(response, 200, precomputed, {
@@ -1290,7 +1744,18 @@ async function handleApiRequest(request, response, url, config) {
     }
 
     if (!forceRefresh && !shouldComputeMissingDetail) {
-      triggerDashboardPrecompute(snapshot, config, '/api/team-work-completion');
+      triggerTeamWorkCompletionReadModelRepair(
+        snapshot,
+        config,
+        {
+          owner,
+          requestedOwner: ownerParam,
+          dashboardContext,
+          year,
+          today,
+        },
+        '/api/team-work-completion'
+      );
       await sendJson(
         response,
         202,
@@ -1310,7 +1775,18 @@ async function handleApiRequest(request, response, url, config) {
       return true;
     }
     if (shouldComputeMissingDetail) {
-      triggerDashboardPrecompute(snapshot, config, '/api/team-work-completion');
+      triggerTeamWorkCompletionReadModelRepair(
+        snapshot,
+        config,
+        {
+          owner,
+          requestedOwner: ownerParam,
+          dashboardContext,
+          year,
+          today,
+        },
+        '/api/team-work-completion'
+      );
     }
 
     await sendJson(
@@ -1321,6 +1797,7 @@ async function handleApiRequest(request, response, url, config) {
         dashboardContext,
         personnelArchitecture: architecture,
         year,
+        today,
         forceRefresh,
         skipPrecomputed: shouldComputeMissingDetail,
       }),

@@ -401,6 +401,92 @@ function buildCompletionStatus(dueDate, actualDate, today) {
   };
 }
 
+const HARD_SCHEME_STATUS_FIELDS = ['硬装方案情况（每周五刷新）', '硬装方案情况', '方案情况'];
+
+function normalizeHardSchemeFormStatus(project = {}) {
+  const rawText = readHardDecorationField(project, HARD_SCHEME_STATUS_FIELDS);
+  if (!rawText) {
+    return { status: '', rawText: '', filled: false, source: '' };
+  }
+  if (/延期完成/.test(rawText)) {
+    return { status: 'delayed_complete', rawText, filled: true, source: 'form' };
+  }
+  if (/延期|逾期|超期/.test(rawText)) {
+    return { status: 'delayed_open', rawText, filled: true, source: 'form' };
+  }
+  if (/准时完成|按时完成|正常完成/.test(rawText)) {
+    return { status: 'on_time_complete', rawText, filled: true, source: 'form' };
+  }
+  if (/进行中|未完成|未开始|待/.test(rawText)) {
+    return { status: 'pending_complete', rawText, filled: true, source: 'form' };
+  }
+  return { status: 'unknown', rawText, filled: true, source: 'form' };
+}
+
+function systemFloorPlanStatus(completion = {}) {
+  return {
+    status: completion.status || '',
+    dueDate: completion.dueDate || '',
+    actualDate: completion.actualDate || '',
+    source: completion.status ? 'system_deadline' : '',
+  };
+}
+
+function statusDelayFlag(status = '') {
+  if (['delayed_complete', 'delayed_open'].includes(status)) {
+    return true;
+  }
+  if (status === 'on_time_complete') {
+    return false;
+  }
+  return null;
+}
+
+function buildConflictReview(formStatus = {}, systemStatus = {}) {
+  const formDelayed = formStatus.filled ? statusDelayFlag(formStatus.status) : null;
+  const systemDelayed = statusDelayFlag(systemStatus.status);
+  const needsReview = formDelayed !== null && systemDelayed !== null && formDelayed !== systemDelayed;
+  return {
+    needsReview,
+    reason: needsReview ? 'form_system_status_mismatch' : '',
+    formStatus: formStatus.status || '',
+    systemStatus: systemStatus.status || '',
+  };
+}
+
+function fallbackStatusDate(project = {}) {
+  return normalizeDate(project.updatedAt) || normalizeDate(project.startDate) || '';
+}
+
+function buildFinalDelayStatus({ project, formStatus, systemStatus, actualFinish }) {
+  if (formStatus.filled) {
+    const status = formStatus.status || 'unknown';
+    return {
+      status,
+      source: 'form',
+      date: actualFinish || fallbackStatusDate(project) || systemStatus.actualDate || systemStatus.dueDate || '',
+      isDelayed: statusDelayFlag(status) === true,
+    };
+  }
+  const status = systemStatus.status || '';
+  return {
+    status,
+    source: status ? 'system_fallback' : '',
+    date: systemStatus.actualDate || systemStatus.dueDate || '',
+    isDelayed: statusDelayFlag(status) === true,
+  };
+}
+
+function buildEfficiencyStatusModel(efficiency = {}) {
+  return {
+    status: efficiency.status || '',
+    dueDate: efficiency.dueDate || '',
+    actualDate: efficiency.actualDate || '',
+    budgetWorkdays: efficiency.budgetWorkdays ?? null,
+    source: efficiency.status ? 'actual_start_shifted_budget' : '',
+  };
+}
+
 function buildEfficiencyStatus({ actualStart, actualFinish, budgetWorkdays, completionStatus, calendar, today }) {
   if (!actualStart) {
     return {
@@ -519,6 +605,11 @@ export function calculateHardDecorationDeadlineRecord(project = {}, { calendar =
   let floorStart;
   let floorCompletion;
   let efficiency;
+  let formStatus;
+  let systemStatus;
+  let finalDelayStatus;
+  let conflictReview;
+  let efficiencyStatus;
   try {
     deadlines = deadlineMap(measureDate, rule.offsets, calendar);
     floorStart = buildStartStatus(deadlines.floorPlanStart, actuals.floorPlanStart, today);
@@ -531,6 +622,16 @@ export function calculateHardDecorationDeadlineRecord(project = {}, { calendar =
       calendar,
       today,
     });
+    formStatus = normalizeHardSchemeFormStatus(project);
+    systemStatus = systemFloorPlanStatus(floorCompletion);
+    finalDelayStatus = buildFinalDelayStatus({
+      project,
+      formStatus,
+      systemStatus,
+      actualFinish: actuals.floorPlanFinish,
+    });
+    conflictReview = buildConflictReview(formStatus, systemStatus);
+    efficiencyStatus = buildEfficiencyStatusModel(efficiency);
   } catch (error) {
     if (!isCalendarCoverageError(error)) {
       throw error;
@@ -557,6 +658,11 @@ export function calculateHardDecorationDeadlineRecord(project = {}, { calendar =
       warning: { dueDate: deadlines.floorPlanWarn },
       completion: floorCompletion,
       efficiency,
+      formStatus,
+      systemStatus,
+      finalDelayStatus,
+      efficiencyStatus,
+      conflictReview,
     },
     construction: {
       start: buildStartStatus(deadlines.constructionStart, actuals.constructionStart, today),
@@ -643,9 +749,25 @@ export function buildHardDecorationDeadlineSummary(
       actualFinish: record.actuals?.floorPlanFinish || '',
       startStatus: floorPlan.start?.status || '',
       completionStatus: floorPlan.completion?.status || '',
+      formStatus: floorPlan.formStatus || { status: '', rawText: '', filled: false, source: '' },
+      systemStatus: floorPlan.systemStatus || { status: '', dueDate: '', actualDate: '', source: '' },
+      finalDelayStatus: floorPlan.finalDelayStatus || { status: '', source: '', date: '', isDelayed: false },
       efficiencyDueDate: floorPlan.efficiency?.dueDate || '',
       efficiencyStatus: floorPlan.efficiency?.status || '',
+      efficiencyStatusModel: floorPlan.efficiencyStatus || {
+        status: '',
+        dueDate: '',
+        actualDate: '',
+        budgetWorkdays: null,
+        source: '',
+      },
       efficiencySummary: floorPlan.efficiency?.summary || '',
+      conflictReview: floorPlan.conflictReview || {
+        needsReview: false,
+        reason: '',
+        formStatus: '',
+        systemStatus: '',
+      },
     },
     construction: {
       startDueDate: record.construction?.start?.dueDate || '',

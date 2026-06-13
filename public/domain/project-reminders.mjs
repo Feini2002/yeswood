@@ -272,14 +272,21 @@ export function resolveProjectKeyDateReminders(project) {
   if (isEmptyProjectReminder(statusReminder)) {
     return [statusReminder];
   }
-  const systemPrimary = normalizeSystemProjectReminder(project?.primaryReminder);
-  if (systemPrimary && !isHardDeadlineKeyDateException(systemPrimary)) {
-    return [systemPrimary];
-  }
   const reminders = (stageReminderResult.reminders || []).filter((item) => !isEmptyProjectReminder(item));
+  if (!reminders.some((item) => projectReminderIdentity(item) === projectReminderIdentity(statusReminder))) {
+    reminders.unshift(statusReminder);
+  }
   const pointReminder = resolvePointHandoffReminder(project);
   if (pointReminder && !reminders.some((item) => projectReminderIdentity(item) === projectReminderIdentity(pointReminder))) {
     reminders.push(pointReminder);
+  }
+  const systemPrimary = normalizeSystemProjectReminder(project?.primaryReminder);
+  if (
+    systemPrimary &&
+    !isHardDeadlineKeyDateException(systemPrimary) &&
+    !reminders.some((item) => projectReminderIdentity(item) === projectReminderIdentity(systemPrimary))
+  ) {
+    reminders.push(systemPrimary);
   }
   return reminders.length ? reminders : [statusReminder];
 }

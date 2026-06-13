@@ -1,6 +1,8 @@
 /** Module-scoped runtime flags migrated from legacy app.js singletons. */
 export const runtimeStore = {
   updateCheckInFlight: false,
+  updateCheckTimer: null,
+  updateCheckVisibilityHandler: null,
   pageRefreshInFlight: false,
   syncMessageTimer: null,
   drillModalRequestId: 0,

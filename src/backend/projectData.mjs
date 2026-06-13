@@ -43,8 +43,11 @@ import {
   CD_OWNER_FIELDS,
   EMPTY_PERSONNEL_VALUES,
   VM_OWNER_FIELDS,
+  buildCanonicalPersonnelNameLookup,
+  canonicalizePersonnelNames,
   readNamesFromRawField,
   readProjectOwnerNames,
+  resolveCanonicalPersonnelName,
   splitPersonnelNames,
 } from './personnelNames.mjs';
 import { buildEntryRhythmAdvice } from './agents/entryRhythmAdviceAgent.mjs';
@@ -388,8 +391,11 @@ export function scheduleStatusFor(dueDate, delayed) {
   return delayed ? 'overdue' : 'scheduled';
 }
 
+const DELAY_EXEMPT_COMPLETED_STATUSES = new Set(['完成', '已完成']);
+
 function isCompleted(status) {
-  return isTerminalProjectStatus(status);
+  const normalized = String(status ?? '').trim();
+  return isTerminalProjectStatus(normalized) || DELAY_EXEMPT_COMPLETED_STATUSES.has(normalized);
 }
 
 function isDelayed(dueDate, status) {
@@ -857,7 +863,7 @@ function monthlyDifficultySeriesFromProjects(projects, selector, options = {}) {
     .map((bucket) => finalizeMonthlyDifficultyBucket(bucket, maxResponsibleWorkload, totalResponsibleWorkload));
 }
 
-function readPersonnelNames(project, role) {
+function readPersonnelNames(project, role, canonicalNameLookup = null) {
   const names = [];
 
   for (const fieldName of role.fields) {
@@ -868,7 +874,7 @@ function readPersonnelNames(project, role) {
     names.push(...splitPersonnelNames(role.fallback(project)));
   }
 
-  return Array.from(new Set(names));
+  return canonicalNameLookup ? canonicalizePersonnelNames(names, canonicalNameLookup) : Array.from(new Set(names));
 }
 
 function disciplineLabel(value) {
@@ -1158,36 +1164,43 @@ function isEnabledFilter(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
 }
 
-function matchesCollaborationResponsibility(project, collaborator = '', collaborationDiscipline = '') {
+function matchesCollaborationResponsibility(
+  project,
+  collaborator = '',
+  collaborationDiscipline = '',
+  personnelArchitecture = {}
+) {
   const targetName = String(collaborator || '').trim();
   if (!targetName) {
     return true;
   }
+  const canonicalNameLookup = buildCanonicalPersonnelNameLookup(personnelArchitecture);
+  const canonicalTarget = resolveCanonicalPersonnelName(targetName, canonicalNameLookup);
   return teamCollaborationRolesForOwnerDiscipline(collaborationDiscipline).some((role) =>
-    readPersonnelNames(project, role).includes(targetName)
+    readPersonnelNames(project, role, canonicalNameLookup).includes(canonicalTarget)
   );
 }
 
-function readTeamProjectOwnerNames(project) {
-  const names = new Set([
+function readTeamProjectOwnerNames(project, canonicalNameLookup = null) {
+  const names = [
     ...splitPersonnelNames(project?.cdOwner),
     ...splitPersonnelNames(project?.vmOwner),
-  ]);
+  ];
   if (!Object.prototype.hasOwnProperty.call(project || {}, 'cdOwner')) {
     for (const fieldName of CD_OWNER_FIELDS) {
       for (const name of readNamesFromRawField(project, fieldName)) {
-        names.add(name);
+        names.push(name);
       }
     }
   }
   if (!Object.prototype.hasOwnProperty.call(project || {}, 'vmOwner')) {
     for (const fieldName of VM_OWNER_FIELDS) {
       for (const name of readNamesFromRawField(project, fieldName)) {
-        names.add(name);
+        names.push(name);
       }
     }
   }
-  return Array.from(names);
+  return canonicalNameLookup ? canonicalizePersonnelNames(names, canonicalNameLookup) : Array.from(new Set(names));
 }
 
 function matchesTeamProjectOwner(project, teamProjectOwner = '', personnelArchitecture = {}) {
@@ -1202,8 +1215,10 @@ function matchesTeamProjectOwner(project, teamProjectOwner = '', personnelArchit
       dashboardContext: 'all',
     }).length > 0;
   }
-  const names = readTeamProjectOwnerNames(project);
-  return names.includes(targetName);
+  const canonicalNameLookup = buildCanonicalPersonnelNameLookup(personnelArchitecture);
+  const canonicalTarget = resolveCanonicalPersonnelName(targetName, canonicalNameLookup);
+  const names = readTeamProjectOwnerNames(project, canonicalNameLookup);
+  return names.includes(canonicalTarget);
 }
 
 export function filterProjects(projects, filters = {}, options = {}) {
@@ -1244,7 +1259,7 @@ export function filterProjects(projects, filters = {}, options = {}) {
       matchesValue(project.status, filters.status) &&
       matchesValue(project.riskLevel, filters.riskLevel) &&
       matchesStoreNature(project, filters.storeNature) &&
-      matchesCollaborationResponsibility(project, collaborator, collaborationDiscipline) &&
+      matchesCollaborationResponsibility(project, collaborator, collaborationDiscipline, personnelArchitecture) &&
       matchesTeamProjectOwner(project, teamProjectOwner, personnelArchitecture) &&
       (!activeResponsibilityOnly || hasOpenResponsibilityForDiscipline(project, metricOptions.ownerDiscipline)) &&
       matchesLifecycleStage(project, filters.lifecycleStage) &&
@@ -1537,17 +1552,18 @@ export function filterProjectsForTeam(projects, team, options = {}) {
 }
 
 function buildOwnerLoad(projects, personnelArchitecture = {}) {
-  const lookup = buildPersonDisplayLookup(personnelArchitecture);
+  const displayLookup = buildPersonDisplayLookup(personnelArchitecture);
+  const canonicalNameLookup = buildCanonicalPersonnelNameLookup(personnelArchitecture);
   const counts = new Map();
   for (const project of projects) {
     const ownerRole = PERSONNEL_ROLES.find((role) => role.key === 'owner');
-    const names = readPersonnelNames(project, ownerRole);
+    const names = readPersonnelNames(project, ownerRole, canonicalNameLookup);
     for (const name of names) {
       counts.set(name, (counts.get(name) || 0) + 1);
     }
   }
   return Array.from(counts, ([label, value]) => ({
-    label: formatPersonnelDisplay(label, lookup),
+    label: formatPersonnelDisplay(label, displayLookup),
     value,
   })).sort((a, b) => {
     if (b.value !== a.value) {
@@ -1593,11 +1609,12 @@ function collaborationRoleLabel(name, personnelArchitecture = {}, role = {}) {
 
 function buildLeadLoad(projects, personnelArchitecture = {}, collaborationRoles = TEAM_COLLABORATION_ROLES) {
   const stats = new Map();
+  const canonicalNameLookup = buildCanonicalPersonnelNameLookup(personnelArchitecture);
 
   for (const project of projects) {
     const projectNames = new Set();
     for (const role of collaborationRoles) {
-      for (const name of readPersonnelNames(project, role)) {
+      for (const name of readPersonnelNames(project, role, canonicalNameLookup)) {
         if (!stats.has(name)) {
           stats.set(name, {
             ...createPersonStat(name, personnelArchitecture, role),
@@ -1660,12 +1677,13 @@ function finalizeWeightedPersonStat(stat) {
 
 function buildWeightedLeadLoad(projects, personnelArchitecture = {}, collaborationRoles = TEAM_COLLABORATION_ROLES) {
   const stats = new Map();
+  const canonicalNameLookup = buildCanonicalPersonnelNameLookup(personnelArchitecture);
 
   for (const project of projects) {
     const projectNames = new Set();
     const workloadCredits = new Set();
     for (const role of collaborationRoles) {
-      for (const name of readPersonnelNames(project, role)) {
+      for (const name of readPersonnelNames(project, role, canonicalNameLookup)) {
         if (!stats.has(name)) {
           stats.set(name, {
             ...createPersonStat(name, personnelArchitecture, role),

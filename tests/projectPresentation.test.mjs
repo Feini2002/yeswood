@@ -3,22 +3,25 @@ import test from 'node:test';
 
 import { findProjectInSnapshot, summarizeProject, summarizeProjects } from '../src/backend/projectPresentation.mjs';
 
-test('summarizeProject keeps non-empty raw fields only', () => {
+test('summarizeProject omits raw fields from list payloads', () => {
   const project = summarizeProject({
     id: 'p1',
     name: 'Demo',
+    hardProgressStage: 'Floor plan',
+    softProgressStage: 'Display plan',
     rawFields: {
-      店态: { display: '常规店', kind: 'text' },
-      空字段: { display: '   ', kind: 'text' },
-      备注: { display: '有内容', kind: 'text' },
+      StoreStatus: { display: 'Normal', kind: 'text' },
+      EmptyField: { display: '   ', kind: 'text' },
+      Note: { display: 'Ready', kind: 'text' },
     },
     recordMeta: { id: 'r1', createdTime: '2026-01-01', lastModifiedTime: '2026-02-01' },
   });
 
-  assert.equal(Object.keys(project.rawFields).length, 2);
-  assert.equal(project.rawFields['店态'].display, '常规店');
+  assert.equal(Object.hasOwn(project, 'rawFields'), false);
   assert.equal(project.recordMeta.id, 'r1');
   assert.equal(project.recordMeta.createdTime, undefined);
+  assert.ok(project.stageReminder);
+  assert.ok(project.workflowFacts);
 });
 
 test('findProjectInSnapshot resolves by id or record meta id', () => {

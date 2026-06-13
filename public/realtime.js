@@ -1,6 +1,15 @@
 export const DASHBOARD_UPDATE_CHECK_INTERVAL_MS = 30_000;
 
-const SIGNATURE_KEYS = ['source', 'syncedAt', 'sourceRecords', 'totalRecords', 'ignoredRecords', 'fieldCount'];
+const SIGNATURE_KEYS = [
+  'source',
+  'syncedAt',
+  'sourceRecords',
+  'totalRecords',
+  'ignoredRecords',
+  'fieldCount',
+  'contentHash',
+  'dataRevision',
+];
 
 export function snapshotSignature(snapshot) {
   if (!snapshot) {

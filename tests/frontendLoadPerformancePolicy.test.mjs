@@ -19,6 +19,23 @@ test('AGENTS documents dashboard load performance regression guards', async () =
   assert.match(agents, /frontendLoadPerformancePolicy\.test\.mjs/);
 });
 
+test('AGENTS documents read model latency and seamless switching regression guards', async () => {
+  const agents = await readSource('AGENTS.md');
+  assert.match(agents, /## Read Model 延时与无缝切换防复发规则/);
+  assert.match(agents, /dashboard-session/);
+  assert.match(agents, /shell/);
+  assert.match(agents, /owner \* context \* year/);
+  assert.match(agents, /read-model\/current/);
+  assert.match(agents, /读模型生成中/);
+  assert.match(agents, /\.json\.gz/);
+  assert.match(agents, /forceRefresh=true[\s\S]*只能作为诊断/);
+  assert.match(agents, /不带 `forceRefresh`[\s\S]*\/api\/team-work-completion[\s\S]*\/api\/dashboard-session/);
+  assert.match(agents, /复用或重启 `4200`[\s\S]*Node 进程/);
+  assert.match(agents, /同一 snapshot hash[\s\S]*force:true[\s\S]*manifest[\s\S]*sidecar/);
+  assert.match(agents, /tests\/precomputeTeamDashboards\.test\.mjs/);
+  assert.match(agents, /tests\/publicAppBehavior\.test\.mjs/);
+});
+
 test('core dashboard loader avoids duplicate metrics and default full project fetch', async () => {
   const source = await readSource('public', 'lib', 'dashboard-loader.mjs');
   assert.match(source, /DASHBOARD_SESSION_ENDPOINT/);

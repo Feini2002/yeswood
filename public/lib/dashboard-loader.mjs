@@ -191,7 +191,8 @@ function applyFilterOptions(filters = {}) {
 
 function dashboardSessionRequestContext(options = {}) {
   const route = parsePageHash();
-  const owner = options.owner || route.owner || resolveTeamOwner();
+  const explicitOwner = String(options.owner || '').trim();
+  const owner = explicitOwner || (route.pageId === 'teams' ? route.owner || resolveTeamOwner() : '');
   const dashboardContext = resolveTeamPageDashboardContext(
     options.dashboardContext || route.dashboardContext || resolveTeamDashboardContext()
   );
@@ -423,6 +424,9 @@ export async function loadDashboardSession(options = {}) {
     return cachedPayload;
   }
   const payload = await fetchJson(dashboardSessionUrl(options));
+  if (typeof options.shouldApply === 'function' && !options.shouldApply(payload)) {
+    return { status: 'stale', reason: 'scope-changed' };
+  }
   if (isDashboardSessionPreparing(payload)) {
     return payload;
   }
@@ -528,6 +532,13 @@ export async function loadDashboard(options = {}) {
     console.warn('Dashboard session read model is preparing', {
       reason: sessionPayload.reason || sessionPayload.status,
     });
+    if (pageId === 'teams') {
+      await loadTeamPageModules({ forceRefresh: true });
+      renderTeamDashboard();
+      renderTeamWorkCompletionDashboard();
+      renderOwnerReviewDashboard();
+      return true;
+    }
     return false;
   }
   renderAll();
@@ -720,8 +731,8 @@ export async function syncDingTalk() {
       },
     });
     invalidateProjectCaches({ catalog: true, drill: true, details: true });
-    await loadDashboard({ snapshot, forceRefresh: true });
-    setSyncMessage('已同步');
+    const loaded = await loadDashboard({ snapshot, forceRefresh: true });
+    setSyncMessage(loaded ? '已同步' : '读模型生成中');
   } catch (error) {
     console.warn('Dashboard sync failed', error);
     if (error.status === 429) {
@@ -763,12 +774,28 @@ export async function checkForDashboardUpdate() {
 
 
 export function startAutoUpdateChecks() {
-  window.setInterval(checkForDashboardUpdate, DASHBOARD_UPDATE_CHECK_INTERVAL_MS);
-  document.addEventListener('visibilitychange', () => {
+  if (runtimeStore.updateCheckTimer !== null) {
+    return;
+  }
+  runtimeStore.updateCheckTimer = window.setInterval(checkForDashboardUpdate, DASHBOARD_UPDATE_CHECK_INTERVAL_MS);
+  runtimeStore.updateCheckVisibilityHandler = () => {
     if (isDashboardVisible()) {
       checkForDashboardUpdate();
     }
-  });
+  };
+  document.addEventListener('visibilitychange', runtimeStore.updateCheckVisibilityHandler);
+}
+
+export function stopAutoUpdateChecks() {
+  if (runtimeStore.updateCheckTimer !== null) {
+    window.clearInterval(runtimeStore.updateCheckTimer);
+    runtimeStore.updateCheckTimer = null;
+  }
+  if (runtimeStore.updateCheckVisibilityHandler) {
+    document.removeEventListener('visibilitychange', runtimeStore.updateCheckVisibilityHandler);
+    runtimeStore.updateCheckVisibilityHandler = null;
+  }
+  runtimeStore.updateCheckInFlight = false;
 }
 
 

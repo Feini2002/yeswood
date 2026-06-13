@@ -1,4 +1,4 @@
-const TERMINAL_PROJECT_STATUSES = new Set(['已完成', '完成', '已取消', '取消', '关闭', '已关闭']);
+const TERMINAL_PROJECT_STATUSES = new Set(['已取消', '取消', '关闭', '已关闭']);
 const PROJECT_STATUS_FIELD_NAMES = ['项目状态', '状态', 'status'];
 
 export function normalizeProjectStatusText(value) {

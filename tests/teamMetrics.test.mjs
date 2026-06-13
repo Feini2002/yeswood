@@ -944,6 +944,62 @@ test('calculateTeamDashboardMetrics counts deadline evidence when explicit hard 
   assert.equal(metrics.hardOwnerMetrics.values.hardSchemeDelayYtd, 1);
 });
 
+test('calculateTeamDashboardMetrics counts hard scheme delay from final deadline status only', () => {
+  const ownerTeam = { owner: '硬装负责人' };
+  const baseRawFields = {
+    店态: { display: '常规店' },
+    复尺时间: { display: '2026-05-28' },
+    面积: { display: '280' },
+    硬装项目进度: { display: '施工图' },
+    软装项目进度: { display: '未开始' },
+  };
+  const metrics = calculateTeamDashboardMetrics(
+    [
+      sampleProject({
+        id: 'form-on-time-system-delayed',
+        owner: '硬装负责人',
+        rawFields: {
+          ...baseRawFields,
+          平面开始时间: { display: '2026-06-01' },
+          躺平内部审核结束时间: { display: '2026-06-08' },
+          硬装方案情况: { display: '准时完成' },
+        },
+      }),
+      sampleProject({
+        id: 'form-empty-system-delayed',
+        owner: '硬装负责人',
+        rawFields: {
+          ...baseRawFields,
+          平面开始时间: { display: '2026-06-01' },
+          躺平内部审核结束时间: { display: '2026-06-08' },
+          硬装方案情况: { display: '' },
+        },
+      }),
+      sampleProject({
+        id: 'form-delayed-system-on-time',
+        owner: '硬装负责人',
+        rawFields: {
+          ...baseRawFields,
+          平面开始时间: { display: '2026-05-29' },
+          躺平内部审核结束时间: { display: '2026-06-05' },
+          硬装方案情况: { display: '延期完成' },
+        },
+      }),
+    ],
+    ownerTeam,
+    {
+      people: {
+        硬装负责人: { name: '硬装负责人', position: 'owner', discipline: 'hard' },
+      },
+      teams: [ownerTeam],
+    },
+    { today: '2026-06-10', year: 2026, month: '2026-06' }
+  );
+
+  assert.equal(metrics.hardOwnerMetrics.values.hardSchemeDelayMonth, 2);
+  assert.equal(metrics.hardOwnerMetrics.values.hardSchemeDelayYtd, 2);
+});
+
 test('calculateTeamDashboardMetrics keeps Yang Jinfan hard owner unsplit across direct and franchise', () => {
   const ownerTeam = { owner: '杨锦帆（硬装）' };
   const projects = [
@@ -1590,9 +1646,8 @@ test('/api/dashboard-warmup prepares team completion and metrics precompute befo
   );
 });
 
-test('/api/dashboard-session returns a precomputed local browsing bundle', async () => {
+test('/api/dashboard-session defaults to a lightweight shell bundle', async () => {
   let sourceSnapshot = null;
-  let precomputedOwner = '';
 
   await withTestServer(
     async (port) => {
@@ -1601,6 +1656,51 @@ test('/api/dashboard-session returns a precomputed local browsing bundle', async
       assert.equal(payload.status, 200);
       assert.equal(payload.body.schemaVersion, READ_MODEL_SCHEMA_VERSION);
       assert.equal(payload.body.readOnly, true);
+      assert.equal(payload.body.shellOnly, true);
+      assert.equal(payload.body.snapshotHash, precomputeSnapshotHash(sourceSnapshot, sourceSnapshot.personnelArchitecture));
+      assert.equal(payload.body.snapshot.source, sourceSnapshot.source);
+      assert.ok(payload.body.filters);
+      assert.ok(payload.body.metrics);
+      assert.ok(payload.body.departmentMetrics);
+      assert.equal(payload.body.team.owner, '');
+      assert.equal(payload.body.team.metrics, null);
+      assert.equal(payload.body.team.workCompletion, null);
+      assert.equal(payload.body.team.responsibilityReview, null);
+      assert.equal(Object.hasOwn(payload.body, 'profileDashboards'), false);
+      assert.equal(Object.hasOwn(payload.body, 'projectCatalog'), false);
+    },
+    {
+      beforeListen: async ({ config }) => {
+        sourceSnapshot = await syncProjects({
+          config: {
+            ...config,
+            precomputeEnabled: false,
+          },
+          source: 'mock',
+        });
+        await precomputeTeamDashboards(sourceSnapshot, {
+          config,
+          contexts: ['all'],
+          years: [2026],
+          now: new Date('2026-06-11T00:00:00.000Z'),
+        });
+      },
+    }
+  );
+});
+
+test('/api/dashboard-session returns a precomputed local browsing bundle when owner is requested', async () => {
+  let sourceSnapshot = null;
+  let precomputedOwner = '';
+
+  await withTestServer(
+    async (port) => {
+      const payload = await getJson(port, `/api/dashboard-session?owner=${encodeURIComponent(precomputedOwner)}&context=all&year=2026`);
+
+      assert.equal(payload.status, 200);
+      assert.equal(payload.body.schemaVersion, READ_MODEL_SCHEMA_VERSION);
+      assert.equal(payload.body.readOnly, true);
+      assert.notEqual(payload.body.shellOnly, true);
       assert.equal(payload.body.snapshotHash, precomputeSnapshotHash(sourceSnapshot, sourceSnapshot.personnelArchitecture));
       assert.equal(payload.body.snapshot.source, sourceSnapshot.source);
       assert.equal(Object.hasOwn(payload.body.snapshot, 'projects'), false);
@@ -1617,6 +1717,7 @@ test('/api/dashboard-session returns a precomputed local browsing bundle', async
     },
     {
       beforeListen: async ({ config }) => {
+        config.today = '2026-06-11';
         sourceSnapshot = await syncProjects({
           config: {
             ...config,

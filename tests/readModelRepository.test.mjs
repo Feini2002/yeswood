@@ -8,7 +8,9 @@ import path from 'node:path';
 import {
   READ_MODEL_SCHEMA_VERSION,
   publishReadModelDirectory,
+  readDashboardSessionShellReadModel,
   readDashboardSessionReadModel,
+  readProjectCatalogSummaryReadModel,
   readProjectDetailReadModel,
   readTeamWorkCompletionDetailReadModel,
 } from '../src/backend/readModelRepository.mjs';
@@ -35,6 +37,10 @@ async function seedReadModel(
     projectBoardSplitFields = true,
     catalogWorkflowFields = true,
     catalogStageReminderFields = true,
+    catalogRawFields = false,
+    asOfDate = '2026-06-11',
+    summaryAsOfDate = asOfDate,
+    detailAsOfDate = asOfDate,
   } = {}
 ) {
   const currentDir = path.join(baseDir, 'current');
@@ -47,6 +53,7 @@ async function seedReadModel(
     readModel: true,
     snapshotHash: 'hash-1',
     generatedAt: '2026-06-11T08:00:00.000Z',
+    asOfDate,
     features: [
       'dashboard-session',
       'project-catalog-summary',
@@ -80,6 +87,7 @@ async function seedReadModel(
   const catalogProject = {
     id: 'p1',
     name: 'P1',
+    ...(catalogRawFields ? { rawFields: { Note: { display: 'large detail field', kind: 'text' } } } : {}),
     ...(catalogWorkflowFields
       ? { franchiseScope: 'direct', hardProgressStage: '施工图', softProgressStage: '未开始' }
       : {}),
@@ -175,6 +183,7 @@ async function seedReadModel(
     requestedOwner: owner,
     dashboardContext: context,
     year,
+    asOfDate: summaryAsOfDate,
     summary: {},
     ...(processingQueues ? { processingQueues: processingQueuesPayload } : {}),
   });
@@ -183,6 +192,7 @@ async function seedReadModel(
     requestedOwner: owner,
     dashboardContext: context,
     year,
+    asOfDate: detailAsOfDate,
     summary: {},
     ...(processingQueues ? { processingQueues: processingQueuesPayload } : {}),
     projectsById: { p1: { id: 'p1', name: 'P1' } },
@@ -217,6 +227,52 @@ test('readDashboardSessionReadModel reads the current hard read model without a 
   assert.equal(result.payload.team.responsibilityReview.dashboardContext, 'direct');
   assert.equal(result.payload.profileDashboards.direct.metrics.profile, 'direct');
   assert.equal(result.payload.projectCatalog.items.length, 1);
+});
+
+test('readDashboardSessionShellReadModel serves core without team sidecars', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir);
+  await fs.rm(path.join(tempDir, 'current', 'team-work-completion-detail'), { recursive: true, force: true });
+
+  const result = readDashboardSessionShellReadModel(
+    { readModelDir: tempDir, devReloadEnabled: true },
+    { dashboardContext: 'direct', year: 2026 }
+  );
+
+  assert.equal(result.status, 'ready');
+  assert.equal(result.payload.shellOnly, true);
+  assert.equal(result.payload.snapshot.dashboardDisplayMode, 'development');
+  assert.equal(result.payload.metrics.summary.totalProjects, 1);
+  assert.equal(result.payload.team.owner, '');
+  assert.equal(result.payload.team.metrics, null);
+  assert.equal(result.payload.team.workCompletion, null);
+  assert.equal(result.payload.team.responsibilityReview, null);
+  assert.equal(Object.hasOwn(result.payload, 'profileDashboards'), false);
+  assert.equal(Object.hasOwn(result.payload, 'projectCatalog'), false);
+});
+
+test('readProjectCatalogSummaryReadModel serves catalog without dashboard sidecars', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir);
+
+  const result = readProjectCatalogSummaryReadModel({ readModelDir: tempDir });
+
+  assert.equal(result.status, 'ready');
+  assert.equal(result.payload.items.length, 1);
+  assert.equal(result.payload.items[0].id, 'p1');
+  assert.equal(result.payload.view, 'summary');
+  assert.equal(Object.hasOwn(result.payload.items[0], 'rawFields'), false);
+});
+
+test('readProjectCatalogSummaryReadModel rejects summary catalog raw fields', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir, { catalogRawFields: true });
+
+  const result = readProjectCatalogSummaryReadModel({ readModelDir: tempDir });
+
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.payload, null);
+  assert.match(result.reason, /raw fields/i);
 });
 
 test('readDashboardSessionReadModel rejects dashboard sessions without project board metrics', async () => {
@@ -288,6 +344,133 @@ test('readTeamWorkCompletionDetailReadModel tolerates trimmed owner input on the
   assert.equal(result.payload.owner, 'Owner A');
   assert.equal(result.payload.detailReady, true);
   assert.deepEqual(result.payload.projectsById, { p1: { id: 'p1', name: 'P1' } });
+});
+
+test('readTeamWorkCompletionDetailReadModel rejects stale asOfDate when today is provided', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir, { asOfDate: '2026-06-11' });
+
+  const dateObjectResult = readTeamWorkCompletionDetailReadModel(
+    { readModelDir: tempDir },
+    { owner: 'Owner A', dashboardContext: 'direct', year: 2026, today: new Date('2026-06-10T16:00:00.000Z') }
+  );
+  const result = readTeamWorkCompletionDetailReadModel(
+    { readModelDir: tempDir },
+    { owner: 'Owner A', dashboardContext: 'direct', year: 2026, today: '2026-06-12' }
+  );
+
+  assert.equal(dateObjectResult.status, 'ready');
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.payload, null);
+  assert.match(result.reason, /asOfDate is stale/);
+});
+
+test('readDashboardSessionReadModel rejects stale team work completion asOfDate when today is provided', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir, { asOfDate: '2026-06-11' });
+
+  const result = readDashboardSessionReadModel(
+    { readModelDir: tempDir },
+    { owner: 'Owner A', dashboardContext: 'direct', year: 2026, today: '2026-06-12' }
+  );
+
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.payload, null);
+  assert.match(result.reason, /asOfDate is stale/);
+});
+
+test('readDashboardSessionReadModel rejects stale team work completion summary when detail is current', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir, {
+    summaryAsOfDate: '2026-06-11',
+    detailAsOfDate: '2026-06-12',
+  });
+
+  const result = readDashboardSessionReadModel(
+    { readModelDir: tempDir },
+    { owner: 'Owner A', dashboardContext: 'direct', year: 2026, today: '2026-06-12' }
+  );
+
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.payload, null);
+  assert.match(result.reason, /asOfDate is stale/);
+});
+
+test('readDashboardSessionReadModel rejects team sidecars with mismatched scope', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir);
+
+  const summaryPath = path.join(
+    tempDir,
+    'current',
+    'team-work-completion-summary',
+    `${ownerKey('Owner A')}__direct__2026.json`
+  );
+  const responsibilityPath = path.join(
+    tempDir,
+    'current',
+    'team-responsibility-review',
+    `${ownerKey('Owner A')}__direct.json`
+  );
+  const summaryPayload = JSON.parse(await fs.readFile(summaryPath, 'utf8'));
+  const responsibilityPayload = JSON.parse(await fs.readFile(responsibilityPath, 'utf8'));
+  await fs.writeFile(summaryPath, `${JSON.stringify({ ...summaryPayload, owner: 'Owner B' })}\n`, 'utf8');
+  await fs.writeFile(
+    responsibilityPath,
+    `${JSON.stringify({ ...responsibilityPayload, dashboardContext: 'franchise' })}\n`,
+    'utf8'
+  );
+
+  const result = readDashboardSessionReadModel(
+    { readModelDir: tempDir },
+    { owner: 'Owner A', dashboardContext: 'direct', year: 2026, today: '2026-06-11' }
+  );
+
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.payload, null);
+  assert.match(result.reason, /scope is mismatched/);
+});
+
+test('readTeamWorkCompletionDetailReadModel rejects detail sidecars with mismatched scope', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir);
+
+  const detailPath = path.join(
+    tempDir,
+    'current',
+    'team-work-completion-detail',
+    `${ownerKey('Owner A')}__direct__2026.json`
+  );
+  const detailPayload = JSON.parse(await fs.readFile(detailPath, 'utf8'));
+  await fs.writeFile(detailPath, `${JSON.stringify({ ...detailPayload, year: 2025 })}\n`, 'utf8');
+
+  const result = readTeamWorkCompletionDetailReadModel(
+    { readModelDir: tempDir },
+    { owner: 'Owner A', dashboardContext: 'direct', year: 2026, today: '2026-06-11' }
+  );
+
+  assert.equal(result.status, 'incomplete');
+  assert.equal(result.payload, null);
+  assert.match(result.reason, /scope is mismatched/);
+});
+
+test('readTeamWorkCompletionDetailReadModel only returns stale detail when explicitly allowed', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
+  await seedReadModel(tempDir);
+  await fs.rename(path.join(tempDir, 'current'), path.join(tempDir, 'last-known-good'));
+  await seedReadModel(tempDir);
+  await fs.rm(path.join(tempDir, 'current', 'team-work-completion-detail'), { recursive: true, force: true });
+
+  const params = { owner: 'Owner A', dashboardContext: 'direct', year: 2026 };
+  const currentOnly = readTeamWorkCompletionDetailReadModel({ readModelDir: tempDir }, params);
+  const staleAllowed = readTeamWorkCompletionDetailReadModel({ readModelDir: tempDir }, params, { allowStale: true });
+
+  assert.equal(currentOnly.status, 'incomplete');
+  assert.equal(currentOnly.payload, null);
+  assert.match(currentOnly.reason, /detail read model is missing/i);
+  assert.equal(staleAllowed.status, 'stale');
+  assert.equal(staleAllowed.payload.detailReady, true);
+  assert.deepEqual(staleAllowed.payload.projectsById, { p1: { id: 'p1', name: 'P1' } });
 });
 
 test('readProjectDetailReadModel reads project detail by id without a snapshot', async () => {

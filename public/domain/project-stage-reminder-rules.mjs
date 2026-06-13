@@ -193,6 +193,8 @@ function expandCompactWorkflowFacts(project = {}) {
     paused: Boolean(compact.paused),
     closed: Boolean(compact.lifecycleClosed),
     stageText: [hardStage, softStage, status].filter(Boolean).join(' '),
+    statusConflicts: Array.isArray(compact.statusConflicts) ? compact.statusConflicts : [],
+    dataConflicts: Array.isArray(compact.dataConflicts) ? compact.dataConflicts : [],
     nodes: {
       displayStarted: Boolean(compact.displayStarted),
       displayStart: compact.displayStartedAt || '',
@@ -266,6 +268,21 @@ export function resolveProjectWorkflowFacts(project = {}) {
     !sleepStore &&
     (hasNode(nodes, 'softSchemeStart') || softDone || /软装方案|软装完成|产品清单|采购|摆场|闭环/.test(text));
 
+  const statusConflicts = [];
+  if (
+    softDoneStatusFilled &&
+    !softDoneStatusDone &&
+    (softDoneTimeDirect || productListReady || purchaseStarted || displayStarted || displayEnded)
+  ) {
+    statusConflicts.push({
+      key: 'softDoneStatusWithDownstreamFacts',
+      field: 'softDoneStatus',
+      value: nodes.softDoneStatus,
+      message: 'softDoneStatus is unfinished but downstream workflow facts exist',
+    });
+  }
+  const dataConflicts = statusConflicts;
+
   const pointDone =
     !sleepStore &&
     (hasNode(nodes, 'pointDone') || isCompleteText(nodes.pointStatus) || softStarted || softDone || /点位.*完成|软装|产品清单|采购|摆场|闭环/.test(text));
@@ -288,6 +305,8 @@ export function resolveProjectWorkflowFacts(project = {}) {
     paused,
     closed,
     stageText: text,
+    statusConflicts,
+    dataConflicts,
     nodes: {
       ...nodes,
       displayStarted,
@@ -433,11 +452,15 @@ function resolvePrimaryReminder(facts, currentStage) {
 export function resolveProjectStageReminder(project = {}) {
   if (!project?.rawFields && project?.stageReminder?.currentStage && project?.stageReminder?.primaryReminder) {
     const facts = project.stageReminder.facts || resolveProjectWorkflowFacts(project);
+    const statusConflicts = project.stageReminder.statusConflicts || facts.statusConflicts || [];
+    const dataConflicts = project.stageReminder.dataConflicts || facts.dataConflicts || [];
     return {
       facts,
       currentStage: project.stageReminder.currentStage,
       primaryReminder: project.stageReminder.primaryReminder,
       dataGaps: project.stageReminder.dataGaps || [],
+      statusConflicts,
+      dataConflicts,
       reminders: project.stageReminder.reminders || [project.stageReminder.primaryReminder],
     };
   }
@@ -445,11 +468,15 @@ export function resolveProjectStageReminder(project = {}) {
   const currentStage = resolveStageFromFacts(facts);
   const primaryReminder = resolvePrimaryReminder(facts, currentStage);
   const dataGaps = resolveDataGaps(facts, currentStage);
+  const statusConflicts = facts.statusConflicts || [];
+  const dataConflicts = facts.dataConflicts || [];
   return {
     facts,
     currentStage,
     primaryReminder,
     dataGaps,
+    statusConflicts,
+    dataConflicts,
     reminders: [primaryReminder, ...dataGaps.map(gapToReminder)],
   };
 }
@@ -468,18 +495,24 @@ export function compactProjectWorkflowFacts(facts = {}) {
     purchaseDone: Boolean(nodes.purchaseDone),
     productListReady: Boolean(nodes.productListReady),
     softDone: Boolean(nodes.softDone),
+    statusConflicts: Array.isArray(facts.statusConflicts) ? facts.statusConflicts : [],
+    dataConflicts: Array.isArray(facts.dataConflicts) ? facts.dataConflicts : [],
   };
 }
 
 export function compactProjectStageReminder(stageReminder = {}, { includeFacts = false } = {}) {
   const dataGaps = Array.isArray(stageReminder.dataGaps) ? stageReminder.dataGaps : [];
   const reminders = Array.isArray(stageReminder.reminders) ? stageReminder.reminders : [];
+  const statusConflicts = Array.isArray(stageReminder.statusConflicts) ? stageReminder.statusConflicts : [];
+  const dataConflicts = Array.isArray(stageReminder.dataConflicts) ? stageReminder.dataConflicts : [];
   return {
     ...(includeFacts ? { facts: stageReminder.facts || {} } : {}),
     currentStage: stageReminder.currentStage || stageInfo(PROJECT_STAGE_KEYS.notStarted),
     primaryReminder: stageReminder.primaryReminder || makeReminder(),
     dataGapCount: dataGaps.length,
     dataGaps,
+    statusConflicts,
+    dataConflicts,
     reminders,
   };
 }

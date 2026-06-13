@@ -128,6 +128,55 @@ test('ownerMonthly monthlyOps perspective uses company-stage groups for every ow
   assert.equal(hardMetrics.monthlyOpsPerspective.metricGroups.purchaseVolume, 'company');
 });
 
+test('ownerMonthly schemeDelayDoneMonth uses trusted completion dates instead of updatedAt', () => {
+  const team = { owner: '苏佳蕾', cdLeads: [], vmLeads: [] };
+  const projects = [
+    {
+      id: 'updated-only-delay',
+      owner: '苏佳蕾',
+      storeStatus: '常规店',
+      updatedAt: '2026-05-12T00:00:00.000Z',
+      rawFields: {
+        店态: { display: '常规店' },
+        硬装项目进度: { display: '施工图' },
+        硬装方案情况: { display: '延期完成' },
+      },
+    },
+    {
+      id: 'trusted-completion-this-month',
+      owner: '苏佳蕾',
+      storeStatus: '常规店',
+      updatedAt: '2026-04-12T00:00:00.000Z',
+      rawFields: {
+        店态: { display: '常规店' },
+        硬装项目进度: { display: '施工图' },
+        硬装方案情况: { display: '延期完成' },
+        躺平内部审核结束时间: { display: '2026-05-08' },
+      },
+    },
+    {
+      id: 'trusted-completion-previous-month',
+      owner: '苏佳蕾',
+      storeStatus: '常规店',
+      updatedAt: '2026-05-20T00:00:00.000Z',
+      rawFields: {
+        店态: { display: '常规店' },
+        硬装项目进度: { display: '施工图' },
+        硬装方案情况: { display: '延期完成' },
+        躺平内部审核结束时间: { display: '2026-04-30' },
+      },
+    },
+  ];
+
+  const metrics = composeDashboardMetrics(projects, 'ownerMonthly', {
+    team,
+    owner: '苏佳蕾',
+    now: new Date('2026-05-20T00:00:00'),
+  });
+
+  assert.equal(metrics.totals.schemeDelayDoneMonth, 1);
+});
+
 test('site volume only counts projects that have actually entered the site stage', () => {
   const now = new Date('2026-05-20T00:00:00');
   const projects = [

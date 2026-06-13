@@ -11,6 +11,7 @@ import {
   readProjectStage,
   readEffectiveWorkflowStage,
 } from '../public/domain/project-workflow.mjs';
+import { PROJECT_STAGE_KEYS } from '../public/domain/project-stage-reminder-rules.mjs';
 import { resolveProjectKeyDateReminders } from '../public/domain/project-reminders.mjs';
 import { classifyProjectLifecycleStage } from '../public/dashboard/project-lifecycle.mjs';
 
@@ -135,4 +136,60 @@ test('project workbench sorting follows unified display facts over stale purchas
       projectWorkbenchStageRank(purchaseTextProject, blankKeyDate),
     true
   );
+});
+
+test('project key date keeps unified stage action before system hard deadline reminders', () => {
+  const stageAction = {
+    label: 'display-end',
+    formatted: '--',
+    message: 'wait-display-end',
+    discipline: 'followup',
+    kind: 'stage_action',
+  };
+  const item = {
+    id: 'summary-with-system-deadline',
+    stageReminder: {
+      currentStage: { key: PROJECT_STAGE_KEYS.displayInProgress, label: 'display', rank: 880 },
+      primaryReminder: stageAction,
+      dataGaps: [],
+      reminders: [stageAction],
+    },
+    primaryReminder: {
+      discipline: 'hard',
+      source: 'system_deadline',
+      type: 'overdue',
+      nodeKey: 'floorPlanFinish',
+      label: 'hard-deadline',
+      dueDate: '2026-06-20',
+      title: 'Floor plan due',
+      message: 'late',
+    },
+  };
+
+  const reminders = resolveProjectKeyDateReminders(item);
+
+  assert.equal(reminders[0].label, 'display-end');
+  assert.equal(reminders[1].label, 'hard-deadline');
+});
+
+test('summary-only projects use stageReminder and workflowFacts to identify paused or canceled state', () => {
+  const pausedSummary = {
+    id: 'paused-summary',
+    workflowFacts: { paused: true },
+  };
+  const canceledSummary = {
+    id: 'canceled-summary',
+    stageReminder: {
+      currentStage: { key: PROJECT_STAGE_KEYS.canceled, label: 'canceled', rank: 1000 },
+      primaryReminder: { label: 'canceled', formatted: '--', message: 'canceled', discipline: 'status', kind: 'status' },
+      dataGaps: [],
+      reminders: [],
+    },
+  };
+
+  assert.equal(isPausedProject(pausedSummary), true);
+  assert.equal(isPausedOrCanceledProject(pausedSummary), true);
+  assert.equal(isCanceledProject(canceledSummary), true);
+  assert.equal(isPausedOrCanceledProject(canceledSummary), true);
+  assert.equal(projectStageDisplayItems(canceledSummary)[0].className, 'is-canceled');
 });

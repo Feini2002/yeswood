@@ -13,6 +13,7 @@ import { runtimeStore } from '../lib/runtime-flags.mjs';
 import { state } from '../lib/state.mjs';
 import { TEAM_WORK_COMPLETION_ENDPOINT, fetchJson } from '../lib/api.mjs';
 import { openProjectDetailByReference } from '../components/project-workbench.mjs';
+import { currentCatalogSignature } from '../domain/project-catalog.mjs';
 import {
   getTeamWorkCompletionDetailStatus,
   isCurrentTeamWorkCompletionKey,
@@ -313,7 +314,47 @@ function processingQueueWindowNumber(project = {}) {
   return String(days);
 }
 
+function processingQueueRiskText(project = {}) {
+  const risk = processingQueueText(project.riskLabel);
+  if (risk) {
+    return risk;
+  }
+  return processingQueueWindowText(project);
+}
+
+function processingQueueRiskParts(project = {}) {
+  const text = processingQueueRiskText(project);
+  const overdue = text.match(/^逾期(\d+)天$/);
+  if (overdue) {
+    return { value: overdue[1], unit: '天逾期' };
+  }
+  const remaining = text.match(/^剩余(\d+)天$/);
+  if (remaining) {
+    return { value: remaining[1], unit: '天剩余' };
+  }
+  if (text === '今日交付') {
+    return { value: '今日', unit: '交付' };
+  }
+  if (/待核对|日期/.test(text)) {
+    return { value: '--', unit: '待核对' };
+  }
+  return { value: text, unit: '' };
+}
+
+function processingQueueRiskReasonText(project = {}) {
+  const reasons = Array.isArray(project.riskReasons)
+    ? project.riskReasons.map((item) => processingQueueText(item)).filter(Boolean)
+    : [];
+  return reasons.join('、');
+}
+
 function processingQueueRowState(project = {}) {
+  if (project.riskStatus === 'date_missing' || project.dateQualityStatus === 'missing_target') {
+    return ' is-date-missing';
+  }
+  if (project.dateQualityStatus === 'anomaly') {
+    return ' is-date-anomaly';
+  }
   const days = Number(project.windowDays);
   if (project.windowDays === null || project.windowDays === undefined || !Number.isFinite(days)) {
     return ' is-date-missing';
@@ -357,23 +398,26 @@ function renderProcessingQueueProjectRow(project = {}, { rank = 0, modal = false
   const { storeStatus, area, stage, teamGroup, teamDesigner } = processingQueueMetaParts(project);
   const meta = processingQueueMeta(project);
   const windowText = processingQueueWindowText(project);
+  const riskText = processingQueueRiskText(project);
+  const riskParts = processingQueueRiskParts(project);
+  const riskReasonText = processingQueueRiskReasonText(project);
   const dateRangeText = processingQueueDateRangeText(project);
   const startDate = processingQueueText(project.startDate, '待核对');
   const targetDate = processingQueueText(project.targetDate, '待核对');
-  const windowNumber = processingQueueWindowNumber(project);
   const identityChips = [
     renderProcessingQueueChip('店态', storeStatus, 'is-store'),
     renderProcessingQueueChip('面积', area, 'is-area'),
   ].join('');
   const assignmentChips = [renderProcessingQueueTeamChips(teamGroup), renderProcessingQueueDesignerChip(teamDesigner)].join('');
-  const rowLabel = `${rank ? `${rank}、` : ''}${name}，${meta}，交付窗口：${windowText}，周期：${dateRangeText}`;
+  const riskReasonLabel = riskReasonText ? `，风险原因：${riskReasonText}` : '';
+  const rowLabel = `${rank ? `${rank}、` : ''}${name}，${meta}，交付风险：${riskText}${riskReasonLabel}，交付窗口：${windowText}，周期：${dateRangeText}`;
   return `
     <button
       class="team-completion-processing-row${modal ? ' is-modal-row' : ''}${processingQueueRowState(project)}"
       type="button"
       data-team-processing-project-id="${escapeHtml(project.id || '')}"
       data-team-processing-project-name="${escapeHtml(name)}"
-      title="${escapeHtml(`${name} · ${meta} · 交付窗口：${windowText} · 周期：${dateRangeText}`)}"
+      title="${escapeHtml(`${name} · ${meta} · 交付风险：${riskText}${riskReasonText ? ` · 风险原因：${riskReasonText}` : ''} · 交付窗口：${windowText} · 周期：${dateRangeText}`)}"
       aria-label="${escapeHtml(rowLabel)}"
     >
       <span class="team-completion-processing-rank">${rank ? String(rank).padStart(2, '0') : ''}</span>
@@ -394,13 +438,14 @@ function renderProcessingQueueProjectRow(project = {}, { rank = 0, modal = false
       </span>
       <span class="team-completion-processing-window">
         <span class="team-completion-processing-window-badge">
-          <b>交付窗口</b>
-          <em>${escapeHtml(windowNumber)}</em>
-          <i>${escapeHtml(windowNumber === '--' ? '待核对' : '天')}</i>
+          <b>交付风险</b>
+          <em>${escapeHtml(riskParts.value)}</em>
+          <i>${escapeHtml(riskParts.unit)}</i>
         </span>
-        <span class="team-completion-processing-date-track" aria-label="${escapeHtml(`周期：${dateRangeText}`)}">
+        <span class="team-completion-processing-date-track" aria-label="${escapeHtml(`周期：${dateRangeText}；交付窗口：${windowText}`)}">
           <span><b>启动</b><em>${escapeHtml(startDate)}</em></span>
           <span><b>目标</b><em>${escapeHtml(targetDate)}</em></span>
+          <span><b>窗口</b><em>${escapeHtml(windowText)}</em></span>
         </span>
       </span>
     </button>
@@ -500,7 +545,9 @@ export function preloadTeamWorkCompletionDetail(
   if (!owner) {
     return Promise.resolve(review);
   }
-  const requestKey = teamWorkCompletionDetailCacheKey(review);
+  const requestSnapshot = state.snapshot ? { ...state.snapshot } : state.snapshot;
+  const requestProjectDetailSignature = currentCatalogSignature(requestSnapshot);
+  const requestKey = teamWorkCompletionDetailCacheKey(review, { snapshot: requestSnapshot });
   if (!requestKey) {
     return Promise.resolve(review);
   }
@@ -531,18 +578,23 @@ export function preloadTeamWorkCompletionDetail(
 
       const merged = mergeTeamWorkCompletionDetail(review, detail);
       const mergedHasDetail = teamWorkCompletionHasDetail(merged);
-      rememberTeamWorkCompletion(merged, owner, dashboardContext, year);
+      if (!isCurrentTeamWorkCompletionKey(requestKey)) {
+        markTeamWorkCompletionDetailStatus(requestKey, 'ignored', 'stale-detail-response');
+        return review;
+      }
+      rememberTeamWorkCompletion(merged, owner, dashboardContext, year, {
+        snapshot: requestSnapshot,
+        projectDetailSignature: requestProjectDetailSignature,
+      });
       markTeamWorkCompletionDetailStatus(
         requestKey,
         mergedHasDetail ? 'ready' : 'error',
         mergedHasDetail ? reason : '当前负责人项目明细仍不完整，请稍后重试明细读取。'
       );
-      if (isCurrentTeamWorkCompletionKey(requestKey)) {
-        state.teamWorkCompletion = merged;
-        state.teamWorkCompletionRefreshStatus = '';
-        state.teamWorkCompletionRefreshError = '';
-        rerenderOpenTeamCompletionModalIfStillCurrent(requestKey);
-      }
+      state.teamWorkCompletion = merged;
+      state.teamWorkCompletionRefreshStatus = '';
+      state.teamWorkCompletionRefreshError = '';
+      rerenderOpenTeamCompletionModalIfStillCurrent(requestKey);
       return merged;
     })
     .catch((error) => {
@@ -1871,7 +1923,7 @@ export function openTeamCompletionProcessingQueueModal(queueKey = 'urgent') {
             state.teamWorkCompletion?.year || state.teamWorkCompletionYear
           }</span>
           <h3 id="teamCompletionMemberModalTitle">全部进行中的紧急项目 · ${escapeHtml(safeNumber(queue.totalCount || projects.length))}项</h3>
-          <p>按商场交付时间减启动时间排序，窗口越短越靠前。</p>
+          <p>按计划开业目标风险排序，逾期和临期项目靠前。</p>
         </div>
         <button type="button" class="team-completion-member-modal-close" data-team-completion-member-close aria-label="关闭紧急项目列表">×</button>
       </header>
@@ -2079,7 +2131,7 @@ export function handleTeamCompletionProcessingQueueClick(event) {
     {
       action: '处理进行中项目',
       reason: '团队进行中项目待处理',
-      meta: '按交付窗口排序',
+      meta: '按交付风险排序',
     }
   );
   return true;

@@ -11,8 +11,8 @@ import { filterProjectsByProfile } from './scopes.mjs';
 
 const DATE_FIELD_CANDIDATES = {
   schemeDoneYtd: ['startDate', 'updatedAt', '上会日期', '复尺时间', '软装方案开始时间', '点位完成时间'],
-  schemeDelayDoneYtd: ['startDate', 'updatedAt', '上会日期', '复尺时间'],
-  schemeDelayDoneMonth: ['updatedAt', 'startDate', '上会日期'],
+  schemeDelayDoneYtd: ['硬装方案完成时间', '躺平内部审核结束时间', '内部审核结束时间'],
+  schemeDelayDoneMonth: ['硬装方案完成时间', '躺平内部审核结束时间', '内部审核结束时间'],
   siteVolume: ['软装发项目群时间', 'updatedAt', '报告发项目钉钉大群时间', 'startDate'],
 };
 

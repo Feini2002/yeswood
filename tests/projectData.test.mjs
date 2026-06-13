@@ -389,6 +389,67 @@ test('calculateDashboardMetrics summarizes totals, status, risk, owner load, and
   assert.deepEqual(metrics.monthlyTrend.map((item) => item.label), ['2026-05', '2026-06', '2026-07']);
 });
 
+test('calculateDashboardMetrics dedupes personnel aliases in owner load and owner role options', () => {
+  const projects = [
+    {
+      id: 'owner-alias-both-in-one-field',
+      name: '别名同字段店',
+      status: '推进中',
+      owner: 'Jarvan范嘉瑞、范嘉瑞',
+      province: '浙江',
+      businessType: '购物中心',
+      storeStatus: '常规店',
+      progress: 50,
+      dueDate: '2026-06-10',
+      riskLevel: '低',
+      rawFields: {
+        负责人: { display: 'Jarvan范嘉瑞、范嘉瑞' },
+        VM负责人: { display: 'Jarvan范嘉瑞、范嘉瑞' },
+        软装方案开始时间: { display: '2026-06-01' },
+        软装完成情况: { display: '进行中' },
+      },
+    },
+    {
+      id: 'owner-alias-display-only',
+      name: '别名显示店',
+      status: '推进中',
+      owner: '范嘉瑞',
+      province: '江苏',
+      businessType: '家居卖场',
+      storeStatus: '常规店',
+      progress: 40,
+      dueDate: '2026-06-11',
+      riskLevel: '低',
+      rawFields: {
+        负责人: { display: '范嘉瑞' },
+        VM负责人: { display: '范嘉瑞' },
+        软装方案开始时间: { display: '2026-06-02' },
+        软装完成情况: { display: '进行中' },
+      },
+    },
+  ];
+
+  const metrics = calculateDashboardMetrics(projects, {
+    personnelArchitecture: {
+      people: {
+        Jarvan范嘉瑞: {
+          name: 'Jarvan范嘉瑞',
+          displayName: '范嘉瑞',
+          aliases: ['范嘉瑞', 'Jarvan'],
+          position: 'owner',
+          discipline: 'soft',
+        },
+      },
+    },
+  });
+
+  const vmOwnerRole = metrics.personnel.roles.find((role) => role.key === 'vmOwner');
+  assert.deepEqual(metrics.ownerLoad, [{ label: '范嘉瑞', value: 2 }]);
+  assert.deepEqual(vmOwnerRole.people.map(({ name, displayName, value }) => ({ name, displayName, value })), [
+    { name: 'Jarvan范嘉瑞', displayName: '范嘉瑞', value: 2 },
+  ]);
+});
+
 test('calculateDashboardMetrics excludes fully closed design projects from active risk responsibility', () => {
   const projects = [
     {

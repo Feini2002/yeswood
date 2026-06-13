@@ -26,6 +26,8 @@
 | 文档 | 说明 |
 | --- | --- |
 | [首页年度进店结构看板设计](./17-home-entry-dashboard-design.md) | 首页「年度进店结构」模块需求（业务范围方案 A） |
+| [Read Model 延时调研与修复方案](./19-read-model-latency-remediation-plan.md) | read model 契约、session 拆分、预计算矩阵和性能防线修复路线 |
+| [Read Model 无缝加载深度复盘](./20-read-model-seamless-loading-audit.md) | 多 Agent 复盘后的延时复发风险、无缝切换隐患和验收矩阵 |
 
 ## Handbook
 

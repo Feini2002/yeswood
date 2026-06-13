@@ -71,7 +71,7 @@ test('router data loading remains decoupled from ordinary page switching', async
   assert.match(profileShared, /profileDashboardLoaded/);
 
   assert.match(publicBehaviorTests, /initial teams route loads dashboard session and preloads current detail without page fanout/);
-  assert.match(publicBehaviorTests, /hashchange handler keeps same-page teams query changes local without data reload/);
+  assert.match(publicBehaviorTests, /hashchange handler keeps same-page teams query changes local and scope-aligned/);
   assert.match(publicBehaviorTests, /team metrics owner switch keeps current operations overview visible while uncached owner loads/);
   assert.match(publicBehaviorTests, /team metrics batch ignores stale responses after dashboard context changes/);
   assert.match(publicBehaviorTests, /profile dashboard uses cached results by default and force refreshes explicitly/);

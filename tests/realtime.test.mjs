@@ -17,6 +17,22 @@ test('snapshotSignature keeps stable snapshots from triggering full dashboard re
   assert.equal(shouldReloadDashboard(snapshot, { ...snapshot }), false);
 });
 
+test('snapshotSignature changes when content hash or data revision changes', () => {
+  const snapshot = {
+    source: 'dingtalk',
+    syncedAt: '2026-05-26T10:00:00.000Z',
+    sourceRecords: 120,
+    totalRecords: 118,
+    ignoredRecords: 2,
+    fieldCount: 24,
+    contentHash: 'content-a',
+    dataRevision: 'revision-a',
+  };
+
+  assert.notEqual(snapshotSignature(snapshot), snapshotSignature({ ...snapshot, contentHash: 'content-b' }));
+  assert.notEqual(snapshotSignature(snapshot), snapshotSignature({ ...snapshot, dataRevision: 'revision-b' }));
+});
+
 test('shouldReloadDashboard reloads when the backend snapshot changes', () => {
   const currentSnapshot = {
     source: 'dingtalk',

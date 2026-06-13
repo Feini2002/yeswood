@@ -703,7 +703,7 @@ test('readSnapshotFromDatabase uses exact terminal status matching for delay sta
     const completeProject = snapshot.projects.find((project) => project.id === 'repo-exact-complete');
 
     assert.equal(openProject.isDelayed, true);
-    assert.equal(completeProject.isDelayed, false);
+    assert.equal(completeProject.isDelayed, true);
   } finally {
     db.close();
   }

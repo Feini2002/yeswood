@@ -228,13 +228,31 @@ test('floor plan follows flat start and tap audit end dates only', () => {
       completed: resolveFloorPlanCompletionState(completedWithAuditEnd).completed,
       missingDate: resolveFloorPlanCompletionState(completedWithAuditEnd).missingDate,
       completedAt: resolveFloorPlanCompletionState(completedWithAuditEnd).completedAt,
+      monthlyEligible: resolveFloorPlanCompletionState(completedWithAuditEnd).monthlyEligible,
     },
-    { completed: true, missingDate: false, completedAt: '2026-04-22' }
+    { completed: true, missingDate: false, completedAt: '2026-04-22', monthlyEligible: true }
   );
-  assert.equal(resolveFloorPlanCompletionState(statusOnly).state, 'none');
+  assert.deepEqual(
+    {
+      completed: resolveFloorPlanCompletionState(statusOnly).completed,
+      state: resolveFloorPlanCompletionState(statusOnly).state,
+      completedAt: resolveFloorPlanCompletionState(statusOnly).completedAt,
+      missingDate: resolveFloorPlanCompletionState(statusOnly).missingDate,
+      monthlyEligible: resolveFloorPlanCompletionState(statusOnly).monthlyEligible,
+      dateTrust: resolveFloorPlanCompletionState(statusOnly).dateTrust,
+    },
+    {
+      completed: true,
+      state: 'completed',
+      completedAt: '',
+      missingDate: true,
+      monthlyEligible: false,
+      dateTrust: 'missing',
+    }
+  );
 });
 
-test('company lifecycle completion date is meeting date plus closure cycle', () => {
+test('company lifecycle completion does not use derived meeting cycle as trusted completion date', () => {
   const closedWithCycle = project({
     rawFields: {
       硬装项目进度: raw('闭环'),
@@ -257,14 +275,17 @@ test('company lifecycle completion date is meeting date plus closure cycle', () 
 
   assert.equal(state.completed, true);
   assert.equal(state.inProgress, false);
-  assert.equal(state.completedAt, '2026-06-01');
-  assert.equal(state.missingDate, false);
+  assert.equal(state.completedAt, '');
+  assert.equal(state.missingDate, true);
+  assert.equal(state.monthlyEligible, false);
+  assert.equal(state.dateSourceType, 'none');
   assert.equal(missingDateState.completed, true);
   assert.equal(missingDateState.completedAt, '');
-  assert.equal(missingDateState.missingDate, false);
+  assert.equal(missingDateState.missingDate, true);
+  assert.equal(missingDateState.monthlyEligible, false);
 });
 
-test('company lifecycle completion date falls back to project deadline when business date is missing', () => {
+test('company lifecycle completion date does not fall back to project deadline when business date is missing', () => {
   const state = resolveCompanyLifecycleState(
     project({
       dueDate: '2026/04/10',
@@ -276,9 +297,12 @@ test('company lifecycle completion date falls back to project deadline when busi
   );
 
   assert.equal(state.completed, true);
-  assert.equal(state.completedAt, '2026-04-10');
-  assert.equal(state.missingDate, false);
-  assert.ok(state.evidence.includes('项目 Deadline'));
+  assert.equal(state.completedAt, '');
+  assert.equal(state.missingDate, true);
+  assert.equal(state.monthlyEligible, false);
+  assert.equal(state.dateSourceType, 'none');
+  assert.equal(state.dateTrust, 'missing');
+  assert.equal(state.evidence.includes('项目 Deadline'), false);
 });
 
 test('company lifecycle completion date prefers explicit closed date over deadline and normalizes it', () => {
@@ -299,7 +323,7 @@ test('company lifecycle completion date prefers explicit closed date over deadli
   assert.ok(state.evidence.includes('项目闭环时间'));
 });
 
-test('company lifecycle completion date accepts DingTalk meeting time field', () => {
+test('company lifecycle completion treats DingTalk meeting time as derived and not monthly eligible', () => {
   const state = resolveCompanyLifecycleState(
     project({
       rawFields: {
@@ -312,8 +336,10 @@ test('company lifecycle completion date accepts DingTalk meeting time field', ()
   );
 
   assert.equal(state.completed, true);
-  assert.equal(state.completedAt, '2026-06-01');
-  assert.equal(state.missingDate, false);
+  assert.equal(state.completedAt, '');
+  assert.equal(state.missingDate, true);
+  assert.equal(state.monthlyEligible, false);
+  assert.equal(state.dateSourceType, 'none');
 });
 
 test('completion date parsing rejects partial and numeric-only values', () => {
@@ -338,10 +364,12 @@ test('completion date parsing rejects partial and numeric-only values', () => {
 
   assert.equal(deadlineState.completed, true);
   assert.equal(deadlineState.completedAt, '');
-  assert.equal(deadlineState.missingDate, false);
+  assert.equal(deadlineState.missingDate, true);
+  assert.equal(deadlineState.monthlyEligible, false);
   assert.equal(explicitState.completed, true);
   assert.equal(explicitState.completedAt, '');
-  assert.equal(explicitState.missingDate, false);
+  assert.equal(explicitState.missingDate, true);
+  assert.equal(explicitState.monthlyEligible, false);
 });
 
 test('not-started stopped and discarded projects are not counted as in progress', () => {

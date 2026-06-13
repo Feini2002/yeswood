@@ -8,33 +8,36 @@ const sampleProjects = [
   {
     id: 'p1',
     name: 'Alpha',
-    province: '浙江',
-    businessType: '餐饮',
-    storeStatus: '常规店',
-    status: '正常',
+    province: 'Zhejiang',
+    businessType: 'Food',
+    storeStatus: 'Normal',
+    status: 'Healthy',
     owner: 'Owner A',
-    rawFields: { 店态: { display: '常规店', kind: 'text' }, 空字段: { display: ' ', kind: 'text' } },
+    rawFields: {
+      StoreStatus: { display: 'Normal', kind: 'text' },
+      EmptyField: { display: ' ', kind: 'text' },
+    },
   },
   {
     id: 'p2',
     name: 'Beta',
-    province: '上海',
-    businessType: '零售',
-    storeStatus: '旗舰店',
-    status: '紧急',
+    province: 'Shanghai',
+    businessType: 'Retail',
+    storeStatus: 'Flagship',
+    status: 'Urgent',
     owner: 'Owner B',
-    rawFields: { 店态: { display: '旗舰店', kind: 'text' } },
+    rawFields: { StoreStatus: { display: 'Flagship', kind: 'text' } },
   },
 ];
 
-test('summary projects drop empty raw fields', () => {
+test('summary projects omit raw fields from list payloads', () => {
   const [first] = summarizeProjects(sampleProjects);
-  assert.equal(Object.keys(first.rawFields).length, 1);
-  assert.equal(first.rawFields['店态'].display, '常规店');
+  assert.equal(Object.hasOwn(first, 'rawFields'), false);
+  assert.equal(first.name, 'Alpha');
 });
 
 test('filterProjects ids payload shape matches drill contract', () => {
-  const filtered = filterProjects(sampleProjects, { province: '浙江' });
+  const filtered = filterProjects(sampleProjects, { province: 'Zhejiang' });
   const payload = {
     ids: filtered.map((project) => project.id),
     total: filtered.length,

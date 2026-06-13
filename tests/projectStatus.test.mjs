@@ -26,6 +26,11 @@ test('readProjectStatusFromRawFields falls back when normalized field matches ar
 });
 
 test('isTerminalProjectStatus uses exact lifecycle status matching', () => {
-  assert.equal(isTerminalProjectStatus(COMPLETE_STATUS), true);
+  assert.equal(isTerminalProjectStatus(COMPLETE_STATUS), false);
+  assert.equal(isTerminalProjectStatus('已完成'), false);
+  assert.equal(isTerminalProjectStatus(CANCELED_STATUS), true);
+  assert.equal(isTerminalProjectStatus('已取消'), true);
+  assert.equal(isTerminalProjectStatus('关闭'), true);
+  assert.equal(isTerminalProjectStatus('已关闭'), true);
   assert.equal(isTerminalProjectStatus(PENDING_COMPLETE_CONFIRMATION), false);
 });

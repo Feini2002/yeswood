@@ -12,13 +12,11 @@ const DISPLAY_COMPLETION_DATE_FIELDS = [
   '摆场文件发出时间（项目群）',
 ];
 const DISPLAY_START_DATE_FIELDS = ['摆场开始时间', '摆场时间', '现场摆场时间'];
-const MEETING_DATE_FIELDS = ['上会时间', '上会日期'];
-const CLOSURE_CYCLE_FIELDS = ['闭环周期', '闭环期', '项目闭环周期'];
 const LIFECYCLE_COMPLETION_DATE_FIELDS = ['项目闭环时间', '项目闭环日期', '闭环时间', '闭环日期', '闭环完成时间'];
-const PROJECT_DEADLINE_DATE_FIELDS = ['项目 Deadline', '项目Deadline', '计划开业时间'];
 const DISPLAY_ACTIVE_STAGE_PATTERN = /摆场/;
 const NOT_STARTED_PATTERN = /未完成|未开始|未启动|未安排/;
 const STOPPED_PATTERN = /暂停|停止|取消|撤销|作废|废弃|终止/;
+const FLOOR_PLAN_COMPLETED_STATUS_PATTERN = /^(准时完成|延期完成)$/;
 
 function firstRawDisplay(project, fields) {
   return readRawDisplay(project, fields);
@@ -73,57 +71,12 @@ function readReliableRawDateWithEvidence(project, fields, evidenceLabel = '') {
   return { date: '', evidence: '' };
 }
 
-function readProjectDeadlineDate(project) {
-  const rawDeadline = readReliableRawDateWithEvidence(project, PROJECT_DEADLINE_DATE_FIELDS, '项目 Deadline');
-  if (rawDeadline.date) {
-    return rawDeadline;
-  }
-  const dueDate = normalizeReliableCompletionDate(project?.dueDate);
-  return dueDate ? { date: dueDate, evidence: '项目 Deadline' } : { date: '', evidence: '' };
-}
-
-function parseClosureCycleDays(value) {
-  const text = normalizeCell(value);
-  if (!text) {
-    return null;
-  }
-  const match = text.match(/-?\d+(?:\.\d+)?/);
-  if (!match) {
-    return null;
-  }
-  const number = Number(match[0]);
-  if (!Number.isFinite(number) || number < 0) {
-    return null;
-  }
-  return Math.trunc(number);
-}
-
-function addCalendarDays(dateValue, days) {
-  const normalizedDate = normalizeReliableCompletionDate(dateValue);
-  const match = normalizedDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  const date = match ? new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))) : new Date('');
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-  const utcDate = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  utcDate.setUTCDate(utcDate.getUTCDate() + days);
-  return utcDate.toISOString().slice(0, 10);
-}
-
 function readLifecycleCompletedAt(project) {
   const explicitDate = readReliableRawDateWithEvidence(project, LIFECYCLE_COMPLETION_DATE_FIELDS);
   if (explicitDate.date) {
-    return explicitDate;
+    return { ...explicitDate, sourceType: 'completionDate' };
   }
-  const meetingDate = readReliableDate(project, MEETING_DATE_FIELDS);
-  const cycleDays = parseClosureCycleDays(firstRawDisplay(project, CLOSURE_CYCLE_FIELDS));
-  if (meetingDate && cycleDays !== null) {
-    return {
-      date: addCalendarDays(meetingDate, cycleDays),
-      evidence: '上会时间/上会日期 + 闭环周期',
-    };
-  }
-  return readProjectDeadlineDate(project);
+  return { date: '', evidence: '', sourceType: 'none' };
 }
 
 export function isProjectStoppedForCompletion(project) {
@@ -147,9 +100,26 @@ function hasStartedProgress(value, activePattern = null) {
   return activePattern ? activePattern.test(text) : true;
 }
 
-function stateResult(key, { completed, inProgress, status = '', completedAt = '', evidence = [], missingDate = null }) {
+function stateResult(
+  key,
+  {
+    completed,
+    inProgress,
+    status = '',
+    completedAt = '',
+    evidence = [],
+    missingDate = null,
+    dateSourceType = '',
+    dateTrust = '',
+    monthlyEligible = null,
+  }
+) {
   const safeCompletedAt = normalizeReliableCompletionDate(completedAt);
   const resolvedMissingDate = missingDate === null ? Boolean(completed && !safeCompletedAt) : Boolean(missingDate);
+  const resolvedDateSourceType = safeCompletedAt ? dateSourceType || 'completionDate' : 'none';
+  const resolvedDateTrust = dateTrust || (safeCompletedAt ? 'trusted' : resolvedMissingDate ? 'missing' : 'notApplicable');
+  const resolvedMonthlyEligible =
+    monthlyEligible === null ? Boolean(completed && safeCompletedAt && !resolvedMissingDate) : Boolean(monthlyEligible);
   return {
     key,
     state: completed ? 'completed' : inProgress ? 'inProgress' : 'none',
@@ -158,6 +128,9 @@ function stateResult(key, { completed, inProgress, status = '', completedAt = ''
     status,
     completedAt: safeCompletedAt,
     missingDate: resolvedMissingDate,
+    dateTrust: resolvedDateTrust,
+    dateSourceType: resolvedDateSourceType,
+    monthlyEligible: resolvedMonthlyEligible,
     evidence,
   };
 }
@@ -166,7 +139,8 @@ export function resolveFloorPlanCompletionState(project) {
   const status = firstRawDisplay(project, HARD_SCHEME_STATUS_FIELDS);
   const startedAt = firstRawDisplay(project, HARD_SCHEME_START_FIELDS);
   const completedAt = readReliableDate(project, HARD_SCHEME_COMPLETION_DATE_FIELDS);
-  const completed = Boolean(completedAt);
+  const statusCompleted = FLOOR_PLAN_COMPLETED_STATUS_PATTERN.test(normalizeCell(status).replace(/\s+/g, ''));
+  const completed = Boolean(completedAt) || statusCompleted;
   const started = Boolean(startedAt);
   const inProgress = !completed && !isProjectStoppedForCompletion(project) && started;
   return stateResult('floorPlan', {
@@ -174,7 +148,11 @@ export function resolveFloorPlanCompletionState(project) {
     inProgress,
     status: status || startedAt,
     completedAt,
-    evidence: [startedAt ? '平面开始时间' : '', completedAt ? '躺平内部审核结束时间' : ''].filter(Boolean),
+    evidence: [
+      startedAt ? '平面开始时间' : '',
+      statusCompleted ? '硬装方案情况' : '',
+      completedAt ? '躺平内部审核结束时间' : '',
+    ].filter(Boolean),
   });
 }
 
@@ -235,7 +213,7 @@ export function resolveCompanyLifecycleState(project) {
       (hasStartedProgress(hardStage) || hasStartedProgress(softStage)),
     status: [hardStage, softStage].filter(Boolean).join(' / '),
     completedAt,
-    missingDate: false,
+    dateSourceType: completionDate.sourceType || '',
     evidence: [
       '硬装项目进度',
       isSleepStoreProject(project) ? '' : '软装项目进度',

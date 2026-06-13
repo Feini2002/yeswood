@@ -348,6 +348,7 @@ configureRouter({
   resolveOwnerReviewDashboardContext,
   loadTeamPageModules,
   loadTeamDashboardSession: loadDashboardSession,
+  loadTeamDashboardScope,
   loadTeamMetrics,
   loadTeamWorkCompletion,
   ensurePageProjects: async () => {

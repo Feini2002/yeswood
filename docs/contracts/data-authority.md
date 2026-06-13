@@ -112,6 +112,8 @@
 | isDelayed | boolean | 是否延期 |
 | source | string | 来源标记，例如 dingtalk-ai-table |
 
+`isDelayed` 是 legacy 通用展示字段，只能用于项目列表的宽泛延期提示，不得作为硬装方案延期、开业边界延期或系统 Deadline 延期的统一事实源。硬装方案延期必须读取 `hardDeadline.floorPlan.finalDelayStatus.isDelayed`；表单与系统规则是否冲突必须读取 `hardDeadline.floorPlan.conflictReview`。
+
 ## 字段映射
 
 系统采用两层字段映射：

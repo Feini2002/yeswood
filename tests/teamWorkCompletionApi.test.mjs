@@ -122,6 +122,19 @@ function teamWorkCompletionDetailPayload({ owner, dashboardContext = 'direct', y
   };
 }
 
+async function waitForFile(filePath, timeoutMs = 1000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      await fs.access(filePath);
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+  assert.fail(`Timed out waiting for file: ${filePath}`);
+}
+
 async function withTestServer(run, options = {}) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'team-work-completion-api-'));
   const cacheFile = path.join(tempDir, 'dashboard-cache.json');
@@ -135,7 +148,7 @@ async function withTestServer(run, options = {}) {
     totalRecords: 3,
     ignoredRecords: 0,
     projects: [
-      record('direct-2026'),
+      record('direct-2026', { fields: { 项目闭环时间: '2026-06-15' } }),
       record('franchise-2026', { fields: { 组别: '加盟新店', 闭环周期: '27' } }),
       record('direct-2025', { fields: { 上会时间: '2025-05-20', 闭环周期: '26' } }),
     ],
@@ -156,6 +169,7 @@ async function withTestServer(run, options = {}) {
     syncMinIntervalMs: 0,
     dashboardSyncEnabled: false,
     databaseFile: '',
+    today: '2026-06-11',
     dingtalk: {
       fieldMap: {},
       pageSize: 100,
@@ -339,6 +353,119 @@ test('/api/team-work-completion detail read model fallback does not return stale
           path.join(readModelDir, 'last-known-good', 'team-work-completion-detail', fileName),
           teamWorkCompletionDetailPayload({ owner, dashboardContext: 'direct', year: 2026 })
         );
+      },
+    }
+  );
+});
+
+test('/api/team-work-completion detail read model fallback schedules scoped sidecar repair', async () => {
+  let currentDetailPath;
+  let precomputeDetailPath;
+  let manifestPath;
+  let originalGeneratedAt;
+
+  await withTestServer(
+    async (port) => {
+      const payload = await getJson(
+        port,
+        `/api/team-work-completion?owner=${encodeURIComponent(
+          personnelArchitecture.teams[0].owner
+        )}&context=direct&year=2026&view=detail&fallback=readModel`
+      );
+
+      assert.equal(payload.status, 202);
+      assert.equal(payload.body.status, 'preparing');
+      await waitForFile(currentDetailPath);
+      await waitForFile(precomputeDetailPath);
+
+      const currentManifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+      const repaired = JSON.parse(await fs.readFile(currentDetailPath, 'utf8'));
+      assert.equal(currentManifest.generatedAt, originalGeneratedAt);
+      assert.equal(repaired.owner, personnelArchitecture.teams[0].owner);
+      assert.equal(repaired.dashboardContext, 'direct');
+      assert.equal(repaired.year, 2026);
+      assert.ok(repaired.projectsById?.['direct-2026']);
+    },
+    {
+      beforeListen: async ({ config, tempDir, snapshot: sourceSnapshot }) => {
+        const owner = personnelArchitecture.teams[0].owner;
+        const readModelDir = path.join(tempDir, 'read-model');
+        const snapshotWithArchitecture = { ...sourceSnapshot, personnelArchitecture };
+        const snapshotHash = precomputeSnapshotHash(snapshotWithArchitecture, personnelArchitecture);
+        const fileName = teamWorkCompletionReadModelFileName({ owner, dashboardContext: 'direct', year: 2026 });
+        config.readModelDir = readModelDir;
+
+        await precomputeTeamDashboards(snapshotWithArchitecture, {
+          config,
+          contexts: ['direct'],
+          years: [2026],
+          now: new Date('2026-06-11T00:00:00.000Z'),
+        });
+
+        manifestPath = path.join(readModelDir, 'current', 'manifest.json');
+        originalGeneratedAt = JSON.parse(await fs.readFile(manifestPath, 'utf8')).generatedAt;
+        currentDetailPath = path.join(readModelDir, 'current', 'team-work-completion-detail', fileName);
+        precomputeDetailPath = path.join(config.precomputeDir, snapshotHash, 'team-work-completion-detail', fileName);
+        await fs.rm(currentDetailPath, { force: true });
+        await fs.rm(`${currentDetailPath}.gz`, { force: true });
+        await fs.rm(precomputeDetailPath, { force: true });
+        await fs.rm(`${precomputeDetailPath}.gz`, { force: true });
+      },
+    }
+  );
+});
+
+test('/api/dashboard-session owner read model miss schedules scoped team completion repair', async () => {
+  let currentDetailPath;
+  let precomputeDetailPath;
+  let manifestPath;
+  let originalGeneratedAt;
+
+  await withTestServer(
+    async (port) => {
+      const payload = await getJson(
+        port,
+        `/api/dashboard-session?owner=${encodeURIComponent(
+          personnelArchitecture.teams[0].owner
+        )}&context=direct&year=2026`
+      );
+
+      assert.equal(payload.status, 202);
+      assert.equal(payload.body.status, 'preparing');
+      await waitForFile(currentDetailPath);
+      await waitForFile(precomputeDetailPath);
+
+      const currentManifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+      const repaired = JSON.parse(await fs.readFile(currentDetailPath, 'utf8'));
+      assert.equal(currentManifest.generatedAt, originalGeneratedAt);
+      assert.equal(repaired.owner, personnelArchitecture.teams[0].owner);
+      assert.equal(repaired.dashboardContext, 'direct');
+      assert.ok(repaired.projectsById?.['direct-2026']);
+    },
+    {
+      beforeListen: async ({ config, tempDir, snapshot: sourceSnapshot }) => {
+        const owner = personnelArchitecture.teams[0].owner;
+        const readModelDir = path.join(tempDir, 'read-model');
+        const snapshotWithArchitecture = { ...sourceSnapshot, personnelArchitecture };
+        const snapshotHash = precomputeSnapshotHash(snapshotWithArchitecture, personnelArchitecture);
+        const fileName = teamWorkCompletionReadModelFileName({ owner, dashboardContext: 'direct', year: 2026 });
+        config.readModelDir = readModelDir;
+
+        await precomputeTeamDashboards(snapshotWithArchitecture, {
+          config,
+          contexts: ['direct'],
+          years: [2026],
+          now: new Date('2026-06-11T00:00:00.000Z'),
+        });
+
+        manifestPath = path.join(readModelDir, 'current', 'manifest.json');
+        originalGeneratedAt = JSON.parse(await fs.readFile(manifestPath, 'utf8')).generatedAt;
+        currentDetailPath = path.join(readModelDir, 'current', 'team-work-completion-detail', fileName);
+        precomputeDetailPath = path.join(config.precomputeDir, snapshotHash, 'team-work-completion-detail', fileName);
+        await fs.rm(currentDetailPath, { force: true });
+        await fs.rm(`${currentDetailPath}.gz`, { force: true });
+        await fs.rm(precomputeDetailPath, { force: true });
+        await fs.rm(`${precomputeDetailPath}.gz`, { force: true });
       },
     }
   );

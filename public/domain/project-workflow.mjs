@@ -168,7 +168,26 @@ function readProjectStatus(project = {}) {
   return readRawFieldDisplay(project, ['项目状态', '状态']) || String(project?.status || '').trim();
 }
 
+function summaryProjectStopState(project = {}) {
+  if (project?.rawFields) {
+    return null;
+  }
+  const facts = project?.stageReminder?.facts || project?.workflowFacts || {};
+  const stageKey = project?.stageReminder?.currentStage?.key || '';
+  if (stageKey === PROJECT_STAGE_KEYS.canceled || facts.canceled) {
+    return { key: 'canceled', label: '取消', message: '项目已取消' };
+  }
+  if (stageKey === PROJECT_STAGE_KEYS.paused || facts.paused) {
+    return { key: 'paused', label: '暂停', message: '项目暂停中' };
+  }
+  return null;
+}
+
 export function isCanceledProject(project) {
+  const summaryStop = summaryProjectStopState(project);
+  if (summaryStop) {
+    return summaryStop.key === 'canceled';
+  }
   return (
     isCanceledWorkflowStage(readWorkflowStage(project, 'hard')) ||
     isCanceledWorkflowStage(readWorkflowStage(project, 'soft')) ||
@@ -177,6 +196,10 @@ export function isCanceledProject(project) {
 }
 
 export function projectStopState(project) {
+  const summaryStop = summaryProjectStopState(project);
+  if (summaryStop) {
+    return summaryStop;
+  }
   if (isCanceledProject(project)) {
     return { key: 'canceled', label: '取消', message: '项目已取消' };
   }

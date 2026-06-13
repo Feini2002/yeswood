@@ -5,6 +5,7 @@ import test from 'node:test';
 
 import {
   addChinaWorkdays,
+  buildHardDecorationDeadlineSummary,
   buildHardDecorationDesignerDeadlineRecords,
   calculateHardDecorationDeadlineRecord,
   mergeChinaWorkdayCalendars,
@@ -111,6 +112,79 @@ test('mini store project can be delayed by original deadline while efficiency re
   assert.equal(record.floorPlan.efficiency.dueDate, '2026-05-14');
   assert.equal(record.floorPlan.efficiency.status, 'ok');
   assert.match(record.floorPlan.efficiency.summary, /延期完成但效率OK/);
+});
+
+test('hard decoration form on-time status overrides delayed system status and flags review', async () => {
+  const calendar = await loadOfficialCalendar();
+  const project = {
+    id: 'form-on-time-system-delayed',
+    name: '表单准时系统延期店',
+    rawFields: {
+      复尺时间: raw('2026-05-04'),
+      面积: raw('280'),
+      平面开始时间: raw('2026-05-08'),
+      躺平内部审核结束时间: raw('2026-05-14'),
+      硬装方案情况: raw('准时完成'),
+    },
+  };
+
+  const record = calculateHardDecorationDeadlineRecord(project, { calendar, today: '2026-05-18' });
+  const summary = buildHardDecorationDeadlineSummary(project, { calendar, today: '2026-05-18' });
+
+  assert.equal(record.floorPlan.systemStatus.status, 'delayed_complete');
+  assert.equal(record.floorPlan.formStatus.status, 'on_time_complete');
+  assert.equal(record.floorPlan.finalDelayStatus.status, 'on_time_complete');
+  assert.equal(record.floorPlan.finalDelayStatus.source, 'form');
+  assert.equal(record.floorPlan.conflictReview.needsReview, true);
+  assert.equal(summary.floorPlan.systemStatus.status, 'delayed_complete');
+  assert.equal(summary.floorPlan.finalDelayStatus.status, 'on_time_complete');
+  assert.equal(summary.floorPlan.conflictReview.needsReview, true);
+});
+
+test('hard decoration final delay status falls back to system when form status is empty', async () => {
+  const calendar = await loadOfficialCalendar();
+  const project = {
+    id: 'form-empty-system-delayed',
+    name: '表单为空系统延期店',
+    rawFields: {
+      复尺时间: raw('2026-05-04'),
+      面积: raw('280'),
+      平面开始时间: raw('2026-05-08'),
+      躺平内部审核结束时间: raw('2026-05-14'),
+      硬装方案情况: raw(''),
+    },
+  };
+
+  const record = calculateHardDecorationDeadlineRecord(project, { calendar, today: '2026-05-18' });
+
+  assert.equal(record.floorPlan.formStatus.status, '');
+  assert.equal(record.floorPlan.systemStatus.status, 'delayed_complete');
+  assert.equal(record.floorPlan.finalDelayStatus.status, 'delayed_complete');
+  assert.equal(record.floorPlan.finalDelayStatus.source, 'system_fallback');
+  assert.equal(record.floorPlan.conflictReview.needsReview, false);
+});
+
+test('hard decoration form delayed status overrides on-time system status and flags review', async () => {
+  const calendar = await loadOfficialCalendar();
+  const project = {
+    id: 'form-delayed-system-on-time',
+    name: '表单延期系统准时店',
+    rawFields: {
+      复尺时间: raw('2026-05-04'),
+      面积: raw('280'),
+      平面开始时间: raw('2026-05-06'),
+      躺平内部审核结束时间: raw('2026-05-12'),
+      硬装方案情况: raw('延期完成'),
+    },
+  };
+
+  const record = calculateHardDecorationDeadlineRecord(project, { calendar, today: '2026-05-18' });
+
+  assert.equal(record.floorPlan.systemStatus.status, 'on_time_complete');
+  assert.equal(record.floorPlan.formStatus.status, 'delayed_complete');
+  assert.equal(record.floorPlan.finalDelayStatus.status, 'delayed_complete');
+  assert.equal(record.floorPlan.finalDelayStatus.source, 'form');
+  assert.equal(record.floorPlan.conflictReview.needsReview, true);
 });
 
 test('floor plan efficiency is overtime when shifted budget is also exceeded', async () => {

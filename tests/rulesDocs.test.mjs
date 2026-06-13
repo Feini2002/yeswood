@@ -42,7 +42,8 @@ test('operational rulebook keeps key sections and executable rule references', a
   assert.match(rulebook, /下游节点已经发生时，不能因为上游字段漏填而卡回早期提醒/);
   assert.match(rulebook, /小组页待处理 Top5 队列规则/);
   assert.match(rulebook, /teamWorkCompletionReview\.mjs/);
-  assert.match(rulebook, /商场交付时间/);
+  assert.match(rulebook, /摆场中、摆场结束未闭环.*中度补强/);
+  assert.match(rulebook, /不得使用 `商场交付时间`/);
   assert.doesNotMatch(rulebook, /300 <= 面积 < 450/);
   assert.doesNotMatch(rulebook, /2000 平方米以上项目暂不在本矩阵内/);
   assert.doesNotMatch(rulebook, /2000 平方米以上项目是否新增面积档/);
@@ -63,8 +64,11 @@ test('metrics and data authority contracts keep unified product-list and display
     assert.doesNotMatch(doc, /产品清单.*不推动首页主流程阶段/);
   }
   assert.match(metricsContract, /采购时间在本月.*采购推进.*采购中.*不等同采购完成/);
+  assert.match(metricsContract, /schemeDelayDoneMonth[\s\S]*不得使用 `updatedAt`、`dueDate`、`startDate` 或 `上会日期` 兜底/);
   assert.match(dataAuthorityContract, /采购时间.*采购中.*采购完成情况.*采购情况.*已完成.*采购完成/);
   assert.match(dataAuthorityContract, /优先于软装项目进度仍写待采购/);
+  assert.match(dataAuthorityContract, /`isDelayed` 是 legacy 通用展示字段/);
+  assert.match(dataAuthorityContract, /硬装方案延期必须读取 `hardDeadline\.floorPlan\.finalDelayStatus\.isDelayed`/);
 });
 
 test('summary docs link to the rulebook instead of copying full rule text', async () => {
@@ -112,7 +116,13 @@ test('frontend developer docs page keeps operational rules entry and summaries',
   assert.match(publicIndex, /待核对通道/);
   assert.match(publicIndex, /紧急 \/ 非紧急待处理 Top5/);
   assert.match(publicIndex, /人工标记紧急/);
-  assert.match(publicIndex, /窗口天数升序/);
+  assert.match(publicIndex, /计划开业目标风险排序/);
+  assert.match(publicIndex, /交付窗口按计划开业目标日计算/);
+  assert.match(publicIndex, /采购、摆场中、待闭环按中度补强/);
+  assert.match(publicIndex, /复尺日之后第 1 个中国工作日内必须启动平面方案/);
+  assert.match(publicIndex, /冲突先确认规则变更、一次性例外或保留现有规则/);
+  assert.match(publicIndex, /一次性例外不写入生效规则/);
+  assert.doesNotMatch(publicIndex, /今天 \/ 明天内必须启动平面方案/);
   assert.doesNotMatch(publicIndex, /不再使用紧急程度判定|不再使用紧急判定/);
   assert.doesNotMatch(publicIndex, /<span>紧急<\/span>/);
 });

@@ -63,6 +63,7 @@ import {
   rememberTeamWorkCompletion as rememberStoredTeamWorkCompletion,
   pruneTeamWorkCompletionCache as pruneStoredTeamWorkCompletionCache,
   teamWorkCompletionCacheKey as storedTeamWorkCompletionCacheKey,
+  teamWorkCompletionHasDetail,
   teamWorkCompletionReviewMatchesOwner,
 } from '../domain/team-work-completion-store.mjs';
 import { runtimeStore } from '../lib/runtime-flags.mjs';
@@ -849,7 +850,7 @@ function applyCachedTeamDashboardScope(owner, dashboardContext, year) {
     review: false,
   };
 
-  if (cachedCompletion) {
+  if (teamWorkCompletionHasDetail(cachedCompletion) && cachedCompletion?.detailStatus === 'ready') {
     state.teamWorkCompletion = cachedCompletion;
     state.teamWorkCompletionYear = cachedCompletion.year || normalizedYear;
     state.teamWorkCompletionLoading = false;
@@ -909,6 +910,13 @@ export async function loadTeamDashboardScope(
       renderOwnerReviewDashboard();
     }
   }
+  if (appliedScope.metrics && appliedScope.completion && appliedScope.review) {
+    return [
+      { status: 'fulfilled', value: state.teamMetrics },
+      { status: 'fulfilled', value: state.teamWorkCompletion },
+      { status: 'fulfilled', value: state.ownerReview },
+    ];
+  }
   const sessionBundle = await loadTeamDashboardSessionBundle(owner, resolvedDashboardContext, normalizedYear, {
     shouldApply: () => teamDashboardScopeStillCurrent(owner, resolvedDashboardContext, normalizedYear, requestId),
   }).catch((error) => {
@@ -930,20 +938,17 @@ export async function loadTeamDashboardScope(
       { status: 'fulfilled', value: sessionBundle.responsibilityReview },
     ];
   }
-  if (sessionBundle?.status === 'preparing') {
-    if (currentPageId() === 'teams') {
-      renderTeamDashboard();
-      renderTeamWorkCompletionDashboard();
-      renderOwnerReviewDashboard();
-    }
-    return [{ status: 'fulfilled', value: sessionBundle }];
+  const forceModuleRefresh = sessionBundle?.status === 'preparing';
+  if (forceModuleRefresh && currentPageId() === 'teams') {
+    renderTeamDashboard();
+    renderTeamWorkCompletionDashboard();
+    renderOwnerReviewDashboard();
   }
-
   const routeContext = normalizeTeamDashboardScopeContext(resolvedDashboardContext);
   const results = await Promise.allSettled([
-    loadTeamMetrics(owner, routeContext),
-    loadTeamWorkCompletion(owner, resolvedDashboardContext, year),
-    loadOwnerResponsibilityReview(owner, routeContext),
+    loadTeamMetrics(owner, routeContext, { forceRefresh: forceModuleRefresh }),
+    loadTeamWorkCompletion(owner, resolvedDashboardContext, year, { forceRefresh: forceModuleRefresh }),
+    loadOwnerResponsibilityReview(owner, routeContext, { forceRefresh: forceModuleRefresh }),
   ]);
   const failed = results.find((result) => result.status === 'rejected');
   if (failed && results.every((result) => result.status === 'rejected')) {

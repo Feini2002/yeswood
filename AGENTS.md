@@ -21,6 +21,7 @@
 
 - `loadCoreDashboard` 只拉 `snapshot`、一次无筛选 `/api/metrics`、`department` profile；首屏不得默认并行第二次 `/api/metrics`，也不得默认拉全量 `/api/projects`。
 - 项目目录统一走 `public/domain/project-catalog.mjs`：`view=summary` 写入 `state.allProjects`，并与 `projectsCatalogSignature` 绑定 snapshot；钉钉同步、自动更新或 snapshot 签名变化必须调用 `invalidateProjectCaches`。
+- `invalidateProjectCaches({ catalog: true })` 只能清 freshness/signature/in-flight 状态，不得先清空 `state.allProjects`；replacement catalog 未 ready 前必须保留当前可见目录，且迟到旧请求不得按新 snapshot 记为 fresh。
 - 明细页搜索/筛选、同页 hash 参数同步只能走 `softRefresh` 本地过滤；禁止把这些交互改回 `refresh()` / `loadDashboard({ forceRefresh: true })` 全量重拉。
 - KPI / 小组下钻弹窗必须走 `resolveDrillProjects`：`fields=ids` + 本地目录拼装；禁止恢复 `fetchJson('/api/projects' + toQuery(filters))` 全量列表路径。
 - 小组页 `loadTeamPageModules` 必须先完成 team metrics / work completion / responsibility 三组接口，再后台预载 summary 项目目录；禁止把 catalog 与小组重接口放在同一 `Promise.all` 里抢占首屏。
@@ -29,6 +30,21 @@
 - 单项详情允许 `fetchProjectDetail` 懒加载 `view=full`；列表下钻不得因此回退成全量 projects 请求。
 - 后端 `/api/projects` 默认 `view=summary`；JSON 响应大于 1KB 时应 gzip；`fields=ids` 专供下钻，不得把完整 `rawFields` 当作列表默认返回。
 - 修改 `dashboard-loader.mjs`、`project-catalog.mjs`、`drill-modal.mjs`、`project-workbench.mjs`、`server.mjs` 的 projects 路由或加载边界时，必须同步更新并运行 `tests/frontendLoadPerformancePolicy.test.mjs`、`tests/projectCatalog.test.mjs`、`tests/publicAppBehavior.test.mjs`。
+
+## Read Model 延时与无缝切换防复发规则
+
+- `/api/dashboard-session` 默认必须保持 shell-first：首屏只返回必要 `shell`、snapshot、轻量指标和当前 scope 所需数据；不得默认合并完整 `profileDashboards`、`projectCatalog.items`、`team.workCompletion.projectsById` 或其它大对象。新增 bundle 或字段扩容必须同步 endpoint 体积预算测试。
+- `read-model/current` 是线上可读状态的权威入口；完整 precompute 目录不能单独代表 read model ready。warmup / precompute 发现预计算完整但 `read-model/current` 缺失、manifest 不匹配或核心 `dashboard-session` 缺失时，必须重发布 current 或明确失败，不得静默返回成功。
+- 默认预计算不得铺满完整 `owner * context * year` 明细矩阵；`team-work-completion-detail`、project full detail 和 owner/context/year sidecar 应按当前 key、近期交互 key 或显式 warmup key 生成。异常年份、空 owner 或无效 context 必须进入 warnings/excludedYears，不得静默放大矩阵。
+- read model miss、单个 owner/context/year 缺片或局部 sidecar 过期时，应优先走 scoped repair / single-key job；不得把一次局部缺失升级成全局完整 precompute，除非是人工明确触发的全量刷新。
+- 同步或刷新动作如果源数据同步完成但 read model 仍在 preparing / warming，前端必须显示 `读模型生成中` 或等价中间态；不得显示“已同步”来掩盖 current 未就绪。
+- 前端 owner/context/year/hash 切换必须走 cache-first 或局部 loader，并带 route tuple / requestId / generation 旧响应拦截；URL 已切换时，不得让旧 owner 内容继续占据页面或让晚返回的旧响应覆盖新 scope。
+- 大型 read model 静态 payload 应优先支持 `.json.gz` 预压缩与直出/流式返回；动态 parse -> stringify -> gzip 只能作为兼容兜底，不得成为大文件主路径。
+- 修改会影响 read-model-backed API/UI 的业务逻辑、字段口径或排序筛选时，验收必须覆盖运行中服务、read model 落盘和页面普通读路径三层；`forceRefresh=true` 只能作为诊断，不得作为最终通过依据。
+- 本地已有 `4200` 服务时必须确认它加载的是新代码：复用或重启 `4200` 端口的 Node 进程后再查 `/api/snapshot` 等健康接口；若未重启，必须说明运行中服务仍可能是旧模块。
+- 读模型修复、预计算或 scoped repair 后，必须验证不带 `forceRefresh` 的 `/api/team-work-completion` 与 `/api/dashboard-session` 普通接口返回同一新口径；只验证强制刷新接口、单测或 warmup success 不算完成。
+- 同一 snapshot hash 下使用 `precomputeTeamDashboards(..., { force:true })` 或 scoped repair 时，必须确认落盘 manifest、`read-model/current` 和相关 sidecar 文件内容或时间戳实际更新；API success 但 current / sidecar 未变时必须继续排查。
+- 修改 `src/backend/precomputeTeamDashboards.mjs`、`src/backend/readModelRepository.mjs`、`src/backend/server.mjs`、`public/lib/router.mjs`、`public/lib/dashboard-loader.mjs`、`public/domain/team-work-completion-store.mjs` 的 read model 读取、发布、压缩或切换边界时，必须同步更新并运行 `tests/precomputeTeamDashboards.test.mjs`、`tests/publicAppBehavior.test.mjs`、`tests/frontendLoadPerformancePolicy.test.mjs`；涉及 API payload 或完成度接口时，也要运行 `tests/teamMetrics.test.mjs`、`tests/teamWorkCompletionApi.test.mjs`。
 
 ## 临时后端边界
 

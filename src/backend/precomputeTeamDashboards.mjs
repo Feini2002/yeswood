@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { promisify } from 'node:util';
+import zlib from 'node:zlib';
 
 import { paths } from './config.mjs';
 import { composeDashboardMetrics } from './metrics/composeDashboard.mjs';
@@ -15,12 +17,18 @@ import { DASHBOARD_CONTEXTS, resolveCanonicalOwner } from './metrics/projectScop
 import { readProjectOwnerNames, splitPersonnelNames } from './personnelNames.mjs';
 import { createFilterOptions, filterProjects } from './projectData.mjs';
 import { compactProjectForDetailReadModel } from './projectDetailPayload.mjs';
-import { publishReadModelDirectory } from './readModelRepository.mjs';
+import {
+  buildDashboardSessionShellPayload,
+  currentReadModelDir,
+  publishReadModelDirectory,
+} from './readModelRepository.mjs';
 import { mergeTeamWorkCompletionDetailPayload } from './teamWorkCompletionPayload.mjs';
 import { buildTeamMetricsPayload, resolveTeamForOwner } from './teamMetricsPayload.mjs';
 import { buildTeamOwnerRates } from './teamInsights.mjs';
 import { buildTeamResponsibilityReview } from './teamResponsibilityReview.mjs';
 import { buildTeamWorkCompletionReview } from './teamWorkCompletionReview.mjs';
+
+const gzipAsync = promisify(zlib.gzip);
 
 export const DASHBOARD_SESSION_PRECOMPUTE_FEATURE = 'dashboard-session';
 export const TEAM_RESPONSIBILITY_REVIEW_PRECOMPUTE_FEATURE = 'team-responsibility-review';
@@ -31,8 +39,10 @@ export const TEAM_METRICS_PRECOMPUTE_FEATURE = 'team-metrics';
 export const PROJECT_CATALOG_SUMMARY_PRECOMPUTE_FEATURE = 'project-catalog-summary';
 export const PROJECT_DETAIL_PRECOMPUTE_FEATURE = 'project-detail';
 export const PROFILE_DASHBOARD_PRECOMPUTE_FEATURE = 'profile-dashboard';
-const PRECOMPUTE_SCHEMA_VERSION = 10;
+const PRECOMPUTE_SCHEMA_VERSION = 11;
 const DEFAULT_RETAINED_PRECOMPUTE_VERSIONS = 3;
+const DEFAULT_PRECOMPUTE_YEAR_LOOKBACK = 2;
+const DEFAULT_PRECOMPUTE_YEAR_LOOKAHEAD = 1;
 const COMPLETE_PRECOMPUTE_FEATURES = [
   DASHBOARD_SESSION_PRECOMPUTE_FEATURE,
   PROJECT_CATALOG_SUMMARY_PRECOMPUTE_FEATURE,
@@ -55,6 +65,8 @@ export function precomputeSnapshotHash(snapshot = {}, architecture = snapshot.pe
         source: snapshot.source || '',
         storage: snapshot.storage || '',
         syncedAt: snapshot.syncedAt || '',
+        contentHash: snapshot.contentHash ?? '',
+        dataRevision: snapshot.dataRevision ?? '',
         totalRecords: snapshot.totalRecords || 0,
         ignoredRecords: snapshot.ignoredRecords || 0,
         peopleRevision,
@@ -231,6 +243,44 @@ function teamWorkCompletionHasProcessingQueues(payload = null) {
   );
 }
 
+function teamWorkCompletionMatchesAsOfDate(payload = null, params = {}) {
+  if (!params.today && !params.asOfDate) {
+    return true;
+  }
+  const expected = resolvePrecomputeAsOfDate({ today: params.today || params.asOfDate });
+  return Boolean(expected && payload?.asOfDate === expected);
+}
+
+function sameScopeValue(actual, expected) {
+  return String(actual ?? '').trim() === String(expected ?? '').trim();
+}
+
+function teamWorkCompletionMatchesScope(payload = null, params = {}) {
+  if (!payload || typeof payload !== 'object') {
+    return false;
+  }
+  const expectedOwner = String(params.owner || '').trim();
+  const expectedContext = String(params.dashboardContext || 'all').trim();
+  const expectedYear = Number(params.year || new Date().getFullYear());
+  return (
+    (!expectedOwner || sameScopeValue(payload.owner, expectedOwner)) &&
+    sameScopeValue(payload.dashboardContext || 'all', expectedContext) &&
+    Number(payload.year) === expectedYear
+  );
+}
+
+function teamResponsibilityReviewMatchesScope(payload = null, params = {}) {
+  if (!payload || typeof payload !== 'object') {
+    return false;
+  }
+  const expectedOwner = String(params.owner || '').trim();
+  const expectedContext = String(params.dashboardContext || 'all').trim();
+  return (
+    (!expectedOwner || sameScopeValue(payload.owner, expectedOwner)) &&
+    sameScopeValue(payload.dashboardContext || 'all', expectedContext)
+  );
+}
+
 function projectDetailFilesComplete(baseDir) {
   const index = readJsonFileSync(projectDetailIndexFilePath(baseDir));
   if (!index || !Array.isArray(index.projectIds)) {
@@ -266,6 +316,8 @@ function precomputeFilesComplete(config = {}, snapshotHash, manifest = {}) {
 
   const contexts = Array.isArray(manifest.contexts) && manifest.contexts.length ? manifest.contexts : ['all'];
   const years = Array.isArray(manifest.years) && manifest.years.length ? manifest.years : [new Date().getFullYear()];
+  const detailYears = normalizeManifestDetailYears(manifest, years);
+  const detailYearSet = new Set(detailYears.map((year) => Number(year)));
   const owners = (Array.isArray(manifest.owners) ? manifest.owners : [])
     .map((owner) => owner?.owner || owner)
     .filter(Boolean);
@@ -280,23 +332,61 @@ function precomputeFilesComplete(config = {}, snapshotHash, manifest = {}) {
       if (!fileExists(teamResponsibilityReviewFilePath(config, snapshotHash, { owner, dashboardContext }))) {
         return false;
       }
+      if (
+        !teamResponsibilityReviewMatchesScope(
+          readJsonFileSync(teamResponsibilityReviewFilePath(config, snapshotHash, { owner, dashboardContext })),
+          { owner, dashboardContext }
+        )
+      ) {
+        return false;
+      }
       for (const year of years) {
         const params = { owner, dashboardContext, year };
         const summaryPath = teamWorkCompletionSummaryFilePath(config, snapshotHash, params);
-        const detailPath = teamWorkCompletionDetailFilePath(config, snapshotHash, params);
-        if (!fileExists(summaryPath) || !fileExists(detailPath)) {
-          return false;
-        }
+        const summaryPayload = readJsonFileSync(summaryPath);
         if (
-          !teamWorkCompletionHasProcessingQueues(readJsonFileSync(summaryPath)) ||
-          !teamWorkCompletionHasProcessingQueues(readJsonFileSync(detailPath))
+          !fileExists(summaryPath) ||
+          !teamWorkCompletionMatchesScope(summaryPayload, params) ||
+          !teamWorkCompletionHasProcessingQueues(summaryPayload)
         ) {
           return false;
+        }
+        if (detailYearSet.has(Number(year))) {
+          const detailPath = teamWorkCompletionDetailFilePath(config, snapshotHash, params);
+          const detailPayload = readJsonFileSync(detailPath);
+          if (
+            !fileExists(detailPath) ||
+            !teamWorkCompletionMatchesScope(detailPayload, params) ||
+            !teamWorkCompletionHasProcessingQueues(detailPayload)
+          ) {
+            return false;
+          }
         }
       }
     }
   }
   return true;
+}
+
+function readModelCurrentComplete(config = {}, manifest = {}) {
+  if (!manifest?.snapshotHash) {
+    return false;
+  }
+  const readModelDir = currentReadModelDir(config);
+  const readModelManifest = readJsonFile(path.join(readModelDir, 'manifest.json'));
+  if (
+    !readModelManifest ||
+    readModelManifest.schemaVersion !== manifest.schemaVersion ||
+    readModelManifest.snapshotHash !== manifest.snapshotHash ||
+    JSON.stringify(readModelManifest.years || []) !== JSON.stringify(manifest.years || []) ||
+    JSON.stringify(readModelManifest.detailYears || []) !== JSON.stringify(manifest.detailYears || []) ||
+    JSON.stringify(readModelManifest.excludedYears || []) !== JSON.stringify(manifest.excludedYears || []) ||
+    !manifestHasFeatures(readModelManifest, COMPLETE_PRECOMPUTE_FEATURES)
+  ) {
+    return false;
+  }
+  const corePath = path.join(readModelDir, DASHBOARD_SESSION_PRECOMPUTE_FEATURE, 'core.json');
+  return fileExists(corePath) && fileExists(`${corePath}.gz`);
 }
 
 export function hasCompletePrecompute(snapshot = {}, config = {}) {
@@ -413,6 +503,28 @@ function normalizeYears(years, now = new Date()) {
   return normalized.length ? Array.from(new Set(normalized)) : [fallback];
 }
 
+function formatChinaDate(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function resolvePrecomputeAsOfDate(options = {}) {
+  if (options.today) {
+    return formatChinaDate(options.today) || String(options.today).slice(0, 10);
+  }
+  return formatChinaDate(options.now || new Date());
+}
+
 const READ_MODEL_PROJECT_FIELDS = [
   'id',
   'name',
@@ -499,6 +611,19 @@ async function writeProjectDetailReadModels(baseDir, projects = []) {
   });
 }
 
+function findProjectForDetailReadModel(projects = [], projectId = '') {
+  const expected = String(projectId || '').trim();
+  if (!expected) {
+    return null;
+  }
+  return (Array.isArray(projects) ? projects : []).find((project) => projectDetailReadModelIds(project).includes(expected)) || null;
+}
+
+function projectDetailIndexIncludes(baseDir, projectId = '') {
+  const index = readJsonFile(path.join(baseDir, PROJECT_DETAIL_PRECOMPUTE_FEATURE, 'index.json'));
+  return Boolean(index && Array.isArray(index.projectIds) && index.projectIds.includes(projectId));
+}
+
 function collectYearFromValue(value, years) {
   const text = String(value ?? '').trim();
   if (!text) {
@@ -549,12 +674,75 @@ function yearsFromProjects(projects = []) {
   return Array.from(years).sort((a, b) => a - b);
 }
 
-function normalizePrecomputeYears(snapshot = {}, options = {}) {
+function normalizeYearWindowBound(value, fallback) {
+  const numeric = Number(value);
+  return Number.isInteger(numeric) ? numeric : fallback;
+}
+
+function normalizePrecomputeYearPlan(snapshot = {}, options = {}) {
   if (Array.isArray(options.years) && options.years.length) {
-    return normalizeYears(options.years, options.now);
+    return {
+      years: normalizeYears(options.years, options.now),
+      excludedYears: [],
+      yearWindow: null,
+    };
   }
   const currentYear = (options.now || new Date()).getFullYear();
-  return Array.from(new Set([...yearsFromProjects(snapshot.projects || []), currentYear])).sort((a, b) => a - b);
+  const config = options.config || {};
+  const minYear = normalizeYearWindowBound(
+    options.minPrecomputeYear ?? config.minPrecomputeYear,
+    currentYear - DEFAULT_PRECOMPUTE_YEAR_LOOKBACK
+  );
+  const maxYear = normalizeYearWindowBound(
+    options.maxPrecomputeYear ?? config.maxPrecomputeYear,
+    currentYear + DEFAULT_PRECOMPUTE_YEAR_LOOKAHEAD
+  );
+  const [windowStart, windowEnd] = minYear <= maxYear ? [minYear, maxYear] : [maxYear, minYear];
+  const years = new Set([currentYear]);
+  const excludedYears = new Set();
+  for (const year of yearsFromProjects(snapshot.projects || [])) {
+    if (year >= windowStart && year <= windowEnd) {
+      years.add(year);
+    } else {
+      excludedYears.add(year);
+    }
+  }
+  return {
+    years: Array.from(years).sort((a, b) => a - b),
+    excludedYears: Array.from(excludedYears).sort((a, b) => a - b),
+    yearWindow: { min: windowStart, max: windowEnd },
+  };
+}
+
+function normalizeManifestDetailYears(manifest = {}, years = []) {
+  const normalizedYears = normalizeYears(years).sort((a, b) => a - b);
+  if (!Array.isArray(manifest.detailYears) || !manifest.detailYears.length) {
+    return normalizedYears;
+  }
+  const yearSet = new Set(normalizedYears);
+  const detailYears = normalizeYears(manifest.detailYears)
+    .filter((year) => yearSet.has(year))
+    .sort((a, b) => a - b);
+  return detailYears.length ? detailYears : normalizedYears;
+}
+
+function normalizePrecomputeDetailYears(years = [], options = {}) {
+  const normalizedYears = normalizeYears(years, options.now).sort((a, b) => a - b);
+  if (Array.isArray(options.detailYears) && options.detailYears.length) {
+    const yearSet = new Set(normalizedYears);
+    const detailYears = normalizeYears(options.detailYears, options.now)
+      .filter((year) => yearSet.has(year))
+      .sort((a, b) => a - b);
+    return detailYears.length ? detailYears : normalizedYears;
+  }
+  if (Array.isArray(options.years) && options.years.length) {
+    return normalizedYears;
+  }
+  const currentYear = (options.now || new Date()).getFullYear();
+  if (normalizedYears.includes(currentYear)) {
+    return [currentYear];
+  }
+  return normalizedYears.length ? [normalizedYears[normalizedYears.length - 1]] : [currentYear];
 }
 
 export function ownersFromSnapshot(snapshot = {}, architecture = snapshot.personnelArchitecture || {}) {
@@ -597,7 +785,43 @@ export function ownersFromSnapshot(snapshot = {}, architecture = snapshot.person
 
 async function writeJson(filePath, payload) {
   await fsp.mkdir(path.dirname(filePath), { recursive: true });
-  await fsp.writeFile(filePath, `${JSON.stringify(payload)}\n`, 'utf8');
+  const body = `${JSON.stringify(payload)}\n`;
+  await Promise.all([fsp.writeFile(filePath, body, 'utf8'), fsp.writeFile(`${filePath}.gz`, await gzipAsync(body))]);
+}
+
+async function writeTeamWorkCompletionSidecars(baseDir, params, payload, summaryPayload) {
+  await writeJson(
+    path.join(baseDir, TEAM_WORK_COMPLETION_SUMMARY_PRECOMPUTE_FEATURE, teamWorkCompletionFileName(params)),
+    summaryPayload
+  );
+  await writeJson(
+    path.join(baseDir, TEAM_WORK_COMPLETION_DETAIL_PRECOMPUTE_FEATURE, teamWorkCompletionFileName(params)),
+    payload
+  );
+}
+
+async function ensureManifestIncludesDetailYear(manifestFile, year) {
+  const manifest = readJsonFile(manifestFile);
+  if (!manifest || typeof manifest !== 'object') {
+    return false;
+  }
+  const numericYear = Number(year);
+  const years = Array.isArray(manifest.years) ? manifest.years.map(Number).filter(Number.isInteger) : [];
+  if (years.length && !years.includes(numericYear)) {
+    return false;
+  }
+  const detailYears = Array.isArray(manifest.detailYears)
+    ? manifest.detailYears.map(Number).filter(Number.isInteger)
+    : [];
+  if (detailYears.includes(numericYear)) {
+    return true;
+  }
+  const nextDetailYears = Array.from(new Set([...detailYears, numericYear])).sort((a, b) => a - b);
+  await writeJson(manifestFile, {
+    ...manifest,
+    detailYears: nextDetailYears,
+  });
+  return true;
 }
 
 async function removePathWithRetry(target, options = {}) {
@@ -757,11 +981,12 @@ function buildTeamWorkCompletionSummaryPayload(payload = {}) {
   };
 }
 
-async function publishPrecomputeDirectory(config, snapshotHash, tmpDir) {
+async function publishPrecomputeDirectory(config, snapshotHash, tmpDir, options = {}) {
   const baseDir = precomputeBaseDir(config);
   const finalDir = precomputeDirForHash(config, snapshotHash);
   const existingManifest = readManifest(config, snapshotHash);
   if (
+    options.force !== true &&
     existingManifest &&
     manifestHasFeatures(existingManifest, COMPLETE_PRECOMPUTE_FEATURES) &&
     precomputeFilesComplete(config, snapshotHash, existingManifest)
@@ -817,6 +1042,9 @@ export async function precomputeTeamDashboards(snapshot = {}, options = {}) {
   if (options.force !== true) {
     const existingManifest = hasCompletePrecompute(snapshot, config);
     if (existingManifest) {
+      if (!readModelCurrentComplete(config, existingManifest)) {
+        await publishReadModelDirectory(config, precomputeDirForHash(config, snapshotHash));
+      }
       return existingManifest;
     }
   }
@@ -825,9 +1053,13 @@ export async function precomputeTeamDashboards(snapshot = {}, options = {}) {
   await cleanupStalePrecomputeTempDirs(config);
   const tmpDir = path.join(baseDir, `${snapshotHash}.tmp-${process.pid}-${Date.now()}`);
   const contexts = normalizeContexts(options.contexts);
-  const years = normalizePrecomputeYears(snapshot, options);
+  const yearPlan = normalizePrecomputeYearPlan(snapshot, options);
+  const years = yearPlan.years;
+  const detailYears = normalizePrecomputeDetailYears(years, options);
+  const detailYearSet = new Set(detailYears.map((year) => Number(year)));
   const owners = ownersFromSnapshot(snapshot, architecture);
   const generatedAt = (options.now || new Date()).toISOString();
+  const asOfDate = resolvePrecomputeAsOfDate(options);
   const manifest = {
     schemaVersion: PRECOMPUTE_SCHEMA_VERSION,
     readModel: true,
@@ -835,6 +1067,7 @@ export async function precomputeTeamDashboards(snapshot = {}, options = {}) {
     syncedAt: snapshot.syncedAt || '',
     createdAt: generatedAt,
     generatedAt,
+    asOfDate,
     source: snapshot.source || '',
     storage: snapshot.storage || '',
     totalRecords: Number(snapshot.totalRecords || 0),
@@ -842,6 +1075,9 @@ export async function precomputeTeamDashboards(snapshot = {}, options = {}) {
     owners: owners.map((owner) => ({ owner, key: hashToken(owner) })),
     contexts,
     years,
+    detailYears,
+    excludedYears: yearPlan.excludedYears,
+    yearWindow: yearPlan.yearWindow,
   };
 
   await fsp.mkdir(path.join(tmpDir, DASHBOARD_SESSION_PRECOMPUTE_FEATURE), { recursive: true });
@@ -891,6 +1127,7 @@ export async function precomputeTeamDashboards(snapshot = {}, options = {}) {
         const responsibilityReview = buildTeamResponsibilityReview(snapshot.projects || [], team, {
           dashboardContext,
           personnelArchitecture: architecture,
+          today: asOfDate,
         });
         responsibilityByKey.set(`${owner}\0${dashboardContext}`, responsibilityReview);
         await writeJson(
@@ -908,6 +1145,7 @@ export async function precomputeTeamDashboards(snapshot = {}, options = {}) {
             dashboardContext,
             personnelArchitecture: architecture,
             year,
+            today: asOfDate,
           });
           const summaryPayload = buildTeamWorkCompletionSummaryPayload(payload);
           workCompletionByKey.set(`${owner}\0${dashboardContext}\0${year}`, summaryPayload);
@@ -919,41 +1157,51 @@ export async function precomputeTeamDashboards(snapshot = {}, options = {}) {
             ),
             summaryPayload
           );
-          await writeJson(
-            path.join(
-              tmpDir,
-              TEAM_WORK_COMPLETION_DETAIL_PRECOMPUTE_FEATURE,
-              teamWorkCompletionFileName({ owner, dashboardContext, year })
-            ),
-            payload
-          );
+          if (detailYearSet.has(Number(year))) {
+            await writeJson(
+              path.join(
+                tmpDir,
+                TEAM_WORK_COMPLETION_DETAIL_PRECOMPUTE_FEATURE,
+                teamWorkCompletionFileName({ owner, dashboardContext, year })
+              ),
+              payload
+            );
+          }
         }
       }
     }
 
     const defaultOwner = owners[0] || '';
     const defaultContext = contexts.includes('all') ? 'all' : contexts[0] || 'all';
-    const defaultYear = years[0] || new Date().getFullYear();
+    const defaultYear = detailYears[0] || years[0] || new Date().getFullYear();
+    const dashboardSessionPayload = buildDashboardSessionPayload({
+      config,
+      snapshot,
+      snapshotHash,
+      architecture,
+      generatedAt,
+      features: manifest.features,
+      owner: defaultOwner,
+      dashboardContext: defaultContext,
+      year: defaultYear,
+      metrics: metricsByContext.get(defaultContext)?.[defaultOwner] || null,
+      workCompletion: workCompletionByKey.get(`${defaultOwner}\0${defaultContext}\0${defaultYear}`) || null,
+      responsibilityReview: responsibilityByKey.get(`${defaultOwner}\0${defaultContext}`) || null,
+    });
+    await writeJson(path.join(tmpDir, DASHBOARD_SESSION_PRECOMPUTE_FEATURE, 'core.json'), dashboardSessionPayload);
     await writeJson(
-      path.join(tmpDir, DASHBOARD_SESSION_PRECOMPUTE_FEATURE, 'core.json'),
-      buildDashboardSessionPayload({
+      path.join(tmpDir, DASHBOARD_SESSION_PRECOMPUTE_FEATURE, 'shell.json'),
+      buildDashboardSessionShellPayload(dashboardSessionPayload, manifest, {
         config,
-        snapshot,
-        snapshotHash,
-        architecture,
-        generatedAt,
-        features: manifest.features,
-        owner: defaultOwner,
         dashboardContext: defaultContext,
         year: defaultYear,
-        metrics: metricsByContext.get(defaultContext)?.[defaultOwner] || null,
-        workCompletion: workCompletionByKey.get(`${defaultOwner}\0${defaultContext}\0${defaultYear}`) || null,
-        responsibilityReview: responsibilityByKey.get(`${defaultOwner}\0${defaultContext}`) || null,
       })
     );
 
     await writeJson(path.join(tmpDir, 'manifest.json'), manifest);
-    const publishedDir = await publishPrecomputeDirectory(config, snapshotHash, tmpDir);
+    const publishedDir = await publishPrecomputeDirectory(config, snapshotHash, tmpDir, {
+      force: options.force === true,
+    });
     await publishReadModelDirectory(config, publishedDir);
     config.precomputeIndex = null;
     await cleanupOldPrecomputeDirectories(config, snapshotHash);
@@ -962,6 +1210,133 @@ export async function precomputeTeamDashboards(snapshot = {}, options = {}) {
     await removeDirectoryInside(baseDir, tmpDir).catch(() => {});
     throw error;
   }
+}
+
+export async function repairTeamWorkCompletionReadModelSidecars(snapshot = {}, options = {}) {
+  const config = options.config || {};
+  const architecture = snapshot.personnelArchitecture || {};
+  const owner = String(options.owner || '').trim();
+  if (!owner) {
+    return { repaired: false, reason: 'owner is required' };
+  }
+  const dashboardContext = normalizeContexts([options.dashboardContext])[0] || 'all';
+  const year = normalizeYears([options.year], options.now)[0];
+  const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
+  const asOfDate = resolvePrecomputeAsOfDate(options);
+  const team = resolveTeamForOwner(owner, architecture);
+  const payload = buildTeamWorkCompletionReview(snapshot.projects || [], team, {
+    requestedOwner: options.requestedOwner || owner,
+    dashboardContext,
+    personnelArchitecture: architecture,
+    year,
+    today: asOfDate,
+  });
+  const summaryPayload = buildTeamWorkCompletionSummaryPayload(payload);
+  const params = { owner, dashboardContext, year };
+  const targets = [];
+
+  const precomputeManifest = readManifest(config, snapshotHash);
+  if (precomputeManifest?.snapshotHash === snapshotHash) {
+    targets.push({
+      baseDir: precomputeDirForHash(config, snapshotHash),
+      manifestFile: manifestPath(config, snapshotHash),
+    });
+  }
+
+  const readModelDir = currentReadModelDir(config);
+  const readModelManifest = readJsonFile(path.join(readModelDir, 'manifest.json'));
+  if (
+    readModelManifest?.snapshotHash === snapshotHash &&
+    readModelManifest?.schemaVersion === PRECOMPUTE_SCHEMA_VERSION &&
+    readModelManifest?.readModel === true
+  ) {
+    targets.push({
+      baseDir: readModelDir,
+      manifestFile: path.join(readModelDir, 'manifest.json'),
+    });
+  }
+
+  if (!targets.length) {
+    return { repaired: false, reason: 'matching read model directory is missing', snapshotHash };
+  }
+
+  const seen = new Set();
+  let repairedTargets = 0;
+  for (const target of targets) {
+    const resolvedBaseDir = path.resolve(target.baseDir);
+    if (seen.has(resolvedBaseDir)) {
+      continue;
+    }
+    seen.add(resolvedBaseDir);
+    await writeTeamWorkCompletionSidecars(resolvedBaseDir, params, payload, summaryPayload);
+    await ensureManifestIncludesDetailYear(target.manifestFile, year);
+    repairedTargets += 1;
+  }
+
+  return {
+    repaired: repairedTargets > 0,
+    snapshotHash,
+    owner,
+    dashboardContext,
+    year,
+    targets: repairedTargets,
+  };
+}
+
+export async function repairProjectDetailReadModelSidecars(snapshot = {}, options = {}) {
+  const config = options.config || {};
+  const architecture = snapshot.personnelArchitecture || {};
+  const projectId = String(options.projectId || '').trim();
+  if (!projectId) {
+    return { repaired: false, reason: 'project id is required' };
+  }
+  const project = findProjectForDetailReadModel(snapshot.projects || [], projectId);
+  if (!project) {
+    return { repaired: false, reason: 'project is missing from current snapshot', projectId };
+  }
+  const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
+  const detail = compactProjectForDetailReadModel(project);
+  const targets = [];
+
+  const precomputeManifest = readManifest(config, snapshotHash);
+  const precomputeDir = precomputeDirForHash(config, snapshotHash);
+  if (precomputeManifest?.snapshotHash === snapshotHash && projectDetailIndexIncludes(precomputeDir, projectId)) {
+    targets.push(precomputeDir);
+  }
+
+  const readModelDir = currentReadModelDir(config);
+  const readModelManifest = readJsonFile(path.join(readModelDir, 'manifest.json'));
+  if (
+    readModelManifest?.snapshotHash === snapshotHash &&
+    readModelManifest?.schemaVersion === PRECOMPUTE_SCHEMA_VERSION &&
+    readModelManifest?.readModel === true &&
+    projectDetailIndexIncludes(readModelDir, projectId)
+  ) {
+    targets.push(readModelDir);
+  }
+
+  if (!targets.length) {
+    return { repaired: false, reason: 'matching project detail read model directory is missing', snapshotHash, projectId };
+  }
+
+  const seen = new Set();
+  let repairedTargets = 0;
+  for (const targetDir of targets) {
+    const resolvedDir = path.resolve(targetDir);
+    if (seen.has(resolvedDir)) {
+      continue;
+    }
+    seen.add(resolvedDir);
+    await writeJson(projectDetailFilePath(resolvedDir, projectId), detail);
+    repairedTargets += 1;
+  }
+
+  return {
+    repaired: repairedTargets > 0,
+    snapshotHash,
+    projectId,
+    targets: repairedTargets,
+  };
 }
 
 export function readPrecomputedTeamResponsibilityReview(config = {}, snapshot = {}, architecture = {}, params = {}) {
@@ -973,7 +1348,8 @@ export function readPrecomputedTeamResponsibilityReview(config = {}, snapshot = 
   if (!manifestHasFeature(manifest, TEAM_RESPONSIBILITY_REVIEW_PRECOMPUTE_FEATURE)) {
     return null;
   }
-  return readJsonFile(teamResponsibilityReviewFilePath(config, snapshotHash, params));
+  const payload = readJsonFile(teamResponsibilityReviewFilePath(config, snapshotHash, params));
+  return teamResponsibilityReviewMatchesScope(payload, params) ? payload : null;
 }
 
 export function readPrecomputedTeamWorkCompletion(config = {}, snapshot = {}, architecture = {}, params = {}) {
@@ -984,7 +1360,10 @@ export function readPrecomputedTeamWorkCompletion(config = {}, snapshot = {}, ar
   }
 
   const payload = readJsonFile(teamWorkCompletionSummaryFilePath(config, snapshotHash, params));
-  if (!payload || !teamWorkCompletionHasProcessingQueues(payload)) {
+  if (!teamWorkCompletionMatchesScope(payload, params) || !teamWorkCompletionHasProcessingQueues(payload)) {
+    return null;
+  }
+  if (!teamWorkCompletionMatchesAsOfDate(payload, params)) {
     return null;
   }
   if (params.requestedOwner && payload.requestedOwner !== params.requestedOwner) {
@@ -1004,7 +1383,10 @@ export function readPrecomputedTeamWorkCompletionDetail(config = {}, snapshot = 
   }
 
   const payload = readJsonFile(teamWorkCompletionDetailFilePath(config, snapshotHash, params));
-  if (!payload || !teamWorkCompletionHasProcessingQueues(payload)) {
+  if (!teamWorkCompletionMatchesScope(payload, params) || !teamWorkCompletionHasProcessingQueues(payload)) {
+    return null;
+  }
+  if (!teamWorkCompletionMatchesAsOfDate(payload, params)) {
     return null;
   }
   if (params.requestedOwner && payload.requestedOwner !== params.requestedOwner) {
@@ -1075,18 +1457,22 @@ export function readPrecomputedDashboardSession(config = {}, snapshot = {}, arch
     requestedOwner: params.requestedOwner || owner,
     dashboardContext,
     year,
+    today: params.today,
+    asOfDate: params.asOfDate,
   });
   const workCompletionDetail = readPrecomputedTeamWorkCompletionDetail(config, snapshot, architecture, {
     owner,
     requestedOwner: params.requestedOwner || owner,
     dashboardContext,
     year,
+    today: params.today,
+    asOfDate: params.asOfDate,
   });
   const responsibilityReview = readPrecomputedTeamResponsibilityReview(config, snapshot, architecture, {
     owner,
     dashboardContext,
   });
-  if (!metrics || !workCompletionSummary || !responsibilityReview) {
+  if (!metrics || !workCompletionSummary || !workCompletionDetail || !responsibilityReview) {
     return null;
   }
   const workCompletion = mergeTeamWorkCompletionDetailPayload(workCompletionSummary, workCompletionDetail);

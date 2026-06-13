@@ -14,6 +14,80 @@ export function splitPersonnelNames(value) {
     .filter((name) => name && !EMPTY_PERSONNEL_VALUES.has(name));
 }
 
+function personnelEntries(personnelArchitecture = {}) {
+  const architecture = personnelArchitecture || {};
+  const people = architecture.people || {};
+  return Array.isArray(people)
+    ? people.filter((person) => person?.name).map((person) => [person.name, person])
+    : Object.entries(people).map(([name, person]) => [person?.name || name, person || {}]);
+}
+
+function addCanonicalVariant(variants, variant, canonicalName) {
+  const text = String(variant || '').trim();
+  const canonical = String(canonicalName || '').trim();
+  if (!text || !canonical || EMPTY_PERSONNEL_VALUES.has(text)) {
+    return;
+  }
+  if (!variants.has(text)) {
+    variants.set(text, new Set());
+  }
+  variants.get(text).add(canonical);
+}
+
+export function buildCanonicalPersonnelNameLookup(personnelArchitecture = {}) {
+  const architecture = personnelArchitecture || {};
+  const variants = new Map();
+
+  for (const [canonicalName, person] of personnelEntries(architecture)) {
+    const canonical = String(canonicalName || '').trim();
+    if (!canonical) {
+      continue;
+    }
+    [canonical, person.name, person.displayName, ...(person.aliases || [])].forEach((variant) =>
+      addCanonicalVariant(variants, variant, canonical)
+    );
+  }
+
+  for (const [canonical, aliases] of Object.entries(architecture.aliases || {})) {
+    addCanonicalVariant(variants, canonical, canonical);
+    for (const alias of aliases || []) {
+      addCanonicalVariant(variants, alias, canonical);
+    }
+  }
+
+  return new Map(
+    Array.from(variants.entries())
+      .filter(([, canonicalNames]) => canonicalNames.size === 1)
+      .map(([variant, canonicalNames]) => [variant, Array.from(canonicalNames)[0]])
+  );
+}
+
+export function resolveCanonicalPersonnelName(name, lookupOrArchitecture = {}) {
+  const text = String(name || '').trim();
+  if (!text || EMPTY_PERSONNEL_VALUES.has(text)) {
+    return '';
+  }
+  const lookup =
+    lookupOrArchitecture instanceof Map ? lookupOrArchitecture : buildCanonicalPersonnelNameLookup(lookupOrArchitecture);
+  return lookup.get(text) || text;
+}
+
+export function canonicalizePersonnelNames(names = [], lookupOrArchitecture = {}) {
+  const lookup =
+    lookupOrArchitecture instanceof Map ? lookupOrArchitecture : buildCanonicalPersonnelNameLookup(lookupOrArchitecture);
+  const result = [];
+  const seen = new Set();
+  for (const name of names || []) {
+    const canonical = resolveCanonicalPersonnelName(name, lookup);
+    if (!canonical || seen.has(canonical)) {
+      continue;
+    }
+    seen.add(canonical);
+    result.push(canonical);
+  }
+  return result;
+}
+
 export function readNamesFromRawField(project, fieldName) {
   const display = project.rawFields?.[fieldName]?.display;
   if (display === undefined || display === null) {

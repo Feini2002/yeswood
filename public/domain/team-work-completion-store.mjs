@@ -1,15 +1,21 @@
 import { TEAM_WORK_COMPLETION_CACHE_LIMIT } from '../lib/constants.mjs';
 import { runtimeStore } from '../lib/runtime-flags.mjs';
 import { state } from '../lib/state.mjs';
-import { rememberProjectDetails } from './project-catalog.mjs';
+import { currentCatalogSignature, rememberProjectDetails } from './project-catalog.mjs';
+
+function snapshotCachePart(value) {
+  return value === null || value === undefined ? '' : String(value);
+}
 
 function teamWorkCompletionSnapshotCacheKey(snapshot = state.snapshot) {
   return [
-    snapshot?.source || '',
-    snapshot?.storage || '',
-    snapshot?.syncedAt || '',
-    snapshot?.totalRecords ?? '',
-    snapshot?.ignoredRecords ?? '',
+    snapshotCachePart(snapshot?.source),
+    snapshotCachePart(snapshot?.storage),
+    snapshotCachePart(snapshot?.syncedAt),
+    snapshotCachePart(snapshot?.contentHash),
+    snapshotCachePart(snapshot?.dataRevision),
+    snapshotCachePart(snapshot?.totalRecords),
+    snapshotCachePart(snapshot?.ignoredRecords),
   ].join('|');
 }
 
@@ -17,13 +23,32 @@ function teamWorkCompletionContextKey(dashboardContext = 'all') {
   return dashboardContext || 'all';
 }
 
+function teamWorkCompletionOptions(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function resolveTeamWorkCompletionYearAndOptions(year, options) {
+  if (year && typeof year === 'object' && !Array.isArray(year)) {
+    return {
+      year: state.teamWorkCompletionYear,
+      options: teamWorkCompletionOptions(year),
+    };
+  }
+  return {
+    year,
+    options: teamWorkCompletionOptions(options),
+  };
+}
+
 export function teamWorkCompletionCacheKey(
   owner = '',
   dashboardContext = 'all',
-  year = state.teamWorkCompletionYear
+  year = state.teamWorkCompletionYear,
+  options
 ) {
-  return `${teamWorkCompletionSnapshotCacheKey()}:${teamWorkCompletionContextKey(dashboardContext)}:${owner || ''}:${
-    Number(year) || ''
+  const resolved = resolveTeamWorkCompletionYearAndOptions(year, options);
+  return `${teamWorkCompletionSnapshotCacheKey(resolved.options.snapshot)}:${teamWorkCompletionContextKey(dashboardContext)}:${owner || ''}:${
+    Number(resolved.year) || ''
   }`;
 }
 
@@ -47,19 +72,23 @@ export function rememberTeamWorkCompletion(
   payload,
   owner = payload?.owner || '',
   dashboardContext = payload?.dashboardContext || 'all',
-  year = payload?.year || state.teamWorkCompletionYear
+  year = payload?.year || state.teamWorkCompletionYear,
+  options
 ) {
   if (!payload?.owner && !owner) {
     return;
   }
-  const requestedKey = teamWorkCompletionCacheKey(owner || payload.owner, dashboardContext, year);
-  const canonicalKey = teamWorkCompletionCacheKey(payload.owner || owner, dashboardContext, year);
+  const resolved = resolveTeamWorkCompletionYearAndOptions(year, options);
+  const requestedKey = teamWorkCompletionCacheKey(owner || payload.owner, dashboardContext, resolved.year, resolved.options);
+  const canonicalKey = teamWorkCompletionCacheKey(payload.owner || owner, dashboardContext, resolved.year, resolved.options);
   state.teamWorkCompletionByKey = {
     ...state.teamWorkCompletionByKey,
     [requestedKey]: payload,
     [canonicalKey]: payload,
   };
-  rememberProjectDetails(payload.projectDetailsById);
+  rememberProjectDetails(payload.projectDetailsById, {
+    signature: resolved.options.projectDetailSignature || currentCatalogSignature(resolved.options.snapshot),
+  });
   pruneTeamWorkCompletionCache();
 }
 
@@ -164,7 +193,7 @@ export function mergeTeamWorkCompletionDetail(review = state.teamWorkCompletion,
   };
 }
 
-export function teamWorkCompletionDetailCacheKey(review = state.teamWorkCompletion) {
+export function teamWorkCompletionDetailCacheKey(review = state.teamWorkCompletion, options) {
   if (!review) {
     return '';
   }
@@ -172,7 +201,7 @@ export function teamWorkCompletionDetailCacheKey(review = state.teamWorkCompleti
   if (!owner) {
     return '';
   }
-  return teamWorkCompletionCacheKey(owner, review.dashboardContext || 'all', review.year || state.teamWorkCompletionYear);
+  return teamWorkCompletionCacheKey(owner, review.dashboardContext || 'all', review.year || state.teamWorkCompletionYear, options);
 }
 
 export function currentTeamWorkCompletionCacheKey() {

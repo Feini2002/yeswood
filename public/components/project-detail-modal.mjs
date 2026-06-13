@@ -14,6 +14,7 @@ import {
 } from '../domain/project-display.mjs';
 import {
   renderProjectFieldGapReminder,
+  renderProjectStatusConflictReminder,
   renderProjectStageStack,
   renderProjectKeyDateStack,
 } from './project-cell-render.mjs';
@@ -297,6 +298,62 @@ export function hardDeadlineEfficiencyLabel(status = '', summary = '') {
   return [labels[status] || status || '', summary].filter(Boolean).join(' · ') || '--';
 }
 
+function hardDeadlineFinalSourceLabel(source = '') {
+  const labels = {
+    form: '表单优先',
+    system_fallback: '系统兜底',
+    system_deadline: '系统规则',
+  };
+  return labels[source] || source || '--';
+}
+
+function hardDeadlineReviewLabel(conflictReview = {}) {
+  if (conflictReview?.needsReview) {
+    return '待复核：表单与系统规则不一致';
+  }
+  return '无需复核';
+}
+
+function hardDeadlineFormStatusLabel(floorPlan = {}, project = {}) {
+  const formStatus = floorPlan.formStatus || {};
+  if (formStatus.rawText) {
+    return formStatus.rawText;
+  }
+  if (formStatus.status) {
+    return hardDeadlineFloorStatusLabel(formStatus.status);
+  }
+  return readRawFieldDisplay(project, ['硬装方案情况（每周五刷新）', '硬装方案情况', '方案情况']) || '未填写';
+}
+
+function hardDeadlineSystemStatusLabel(floorPlan = {}) {
+  const systemStatus = floorPlan.systemStatus || {};
+  return hardDeadlineFloorStatusLabel(systemStatus.status || floorPlan.completionStatus || floorPlan.startStatus);
+}
+
+function hardDeadlineBooleanDelayLabel(delayStatus = {}) {
+  if (!('isDelayed' in delayStatus)) {
+    return '';
+  }
+  if (!delayStatus.status && !delayStatus.source && !delayStatus.date) {
+    return '';
+  }
+  return delayStatus.isDelayed ? '延期' : '未延期';
+}
+
+function hardDeadlineFinalStatusLabel(floorPlan = {}) {
+  const finalDelayStatus = floorPlan.finalDelayStatus || {};
+  const status = finalDelayStatus.status || floorPlan.completionStatus || floorPlan.startStatus;
+  return status ? hardDeadlineFloorStatusLabel(status) : hardDeadlineBooleanDelayLabel(finalDelayStatus) || '--';
+}
+
+function hardDeadlineEfficiencySummaryLabel(floorPlan = {}) {
+  const efficiencyModel = floorPlan.efficiencyStatusModel || {};
+  return hardDeadlineEfficiencyLabel(
+    efficiencyModel.status || floorPlan.efficiencyStatus,
+    floorPlan.efficiencySummary
+  );
+}
+
 
 export function hardDeadlineReminderItems(project = {}) {
   const reminders = Array.isArray(project.reminders) ? project.reminders : [];
@@ -328,7 +385,7 @@ export function renderProjectHardDeadlineSummary(project = {}) {
     return '';
   }
   const floorPlan = hardDeadline.floorPlan || {};
-  const formStatus = readRawFieldDisplay(project, ['硬装方案情况（每周五刷新）', '硬装方案情况', '方案情况']) || '未填写';
+  const finalDelayStatus = floorPlan.finalDelayStatus || {};
   const reminders = hardDeadlineReminderItems(project);
   const summaryItems = [
     { label: '规则状态', value: hardDeadlineStatusLabel(hardDeadline.status) },
@@ -337,9 +394,12 @@ export function renderProjectHardDeadlineSummary(project = {}) {
     { label: '平面启动', value: floorPlan.startDueDate },
     { label: '提醒触发', value: floorPlan.warnDueDate },
     { label: '平面截止', value: floorPlan.dueDate },
-    { label: '系统判断', value: hardDeadlineFloorStatusLabel(floorPlan.completionStatus || floorPlan.startStatus) },
-    { label: '表单判断', value: formStatus },
-    { label: '效率判断', value: hardDeadlineEfficiencyLabel(floorPlan.efficiencyStatus, floorPlan.efficiencySummary) },
+    { label: '最终延期状态', value: hardDeadlineFinalStatusLabel(floorPlan) },
+    { label: '最终来源', value: hardDeadlineFinalSourceLabel(finalDelayStatus.source) },
+    { label: '表单判断', value: hardDeadlineFormStatusLabel(floorPlan, project) },
+    { label: '规则判断', value: hardDeadlineSystemStatusLabel(floorPlan) },
+    { label: '复核状态', value: hardDeadlineReviewLabel(floorPlan.conflictReview) },
+    { label: '效率判断', value: hardDeadlineEfficiencySummaryLabel(floorPlan) },
   ].filter((item) => item.value !== undefined && item.value !== null && String(item.value).trim());
 
   return `
@@ -347,7 +407,7 @@ export function renderProjectHardDeadlineSummary(project = {}) {
       <div class="project-detail-deadline-head">
         <div>
           <span>硬装 Deadline</span>
-          <strong>系统提醒与判断依据</strong>
+          <strong>最终状态与规则复核</strong>
         </div>
         <small>${escapeHtml(hardDeadline.ruleVersion || '规则版本待记录')}</small>
       </div>
@@ -453,6 +513,8 @@ export function renderProjectDetailModal(project) {
   const keyDateText = closedForReminder ? '' : readProjectKeyDate(project);
   const assignmentReminder = stopped ? '' : renderProjectAssignmentReminder(project);
   const fieldGapReminder = stopped ? '' : renderProjectFieldGapReminder(project);
+  const statusConflictReminder = stopped ? '' : renderProjectStatusConflictReminder(project);
+  const hardDeadlineSummary = stopped ? '' : renderProjectHardDeadlineSummary(project);
   const singleTrackLifecycleNote = stopped ? '' : renderSingleTrackLifecycleNote(project);
 
   elements.projectDetailModalBody.innerHTML = `
@@ -466,6 +528,8 @@ export function renderProjectDetailModal(project) {
     ${singleTrackLifecycleNote}
     ${assignmentReminder}
     ${fieldGapReminder}
+    ${statusConflictReminder}
+    ${hardDeadlineSummary}
     <div class="project-detail-meta">
       ${metaItems
         .map(

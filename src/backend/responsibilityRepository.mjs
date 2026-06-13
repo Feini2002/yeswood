@@ -1,4 +1,11 @@
-import { readNamesFromRawField, readProjectOwnerNames, splitPersonnelNames } from './personnelNames.mjs';
+import {
+  buildCanonicalPersonnelNameLookup,
+  canonicalizePersonnelNames,
+  readNamesFromRawField,
+  readProjectOwnerNames,
+  resolveCanonicalPersonnelName,
+  splitPersonnelNames,
+} from './personnelNames.mjs';
 import { normalizePersonnelArchitecture } from './personnelArchitecture.mjs';
 import {
   responsibilityIdentitiesForSourceName,
@@ -248,8 +255,14 @@ export function rebuildProjectResponsibilities(database, projects, syncRunId, { 
     deleteAll.run();
     for (const project of projects) {
       const assignments = extractAssignmentsFromProject(project);
+      const insertedAssignments = new Set();
       for (const assignment of assignments) {
         const personName = canonicalPersonName.get(assignment.personName) || assignment.personName;
+        const assignmentKey = `${project.id}\u0000${assignment.slotKey}\u0000${personName}`;
+        if (insertedAssignments.has(assignmentKey)) {
+          continue;
+        }
+        insertedAssignments.add(assignmentKey);
         insert.run(
           project.id,
           assignment.slotKey,
@@ -476,6 +489,7 @@ function projectFromResponsibilityRow(row) {
 
 export function aggregatePersonnelStatsFromProjects(projects, { personnelArchitecture = {} } = {}) {
   const architecture = normalizeArchitecture(personnelArchitecture);
+  const canonicalNameLookup = buildCanonicalPersonnelNameLookup(architecture);
   const roles = [];
   const metricsRoles = ['cdOwner', 'vmOwner', 'cdLead', 'vmLead'];
 
@@ -490,7 +504,10 @@ export function aggregatePersonnelStatsFromProjects(projects, { personnelArchite
       if (isSleepStoreProject(project) && isSoftResponsibilitySlot(slot)) {
         continue;
       }
-      const names = Array.from(new Set(slot.fields.flatMap((fieldName) => readNamesFromRawField(project, fieldName))));
+      const names = canonicalizePersonnelNames(
+        slot.fields.flatMap((fieldName) => readNamesFromRawField(project, fieldName)),
+        canonicalNameLookup
+      );
       for (const name of names) {
         const seed = responsibilityStatSeed(name, slot, architecture);
         const stat = people.get(seed.key) || seed.stat;
@@ -563,6 +580,7 @@ function isDesignResponsibilitySlot(slot) {
 }
 
 function buildDesignerRoleStats(projects, architecture = {}) {
+  const canonicalNameLookup = buildCanonicalPersonnelNameLookup(architecture);
   return RESPONSIBILITY_SLOTS.filter((slot) => slot.slotKey.includes('designer') && isDesignResponsibilitySlot(slot))
     .map((slot) => {
       const people = new Map();
@@ -570,7 +588,7 @@ function buildDesignerRoleStats(projects, architecture = {}) {
         if (isSleepStoreProject(project) && isSoftResponsibilitySlot(slot)) {
           continue;
         }
-        for (const name of readNamesFromRawField(project, slot.fields[0])) {
+        for (const name of canonicalizePersonnelNames(readNamesFromRawField(project, slot.fields[0]), canonicalNameLookup)) {
           const { key, stat } = responsibilityStatSeed(name, slot, architecture);
           const current = people.get(key) || stat;
           addProjectToResponsibilityStat(current, project, slot);
@@ -590,6 +608,7 @@ function buildDesignerRoleStats(projects, architecture = {}) {
 }
 
 function buildDesignerRoleStatsFromResponsibilityRows(rows, architecture = {}) {
+  const canonicalNameLookup = buildCanonicalPersonnelNameLookup(architecture);
   const designerSlots = RESPONSIBILITY_SLOTS.filter(
     (slot) => slot.slotKey.includes('designer') && isDesignResponsibilitySlot(slot)
   );
@@ -605,6 +624,7 @@ function buildDesignerRoleStatsFromResponsibilityRows(rows, architecture = {}) {
     ])
   );
 
+  const countedAssignments = new Set();
   for (const row of rows) {
     const role = rolesMap.get(row.slot_key);
     if (!role) {
@@ -615,7 +635,13 @@ function buildDesignerRoleStatsFromResponsibilityRows(rows, architecture = {}) {
     if (isSleepStoreProject(project) && isSoftResponsibilitySlot(slot)) {
       continue;
     }
-    const { key, stat } = responsibilityStatSeed(row.person_name, slot, architecture);
+    const personName = resolveCanonicalPersonnelName(row.person_name, canonicalNameLookup);
+    const assignmentKey = `${row.slot_key}\u0000${row.project_id}\u0000${personName}`;
+    if (countedAssignments.has(assignmentKey)) {
+      continue;
+    }
+    countedAssignments.add(assignmentKey);
+    const { key, stat } = responsibilityStatSeed(personName, slot, architecture);
     const current = role.people.get(key) || stat;
     addProjectToResponsibilityStat(current, project, slot);
     role.people.set(key, current);
@@ -640,6 +666,7 @@ function buildDesignerRoleStatsFromResponsibilityRows(rows, architecture = {}) {
 
 export function aggregatePersonnelStatsFromDatabase(database, { personnelArchitecture = {} } = {}) {
   const architecture = normalizeArchitecture(personnelArchitecture);
+  const canonicalNameLookup = buildCanonicalPersonnelNameLookup(architecture);
   const rows = database
     .prepare(
       `select pr.slot_key, pr.person_name, pr.project_id,
@@ -667,6 +694,7 @@ export function aggregatePersonnelStatsFromDatabase(database, { personnelArchite
     });
   }
 
+  const countedAssignments = new Set();
   for (const row of rows) {
     if (!metricsSlotKeys.includes(row.slot_key)) {
       continue;
@@ -677,8 +705,14 @@ export function aggregatePersonnelStatsFromDatabase(database, { personnelArchite
     if (isSleepStoreProject(project) && isSoftResponsibilitySlot(slot)) {
       continue;
     }
+    const personName = resolveCanonicalPersonnelName(row.person_name, canonicalNameLookup);
+    const assignmentKey = `${row.slot_key}\u0000${row.project_id}\u0000${personName}`;
+    if (countedAssignments.has(assignmentKey)) {
+      continue;
+    }
+    countedAssignments.add(assignmentKey);
     role.projectIds.add(row.project_id);
-    const seed = responsibilityStatSeed(row.person_name, slot, architecture);
+    const seed = responsibilityStatSeed(personName, slot, architecture);
     const stat = role.people.get(seed.key) || seed.stat;
     addProjectToResponsibilityStat(stat, project, slot);
     role.people.set(seed.key, stat);

@@ -3,6 +3,9 @@ import test from 'node:test';
 
 import {
   PROJECT_STAGE_KEYS,
+  PROJECT_STAGE_FIELD_ALIASES,
+  compactProjectStageReminder,
+  compactProjectWorkflowFacts,
   resolveProjectStageReminder,
   resolveProjectWorkflowFacts,
 } from '../public/domain/project-stage-reminder-rules.mjs';
@@ -20,6 +23,10 @@ function project(rawFields = {}, overrides = {}) {
     rawFields,
     ...overrides,
   };
+}
+
+function field(aliasKey) {
+  return PROJECT_STAGE_FIELD_ALIASES[aliasKey][0];
 }
 
 test('display start time advances project to display in progress without waiting for soft completion status', () => {
@@ -268,4 +275,26 @@ test('summary-only projects can expose top-level workflow facts through the unif
   assert.equal(facts.nodes.displayStarted, true);
   assert.equal(facts.nodes.displayStart, '2026-06-07');
   assert.equal(reminder.facts.nodes.displayStarted, true);
+});
+
+test('unfinished soft completion status with downstream facts advances stage and records status conflict', () => {
+  const item = project({
+    [field('softDoneStatus')]: raw('not done'),
+    [field('productListSent')]: raw('2026-05-22'),
+  });
+
+  const result = resolveProjectStageReminder(item);
+  const compactFacts = compactProjectWorkflowFacts(result.facts);
+  const compactReminder = compactProjectStageReminder(result);
+
+  assert.equal(result.currentStage.key, PROJECT_STAGE_KEYS.productListReady);
+  assert.equal(result.facts.nodes.softDoneStatusFilled, true);
+  assert.equal(Array.isArray(result.facts.statusConflicts), true);
+  assert.equal(result.facts.statusConflicts.some((conflict) => conflict.key === 'softDoneStatusWithDownstreamFacts'), true);
+  assert.equal(Array.isArray(result.statusConflicts), true);
+  assert.equal(result.statusConflicts.some((conflict) => conflict.key === 'softDoneStatusWithDownstreamFacts'), true);
+  assert.equal(Array.isArray(compactFacts.statusConflicts), true);
+  assert.equal(compactFacts.statusConflicts.some((conflict) => conflict.key === 'softDoneStatusWithDownstreamFacts'), true);
+  assert.equal(Array.isArray(compactReminder.statusConflicts), true);
+  assert.equal(compactReminder.statusConflicts.some((conflict) => conflict.key === 'softDoneStatusWithDownstreamFacts'), true);
 });

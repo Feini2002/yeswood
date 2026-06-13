@@ -67,7 +67,6 @@ export function invalidateProjectCaches({ catalog = false, drill = true, details
   if (catalog) {
     state.projectsCatalogLoaded = false;
     state.projectsCatalogSignature = '';
-    state.allProjects = [];
     runtimeStore.projectCatalogPromise = null;
   }
   if (drill) {
@@ -116,6 +115,26 @@ function rememberDrillCache(cacheKey, items = []) {
   pruneLimitedMap(cache, DRILL_CACHE_LIMIT);
 }
 
+function staleCatalogSignature(payload = {}) {
+  const marker = normalizeText(
+    payload.catalogSignature ||
+      payload.snapshotSignature ||
+      payload.generatedAt ||
+      payload.currentUnavailableReason ||
+      'unknown'
+  );
+  return `stale:${marker}`;
+}
+
+function rememberProjectCatalogPayload(payload = {}, { signature = currentCatalogSignature() } = {}) {
+  const isStale = payload?.stale === true;
+  state.allProjects = Array.isArray(payload?.items) ? payload.items : [];
+  state.fieldCatalog = Array.isArray(payload?.fieldCatalog) ? payload.fieldCatalog : state.fieldCatalog;
+  state.projectsCatalogLoaded = true;
+  state.projectsCatalogSignature = isStale ? staleCatalogSignature(payload) : signature;
+  invalidateProjectCaches({ catalog: false, drill: true, details: isStale });
+}
+
 export function drillCacheKey(filters = {}) {
   const params = new URLSearchParams(toQuery(filters).replace(/^\?/, ''));
   params.sort();
@@ -123,6 +142,9 @@ export function drillCacheKey(filters = {}) {
 }
 
 export function peekDrillProjectsCache(filters = {}) {
+  if (!catalogIsFresh()) {
+    return null;
+  }
   return ensureDrillCache().get(drillCacheKey(filters)) || null;
 }
 
@@ -197,16 +219,17 @@ export async function fetchFilteredProjects(filters = readFilters(), { view = 's
   return {
     items: Array.isArray(payload?.items) ? payload.items : [],
     fieldCatalog: Array.isArray(payload?.fieldCatalog) ? payload.fieldCatalog : [],
+    stale: payload?.stale === true,
+    generatedAt: payload?.generatedAt || '',
+    currentUnavailableReason: payload?.currentUnavailableReason || '',
+    catalogSignature: payload?.catalogSignature || '',
+    snapshotSignature: payload?.snapshotSignature || '',
   };
 }
 
-async function loadProjectCatalogPayload({ view = 'summary' } = {}) {
+async function loadProjectCatalogPayload({ view = 'summary', signature = currentCatalogSignature() } = {}) {
   const payload = await fetchJson(`/api/projects?view=${view}`);
-  state.allProjects = Array.isArray(payload?.items) ? payload.items : [];
-  state.fieldCatalog = Array.isArray(payload?.fieldCatalog) ? payload.fieldCatalog : state.fieldCatalog;
-  state.projectsCatalogLoaded = true;
-  state.projectsCatalogSignature = currentCatalogSignature();
-  invalidateProjectCaches({ catalog: false, drill: true, details: false });
+  rememberProjectCatalogPayload(payload, { signature });
   return state.allProjects;
 }
 
@@ -230,7 +253,7 @@ export async function fetchProjectCatalog({ force = false, view = 'summary' } = 
     return runtimeStore.projectCatalogPromise;
   }
 
-  const request = loadProjectCatalogPayload({ view }).finally(() => {
+  const request = loadProjectCatalogPayload({ view, signature }).finally(() => {
     if (runtimeStore.projectCatalogPromise === request) {
       runtimeStore.projectCatalogPromise = null;
     }
@@ -296,9 +319,7 @@ export async function resolveVisibleProjects(filters = readFilters()) {
   }
   const payload = await fetchFilteredProjects(filters);
   if (!hasComplexProjectFilters(filters)) {
-    state.allProjects = payload.items;
-    state.projectsCatalogLoaded = true;
-    state.projectsCatalogSignature = currentCatalogSignature();
+    rememberProjectCatalogPayload(payload);
   }
   if (payload.fieldCatalog?.length) {
     state.fieldCatalog = payload.fieldCatalog;
@@ -325,7 +346,7 @@ export async function fetchDrillProjectIds(filters = {}) {
 
 async function resolveDrillProjectsUncached(filters = {}) {
   await fetchProjectCatalog();
-  if (!state.allProjects.length) {
+  if (!catalogIsFresh() || !state.allProjects.length) {
     const payload = await fetchFilteredProjects(filters, { view: 'summary' });
     return payload.items || [];
   }
@@ -342,7 +363,7 @@ async function resolveDrillProjectsUncached(filters = {}) {
 
 export async function resolveDrillProjects(filters = {}, { useCache = true } = {}) {
   const cacheKey = drillCacheKey(filters);
-  if (useCache) {
+  if (useCache && catalogIsFresh()) {
     const cached = peekDrillProjectsCache(filters);
     if (cached) {
       return cached;
@@ -356,8 +377,8 @@ export async function resolveDrillProjects(filters = {}, { useCache = true } = {
 
   const request = resolveDrillProjectsUncached(filters)
     .then((items) => {
-      if (useCache) {
-        rememberDrillCache(cacheKey, items);
+      if (useCache && catalogIsFresh()) {
+        rememberDrillCache(drillCacheKey(filters), items);
       }
       return items;
     })

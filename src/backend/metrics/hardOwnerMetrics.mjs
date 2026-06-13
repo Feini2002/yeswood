@@ -168,7 +168,7 @@ function explicitHardSchemeDelay(project) {
   return { source: 'explicit', date };
 }
 
-function systemHardSchemeDelay(project, today) {
+function finalHardSchemeDelay(project, today) {
   let record = null;
   try {
     record = calculateHardDecorationDeadlineRecord(project, {
@@ -178,16 +178,17 @@ function systemHardSchemeDelay(project, today) {
   } catch {
     return null;
   }
-  const completion = record?.floorPlan?.completion || {};
-  if (!['delayed_complete', 'delayed_open'].includes(completion.status)) {
+  const finalDelayStatus = record?.floorPlan?.finalDelayStatus || {};
+  if (!finalDelayStatus.isDelayed) {
     return null;
   }
-  const date = normalizeMetricDate(completion.actualDate || completion.dueDate);
-  return date ? { source: 'deadline', date } : null;
+  const systemStatus = record?.floorPlan?.systemStatus || {};
+  const date = normalizeMetricDate(finalDelayStatus.date || systemStatus.actualDate || systemStatus.dueDate);
+  return date ? { source: finalDelayStatus.source || 'final', date } : null;
 }
 
 function hardSchemeDelayEvidences(project, today) {
-  return [explicitHardSchemeDelay(project), systemHardSchemeDelay(project, today)].filter(Boolean);
+  return [finalHardSchemeDelay(project, today)].filter(Boolean);
 }
 
 function isProjectClosed(project) {

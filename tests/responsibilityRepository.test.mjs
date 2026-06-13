@@ -143,6 +143,50 @@ test('rebuildProjectResponsibilities stores canonical personnel names from alias
   }
 });
 
+test('rebuildProjectResponsibilities dedupes canonical aliases within one slot', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'resp-repo-alias-dedupe-'));
+  const db = openInitializedDatabase(path.join(tempDir, 'app.sqlite'));
+  const project = sampleProject({
+    id: 'p-alias-dedupe',
+    owner: 'Jarvan范嘉瑞、范嘉瑞',
+    rawFields: {
+      负责人: { display: 'Jarvan范嘉瑞、范嘉瑞' },
+      VM负责人: { display: 'Jarvan范嘉瑞、范嘉瑞' },
+    },
+  });
+
+  try {
+    db.prepare(
+      `insert into personnel_people
+        (id, name, display_name, position, discipline, status, source, aliases_json,
+         assignment_note, source_field, sort_order, updated_at)
+       values (?, ?, ?, 'owner', 'soft', 'active', 'local', ?, '', '', 0, ?)`
+    ).run('owner-fanjia-rui', 'Jarvan范嘉瑞', '范嘉瑞', JSON.stringify(['范嘉瑞', 'Jarvan']), new Date().toISOString());
+    db.prepare(
+      `insert into projects
+        (id, dingtalk_record_id, raw_fields_json, name, province, business_type, store_status, status,
+         owner_text, progress, start_date, due_date, risk_level, risk_notes, local_notes,
+         source_updated_at, local_updated_at, created_at, archived_at)
+       values (?, ?, ?, ?, '', '', '', '', ?, 0, '', '', '', '', '', '', '', ?, null)`
+    ).run(project.id, project.id, JSON.stringify(project.rawFields), project.name, project.owner, new Date().toISOString());
+
+    rebuildProjectResponsibilities(db, [project], 'run-alias-dedupe');
+
+    const rows = db
+      .prepare("select slot_key, person_name, person_name_raw from project_responsibilities where slot_key = 'vm_owner'")
+      .all();
+    assert.deepEqual(rows.map((row) => ({ ...row })), [
+      { slot_key: 'vm_owner', person_name: 'Jarvan范嘉瑞', person_name_raw: 'Jarvan范嘉瑞' },
+    ]);
+
+    const stats = aggregatePersonnelStatsFromDatabase(db);
+    const vmOwner = stats.roles.find((role) => role.key === 'vmOwner');
+    assert.deepEqual(vmOwner.people, [{ name: 'Jarvan范嘉瑞', value: 1, delayed: 0, highRisk: 0 }]);
+  } finally {
+    db.close();
+  }
+});
+
 test('aggregatePersonnelStatsFromDatabase uses design responsibility semantics for delays', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'resp-db-semantics-'));
   const db = openInitializedDatabase(path.join(tempDir, 'app.sqlite'));
@@ -299,6 +343,45 @@ test('aggregatePersonnelStatsFromProjects routes split owner assignments by stab
       highRisk: 0,
     },
   ]);
+});
+
+test('aggregatePersonnelStatsFromProjects canonicalizes owner aliases before counting role assignments', () => {
+  const stats = aggregatePersonnelStatsFromProjects(
+    [
+      sampleProject({
+        id: 'p-vm-aliases-one-slot',
+        owner: 'Jarvan范嘉瑞、范嘉瑞',
+        rawFields: {
+          VM负责人: { display: 'Jarvan范嘉瑞、范嘉瑞' },
+        },
+      }),
+      sampleProject({
+        id: 'p-vm-alias-only',
+        owner: '范嘉瑞',
+        rawFields: {
+          VM负责人: { display: '范嘉瑞' },
+        },
+      }),
+    ],
+    {
+      personnelArchitecture: {
+        people: {
+          Jarvan范嘉瑞: {
+            name: 'Jarvan范嘉瑞',
+            displayName: '范嘉瑞',
+            aliases: ['范嘉瑞', 'Jarvan'],
+            position: 'owner',
+            discipline: 'soft',
+          },
+        },
+      },
+    }
+  );
+
+  const vmOwner = stats.roles.find((role) => role.key === 'vmOwner');
+  assert.deepEqual(vmOwner.people, [{ name: 'Jarvan范嘉瑞', value: 2, delayed: 0, highRisk: 0 }]);
+  assert.equal(vmOwner.uniquePeople, 1);
+  assert.equal(vmOwner.totalAssignments, 2);
 });
 
 test('aggregatePersonnelStatsFromProjects routes creative lead and designer slots by discipline identity', () => {

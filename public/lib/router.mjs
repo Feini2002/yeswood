@@ -178,8 +178,47 @@ export function applyHashRouteParams() {
   }
 }
 
-export function applyHashSearch() {
+function applyTeamsHashRouteParams({ pageChanged = false } = {}) {
+  const hash = parsePageHash();
+  if (pageChanged || hash.pageId !== 'teams') {
+    return;
+  }
+
+  const owner = hash.owner || routerHooks.resolveTeamOwner?.() || '';
+  if (!owner) {
+    return;
+  }
+  const dashboardContext =
+    resolveTeamPageDashboardContext(hash.dashboardContext) ||
+    routerHooks.resolveTeamDashboardContext?.() ||
+    DEFAULT_TEAM_DASHBOARD_CONTEXT;
+  const year = Number(hash.year || 0) || routerHooks.resolveTeamWorkCompletionYear?.() || undefined;
+  const currentOwner = state.teamWorkCompletion?.owner || state.teamMetrics?.owner || state.selectedTeamOwner || '';
+  const currentContext = resolveTeamPageDashboardContext(
+    state.teamWorkCompletion?.dashboardContext || state.teamMetrics?.dashboardContext || ''
+  );
+  const currentYear = Number(state.teamWorkCompletion?.year || state.teamWorkCompletionYear || 0);
+  const targetYear = Number(year || currentYear || 0);
+  if (
+    currentOwner === owner &&
+    currentContext === dashboardContext &&
+    (!targetYear || !currentYear || currentYear === targetYear)
+  ) {
+    return;
+  }
+
+  routerHooks.ensureTeamOwnerOptions?.();
+  routerHooks.ensureOwnerReviewControls?.();
+  routerHooks
+    .loadTeamDashboardScope?.(owner, dashboardContext, year)
+    ?.catch((error) => {
+      console.warn('Same-page teams scope load failed', error);
+    });
+}
+
+export function applyHashSearch(options = {}) {
   applyHashRouteParams();
+  applyTeamsHashRouteParams(options);
 }
 
 export function showPage(pageId = currentPageId(), options = {}) {
@@ -218,7 +257,7 @@ export function showPage(pageId = currentPageId(), options = {}) {
   if (pageChanged) {
     window.scrollTo(0, 0);
   }
-  applyHashSearch();
+  applyHashSearch({ pageChanged });
   activePageId = pageId;
 
   if (!skipPageDataLoad && pageChanged && pageId === 'teams') {
@@ -230,6 +269,16 @@ export function showPage(pageId = currentPageId(), options = {}) {
       resolveTeamPageDashboardContext(parsePageHash().dashboardContext) ||
       DEFAULT_TEAM_DASHBOARD_CONTEXT;
     const year = routerHooks.resolveTeamWorkCompletionYear?.() || Number(parsePageHash().year || 0) || undefined;
+    if (routerHooks.loadTeamDashboardScope) {
+      routerHooks
+        .loadTeamDashboardScope(owner, dashboardContext, year)
+        ?.catch((error) => {
+          console.warn('Team dashboard scope load failed; keeping current team page state', error);
+          routerHooks.renderTeamDashboardError?.();
+          routerHooks.renderTeamWorkCompletionDashboard?.();
+          routerHooks.renderOwnerReviewDashboard?.();
+        });
+    } else {
     routerHooks
       .loadTeamDashboardSession?.({ owner, dashboardContext, year })
       ?.then((payload) => {
@@ -240,10 +289,7 @@ export function showPage(pageId = currentPageId(), options = {}) {
             year,
             reason: payload.reason || payload.status,
           });
-          routerHooks.renderTeamDashboard?.();
-          routerHooks.renderTeamWorkCompletionDashboard?.();
-          routerHooks.renderOwnerReviewDashboard?.();
-          return null;
+          return routerHooks.loadTeamPageModules?.({ forceRefresh: true });
         }
         const team = payload?.team || {};
         if (!team.metrics || !team.workCompletion || !team.responsibilityReview) {
@@ -267,6 +313,7 @@ export function showPage(pageId = currentPageId(), options = {}) {
         routerHooks.renderTeamWorkCompletionDashboard?.();
         routerHooks.renderOwnerReviewDashboard?.();
       });
+    }
   }
 
   if (!skipPageDataLoad && pageChanged && (pageId === 'overview' || pageId === 'details')) {

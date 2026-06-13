@@ -91,8 +91,12 @@ export async function loadPublicAppHarness({ fetchImpl } = {}) {
 
   const { resetAppState } = await import('./lib/state.mjs');
   resetAppState();
+  const { stopAutoUpdateChecks } = await import('./lib/dashboard-loader.mjs');
+  stopAutoUpdateChecks();
   const { runtimeStore } = await import('./lib/runtime-flags.mjs');
   runtimeStore.updateCheckInFlight = false;
+  runtimeStore.updateCheckTimer = null;
+  runtimeStore.updateCheckVisibilityHandler = null;
   runtimeStore.pageRefreshInFlight = false;
   runtimeStore.syncMessageTimer = null;
   runtimeStore.drillModalRequestId = 0;

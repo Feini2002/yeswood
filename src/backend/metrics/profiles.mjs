@@ -59,11 +59,13 @@ export const MONTHLY_OPS_KEYS = [
   'siteVolume',
 ];
 
+const TRUSTED_HARD_SCHEME_COMPLETION_DATE_FIELDS = ['硬装方案完成时间', '躺平内部审核结束时间', '内部审核结束时间'];
+
 /** 全局默认日期字段（无店态覆盖时使用） */
 export const DEFAULT_DATE_FIELDS = {
   schemeDoneYtd: ['施工图初稿完成时间（外包首次提供图纸的时间）', '上会日期'],
-  schemeDelayDoneYtd: ['上会日期', 'updatedAt'],
-  schemeDelayDoneMonth: ['updatedAt', '上会日期'],
+  schemeDelayDoneYtd: TRUSTED_HARD_SCHEME_COMPLETION_DATE_FIELDS,
+  schemeDelayDoneMonth: TRUSTED_HARD_SCHEME_COMPLETION_DATE_FIELDS,
   hardMeetingMeasureVolume: ['上会日期', '复尺时间', '复尺日期'],
   hardPlanVolume: ['平面开始时间', '躺平内部审核结束时间', '内部审核结束时间'],
   hardConstructionVolume: [
@@ -97,14 +99,14 @@ export const TIER_METRIC_OPTIONS = {
 export const TIER_DATE_FIELDS = {
   regular: {
     schemeDoneYtd: ['躺平内部审核结束时间', '上会日期', '施工图初稿完成时间（外包首次提供图纸的时间）', '复尺时间'],
-    schemeDelayDoneYtd: ['上会日期', '躺平内部审核结束时间', 'updatedAt'],
-    schemeDelayDoneMonth: ['updatedAt', '上会日期'],
+    schemeDelayDoneYtd: TRUSTED_HARD_SCHEME_COMPLETION_DATE_FIELDS,
+    schemeDelayDoneMonth: TRUSTED_HARD_SCHEME_COMPLETION_DATE_FIELDS,
     siteVolume: ['摆场文件发出时间(项目群）', '摆场文件发出时间（项目群）', '摆场开始时间', '摆场时间', '现场摆场时间'],
   },
   sinking: {
     schemeDoneYtd: ['上会日期', '复尺时间', '躺平内部审核结束时间', '施工图初稿完成时间（外包首次提供图纸的时间）'],
-    schemeDelayDoneYtd: ['上会日期', 'updatedAt'],
-    schemeDelayDoneMonth: ['updatedAt', '上会日期'],
+    schemeDelayDoneYtd: TRUSTED_HARD_SCHEME_COMPLETION_DATE_FIELDS,
+    schemeDelayDoneMonth: TRUSTED_HARD_SCHEME_COMPLETION_DATE_FIELDS,
     siteVolume: ['摆场文件发出时间(项目群）', '摆场文件发出时间（项目群）', '摆场开始时间', '摆场时间', '现场摆场时间'],
   },
 };
