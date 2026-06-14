@@ -83,6 +83,48 @@ test('resolveDrillProjects caches results and reuses drill ids path', async () =
   assert.equal(peekDrillProjectsCache(filters), null);
 });
 
+test('resolveDrillProjects resolves lifecycle drills locally from a fresh catalog', async () => {
+  const { state } = await import('../public/lib/state.mjs');
+  const { runtimeStore } = await import('../public/lib/runtime-flags.mjs');
+  const { snapshotSignature } = await import('../public/realtime.js');
+  state.snapshot = { syncedAt: '2026-06-11T00:00:00.000Z', totalRecords: 2 };
+  state.allProjects = [
+    {
+      id: 'plan-1',
+      name: 'Plan Project',
+      province: '浙江',
+      businessType: '购物中心',
+      storeStatus: '常规店',
+      status: '正常',
+      stageReminder: { currentStage: { key: 'floorPlanDone', label: '平面方案完成', rank: 480 } },
+      workflowFacts: { lifecycleClosed: false },
+    },
+    {
+      id: 'purchase-1',
+      name: 'Purchase Project',
+      province: '上海',
+      businessType: '购物中心',
+      storeStatus: '常规店',
+      status: '正常',
+      stageReminder: { currentStage: { key: 'purchaseInProgress', label: '采购中', rank: 800 } },
+      workflowFacts: { lifecycleClosed: false, purchaseStarted: true },
+    },
+  ];
+  state.projectsCatalogLoaded = true;
+  state.projectsCatalogSignature = snapshotSignature(state.snapshot);
+  runtimeStore.drillProjectsCache = new Map();
+  runtimeStore.drillResolvePromises = new Map();
+
+  globalThis.fetch = async (url) => {
+    throw new Error(`lifecycle drill should not request ${url}`);
+  };
+
+  const result = await resolveDrillProjects({ lifecycleStage: 'plan' });
+
+  assert.deepEqual(result.map((item) => item.id), ['plan-1']);
+  assert.equal(peekDrillProjectsCache({ lifecycleStage: 'plan' })?.[0]?.id, 'plan-1');
+});
+
 test('stale summary catalog does not become fresh for current snapshot', async () => {
   const { state } = await import('../public/lib/state.mjs');
   const { runtimeStore } = await import('../public/lib/runtime-flags.mjs');
@@ -243,7 +285,7 @@ test('fetchProjectDetail uses read model fallback and caches returned detail', a
   assert.equal(runtimeStore.projectDetailCache.get('p1')?.project.name, 'Project One');
 });
 
-test('fetchProjectDetail computes detail when read model is still preparing', async () => {
+test('fetchProjectDetail does not compute detail when read model is still preparing', async () => {
   const { state } = await import('../public/lib/state.mjs');
   const { runtimeStore } = await import('../public/lib/runtime-flags.mjs');
   const { snapshotSignature } = await import('../public/realtime.js');
@@ -262,27 +304,15 @@ test('fetchProjectDetail computes detail when read model is still preparing', as
         json: async () => ({ status: 'preparing', readModel: true }),
       };
     }
-    if (path.includes('fallback=compute')) {
-      return {
-        ok: true,
-        json: async () => ({
-          item: {
-            id: 'p1',
-            name: 'Project One',
-            rawFields: { usefulNote: { display: 'Computed detail', kind: 'text' } },
-          },
-        }),
-      };
-    }
     throw new Error(`unexpected fetch ${path}`);
   };
 
   const project = await fetchProjectDetail('p1');
 
-  assert.equal(project.name, 'Project One');
+  assert.equal(project, null);
   assert.match(requested[0], /fallback=readModel/);
-  assert.match(requested[1], /fallback=compute/);
-  assert.equal(runtimeStore.projectDetailCache.get('p1')?.project.name, 'Project One');
+  assert.equal(requested.length, 1);
+  assert.equal(runtimeStore.projectDetailCache.has('p1'), false);
 });
 
 test('fetchProjectDetail remembers canonical and record id aliases', async () => {

@@ -946,11 +946,13 @@ function buildTeamMetricsBatchResponse(owners, rawMetricsByOwner, dashboardConte
   };
 }
 
-function resolveTeamMetricsBatch(config, snapshot, architecture, owners, dashboardContext) {
-  const precomputed = readPrecomputedTeamMetricsBatch(config, snapshot, architecture, {
-    owners,
-    dashboardContext,
-  });
+function resolveTeamMetricsBatch(config, snapshot, architecture, owners, dashboardContext, options = {}) {
+  const precomputed = options.forceRefresh
+    ? null
+    : readPrecomputedTeamMetricsBatch(config, snapshot, architecture, {
+        owners,
+        dashboardContext,
+      });
   if (precomputed) {
     return buildTeamMetricsBatchResponse(owners, precomputed.metricsByOwner, dashboardContext);
   }
@@ -1406,7 +1408,29 @@ async function handleApiRequest(request, response, url, config) {
       precomputeActive: precomputeActive(config),
     };
     if (readModel.status === 'ready' || readModel.status === 'stale') {
-      await sendJson(response, 200, readModel.payload, perf);
+      let payload = readModel.payload;
+      let snapshotMs = 0;
+      if (hasRequestedOwner && !Array.isArray(payload?.team?.metrics?.team?.groups)) {
+        const snapshotStartedAt = Date.now();
+        const snapshot = await getSnapshot(config);
+        const architecture = snapshot.personnelArchitecture || (await readConfiguredPersonnelArchitecture(config));
+        const owner = resolveCanonicalOwner(rawOwner, architecture);
+        const metricsBatch = resolveTeamMetricsBatch(config, snapshot, architecture, [owner], dashboardContext);
+        snapshotMs = elapsedMs(snapshotStartedAt);
+        payload = {
+          ...payload,
+          snapshot: {
+            ...payload.snapshot,
+            ...publicSnapshotPayload(snapshot, config),
+          },
+          team: {
+            ...payload.team,
+            owner,
+            metrics: metricsBatch.metricsByOwner[owner] || payload.team?.metrics || null,
+          },
+        };
+      }
+      await sendJson(response, 200, payload, { ...perf, snapshotMs });
       return true;
     }
     if (!hasRequestedOwner) {
@@ -1740,8 +1764,11 @@ async function handleApiRequest(request, response, url, config) {
     const snapshot = await getSnapshot(config);
     const architecture = snapshot.personnelArchitecture || (await readConfiguredPersonnelArchitecture(config));
     const owners = requestedTeamOwners(url, snapshot, architecture);
+    const forceRefresh = ['1', 'true', 'yes', 'on'].includes(
+      String(url.searchParams.get('forceRefresh') || '').trim().toLowerCase()
+    );
 
-    await sendJson(response, 200, resolveTeamMetricsBatch(config, snapshot, architecture, owners, dashboardContext));
+    await sendJson(response, 200, resolveTeamMetricsBatch(config, snapshot, architecture, owners, dashboardContext, { forceRefresh }));
     return true;
   }
 
@@ -1999,9 +2026,11 @@ async function handleApiRequest(request, response, url, config) {
     const architecture = snapshot.personnelArchitecture || (await readConfiguredPersonnelArchitecture(config));
     const owner = resolveCanonicalOwner(ownerParam, architecture);
     const dashboardContext = parseDashboardContext(url.searchParams.get('context'));
-    const metrics = resolveTeamMetricsBatch(config, snapshot, architecture, [owner], dashboardContext).metricsByOwner[
-      owner
-    ];
+    const forceRefresh = ['1', 'true', 'yes', 'on'].includes(
+      String(url.searchParams.get('forceRefresh') || '').trim().toLowerCase()
+    );
+    const metrics = resolveTeamMetricsBatch(config, snapshot, architecture, [owner], dashboardContext, { forceRefresh })
+      .metricsByOwner[owner];
     await sendJson(response, 200, {
       ...metrics,
       requestedOwner: ownerParam !== owner ? ownerParam : undefined,

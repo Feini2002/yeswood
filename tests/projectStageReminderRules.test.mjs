@@ -277,6 +277,36 @@ test('summary-only projects can expose top-level workflow facts through the unif
   assert.equal(reminder.facts.nodes.displayStarted, true);
 });
 
+test('construction progress text alone does not bypass missing floor plan handoff evidence', () => {
+  const item = project({
+    硬装项目进度: raw('施工图'),
+    软装项目进度: raw('未开始'),
+    复尺时间: raw('2026-06-02'),
+  });
+
+  const result = resolveProjectStageReminder(item);
+
+  assert.equal(result.facts.nodes.constructionStarted, false);
+  assert.equal(result.facts.nodes.floorPlanDone, false);
+  assert.equal(result.currentStage.key, PROJECT_STAGE_KEYS.measured);
+  assert.equal(result.primaryReminder.message, '待平面开始');
+});
+
+test('soft point progress does not imply construction drawing review completion', () => {
+  const item = project({
+    硬装项目进度: raw('平面方案'),
+    软装项目进度: raw('点位设计'),
+    点位完成情况: raw('未完成'),
+    躺平内部审核结束时间: raw('2026-06-01'),
+  });
+
+  const result = resolveProjectStageReminder(item);
+
+  assert.equal(result.facts.nodes.pointStarted, true);
+  assert.equal(result.facts.nodes.constructionReviewDone, false);
+  assert.equal(result.currentStage.key, PROJECT_STAGE_KEYS.pointInProgress);
+});
+
 test('unfinished soft completion status with downstream facts advances stage and records status conflict', () => {
   const item = project({
     [field('softDoneStatus')]: raw('not done'),

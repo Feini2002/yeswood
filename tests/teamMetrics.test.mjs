@@ -1593,6 +1593,95 @@ test('/api/team-metrics-batch prefers matching precomputed metrics payloads', as
   );
 });
 
+test('/api/team-metrics falls back when precomputed metrics lack team groups', async () => {
+  let precomputedOwner = '';
+
+  await withTestServer(
+    async (port) => {
+      const payload = await getJson(
+        port,
+        `/api/team-metrics?owner=${encodeURIComponent(precomputedOwner)}&context=all`
+      );
+
+      assert.equal(payload.status, 200);
+      assert.notEqual(payload.body.precomputedHit, true);
+      assert.ok(Array.isArray(payload.body.team.groups));
+    },
+    {
+      beforeListen: async ({ config }) => {
+        const sourceSnapshot = await syncProjects({
+          config: {
+            ...config,
+            precomputeEnabled: false,
+          },
+          source: 'mock',
+        });
+        precomputedOwner = ownersFromSnapshot(sourceSnapshot, sourceSnapshot.personnelArchitecture)[0];
+        assert.ok(precomputedOwner);
+        await precomputeTeamDashboards(sourceSnapshot, {
+          config,
+          contexts: ['all'],
+          years: [2026],
+          now: new Date('2026-06-11T00:00:00.000Z'),
+        });
+
+        const snapshotHash = precomputeSnapshotHash(sourceSnapshot, sourceSnapshot.personnelArchitecture);
+        const teamMetricsDir = path.join(config.precomputeDir, snapshotHash, 'team-metrics');
+        const [fileName] = await fs.readdir(teamMetricsDir);
+        const filePath = path.join(teamMetricsDir, fileName);
+        const precomputed = JSON.parse(await fs.readFile(filePath, 'utf8'));
+        precomputed.metricsByOwner[precomputedOwner].precomputedHit = true;
+        delete precomputed.metricsByOwner[precomputedOwner].team.groups;
+        await fs.writeFile(filePath, `${JSON.stringify(precomputed)}\n`, 'utf8');
+      },
+    }
+  );
+});
+
+test('/api/team-metrics force refresh bypasses precomputed metrics', async () => {
+  let precomputedOwner = '';
+
+  await withTestServer(
+    async (port) => {
+      const payload = await getJson(
+        port,
+        `/api/team-metrics?owner=${encodeURIComponent(precomputedOwner)}&context=all&forceRefresh=true`
+      );
+
+      assert.equal(payload.status, 200);
+      assert.notEqual(payload.body.precomputedHit, true);
+      assert.ok(Array.isArray(payload.body.team.groups));
+    },
+    {
+      beforeListen: async ({ config }) => {
+        const sourceSnapshot = await syncProjects({
+          config: {
+            ...config,
+            precomputeEnabled: false,
+          },
+          source: 'mock',
+        });
+        precomputedOwner = ownersFromSnapshot(sourceSnapshot, sourceSnapshot.personnelArchitecture)[0];
+        assert.ok(precomputedOwner);
+        await precomputeTeamDashboards(sourceSnapshot, {
+          config,
+          contexts: ['all'],
+          years: [2026],
+          now: new Date('2026-06-11T00:00:00.000Z'),
+        });
+
+        const snapshotHash = precomputeSnapshotHash(sourceSnapshot, sourceSnapshot.personnelArchitecture);
+        const teamMetricsDir = path.join(config.precomputeDir, snapshotHash, 'team-metrics');
+        const [fileName] = await fs.readdir(teamMetricsDir);
+        const filePath = path.join(teamMetricsDir, fileName);
+        const precomputed = JSON.parse(await fs.readFile(filePath, 'utf8'));
+        precomputed.metricsByOwner[precomputedOwner].precomputedHit = true;
+        await fs.writeFile(filePath, `${JSON.stringify(precomputed)}\n`, 'utf8');
+      },
+    }
+  );
+});
+
 test('/api/dashboard-warmup prepares team completion and metrics precompute before first teams navigation', async () => {
   let configRef = null;
   let sourceSnapshot = null;

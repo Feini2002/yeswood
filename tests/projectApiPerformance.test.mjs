@@ -30,7 +30,7 @@ const sampleProjects = [
   },
 ];
 
-test('summary projects omit raw fields from list payloads', () => {
+test('summary projects omit non-critical raw fields from list payloads', () => {
   const [first] = summarizeProjects(sampleProjects);
   assert.equal(Object.hasOwn(first, 'rawFields'), false);
   assert.equal(first.name, 'Alpha');

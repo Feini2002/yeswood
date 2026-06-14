@@ -56,8 +56,9 @@ test('shouldReloadDashboard ignores missing update checks', () => {
   assert.equal(shouldReloadDashboard(null, { syncedAt: '2026-05-26T10:00:00.000Z' }), true);
 });
 
-test('startDevReload reloads the browser when the server sends a reload event', () => {
+test('startDevReload persists runtime state before browser reload', () => {
   let reloadCount = 0;
+  const callOrder = [];
   const listeners = {};
   const timers = [];
 
@@ -73,7 +74,15 @@ test('startDevReload reloads the browser when the server sends a reload event', 
 
   const source = startDevReload({
     EventSourceImpl: FakeEventSource,
-    locationRef: { reload: () => { reloadCount += 1; } },
+    locationRef: {
+      reload: () => {
+        callOrder.push('reload');
+        reloadCount += 1;
+      },
+    },
+    beforeReload: () => {
+      callOrder.push('persist');
+    },
     setTimeoutImpl: (callback) => {
       timers.push(callback);
       return timers.length;
@@ -85,6 +94,7 @@ test('startDevReload reloads the browser when the server sends a reload event', 
   assert.equal(timers.length, 1);
   timers[0]();
   assert.equal(reloadCount, 1);
+  assert.deepEqual(callOrder, ['persist', 'reload']);
 });
 
 test('startDevReload reconnects after the development event stream disconnects', () => {

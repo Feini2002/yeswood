@@ -36,6 +36,7 @@ export function startDevReload({
   locationRef = globalThis.location,
   setTimeoutImpl = globalThis.setTimeout,
   reconnectDelayMs = 1_200,
+  beforeReload = null,
 } = {}) {
   if (!EventSourceImpl || !locationRef?.reload) {
     return null;
@@ -49,6 +50,11 @@ export function startDevReload({
     }
     reloadScheduled = true;
     setTimeoutImpl(() => {
+      try {
+        beforeReload?.({ reason: 'dev-reload' });
+      } catch (error) {
+        console.warn('Dashboard runtime state persistence failed before dev reload', error);
+      }
       locationRef.reload();
     }, 800);
   };

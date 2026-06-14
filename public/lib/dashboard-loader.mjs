@@ -87,8 +87,9 @@ function waitForDashboardSessionRetry(delayMs) {
 }
 
 export function dashboardStatusPanel({ title, description = '', tone = 'neutral' } = {}) {
+  const role = tone === 'error' ? 'alert' : 'status';
   return `
-    <section class="dashboard-status-panel is-${escapeHtml(tone)}">
+    <section class="dashboard-status-panel is-${escapeHtml(tone)}" role="${role}" aria-live="polite">
       <div class="dashboard-status-mark" aria-hidden="true"></div>
       <div>
         <strong>${escapeHtml(title || '看板状态')}</strong>
@@ -142,11 +143,8 @@ export function renderDashboardStatusState(type = 'loading', error = null) {
       target.innerHTML = panel;
     }
   } else {
-    if (elements.overviewCommandCenter) {
-      elements.overviewCommandCenter.innerHTML = panel;
-    }
     if (elements.overviewSignalStrip) {
-      elements.overviewSignalStrip.innerHTML = '';
+      elements.overviewSignalStrip.innerHTML = panel;
     }
   }
 
@@ -162,7 +160,17 @@ function needsProjectCatalog(pageId = currentPageId()) {
 }
 
 
-function hasVisibleDashboardData() {
+function hasVisibleDashboardData(pageId = currentPageId()) {
+  if (pageId === 'teams') {
+    return Boolean(
+      state.teamMetrics?.owner ||
+        state.teamWorkCompletion?.owner ||
+        state.ownerReview?.owner
+    );
+  }
+  if (pageId === 'details') {
+    return Boolean(state.projects?.length || state.allProjects?.length);
+  }
   return Boolean(state.snapshot) && (Boolean(state.metrics) || Boolean(state.profileMetrics?.department));
 }
 
@@ -624,8 +632,8 @@ export async function softRefresh() {
 }
 
 
-export async function hardRefresh() {
-  const showBlockingLoader = !hasVisibleDashboardData();
+export async function hardRefresh({ preserveVisibleData = true } = {}) {
+  const showBlockingLoader = !preserveVisibleData || !hasVisibleDashboardData();
   if (showBlockingLoader) {
     renderDashboardStatusState('loading');
   }
@@ -633,7 +641,7 @@ export async function hardRefresh() {
     if (showBlockingLoader) {
       invalidateProjectCaches({ catalog: true, drill: true, details: true });
     }
-    await loadDashboard({ forceRefresh: true });
+    await loadDashboard({ forceRefresh: true, preserveVisibleData });
     return true;
   } catch (error) {
     if (showBlockingLoader) {
@@ -675,13 +683,14 @@ export async function refreshCurrentPage() {
 
   setPageRefreshInFlight(true);
   updatePageRefreshControl();
-  setSyncMessage('正在重新加载');
+  setSyncMessage('刷新中');
 
   try {
-    window.location.reload();
-    return true;
+    const refreshed = await hardRefresh({ preserveVisibleData: true });
+    setSyncMessage(refreshed ? '已刷新' : '刷新失败');
+    return refreshed;
   } catch (error) {
-    console.warn('Page reload failed', error);
+    console.warn('Page refresh failed', error);
     setSyncMessage('刷新失败');
     return false;
   } finally {
@@ -707,8 +716,7 @@ export async function syncDingTalk() {
         'x-dashboard-action': 'sync',
       },
     });
-    invalidateProjectCaches({ catalog: true, drill: true, details: true });
-    const loaded = await loadDashboard({ snapshot, forceRefresh: true });
+    const loaded = await loadDashboard({ snapshot, forceRefresh: true, preserveVisibleData: true, background: true });
     setSyncMessage(loaded ? '已同步' : '读模型生成中');
   } catch (error) {
     console.warn('Dashboard sync failed', error);
@@ -739,8 +747,7 @@ export async function checkForDashboardUpdate() {
   try {
     const nextSnapshot = await fetchJson('/api/snapshot');
     if (shouldReloadDashboard(state.snapshot, nextSnapshot)) {
-      invalidateProjectCaches({ catalog: true, drill: true, details: true });
-      await loadDashboard({ snapshot: nextSnapshot, forceRefresh: true });
+      await loadDashboard({ snapshot: nextSnapshot, forceRefresh: true, preserveVisibleData: true, background: true });
     }
   } catch (error) {
     console.warn('Dashboard update check failed', error);
@@ -793,5 +800,7 @@ export function renderAll() {
   elements.syncedAt.textContent = formatDateTime(snapshot.syncedAt);
   updateSyncControl();
   updatePageRefreshControl();
-  queueVisibleDrillPreload();
+  if (pageId !== 'overview') {
+    queueVisibleDrillPreload();
+  }
 }

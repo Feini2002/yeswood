@@ -866,8 +866,11 @@
 }
 
 .team-completion-groups-module {
-  border-color: rgba(138, 90, 18, 0.16);
-  background: #fffdfa;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .team-completion-submodule-header {
@@ -883,7 +886,7 @@
 
 .team-completion-groups > header,
 .team-completion-members > header,
-.team-completion-chart-panel > header {
+.team-completion-chart-heading {
   display: flex;
   align-items: end;
   justify-content: space-between;
@@ -902,7 +905,7 @@
 .team-completion-groups h4,
 .team-completion-members h4,
 .team-completion-submodule-header h4,
-.team-completion-chart-panel h4 {
+.team-completion-chart-heading h4 {
   margin: 0;
   color: #202721;
   font-size: 15px;
@@ -914,7 +917,7 @@
 .team-completion-groups p,
 .team-completion-members p,
 .team-completion-submodule-header p,
-.team-completion-chart-panel p {
+.team-completion-chart-heading p {
   margin: 0;
   color: rgba(51, 51, 51, 0.58);
   font-size: 12px;
@@ -1124,7 +1127,7 @@
   background: transparent;
 }
 
-.team-completion-chart-panel > header {
+.team-completion-chart-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -1133,11 +1136,11 @@
   padding: 0 0 4px;
 }
 
-.team-completion-chart-panel > header h4 {
+.team-completion-chart-heading h4 {
   margin: 0;
 }
 
-.team-completion-chart-panel > header p {
+.team-completion-chart-heading p {
   max-width: 760px;
   margin: 0;
   color: rgba(51, 51, 51, 0.54);
@@ -1149,7 +1152,50 @@
 
 .team-completion-monthly-chart {
   display: grid;
+  gap: 8px;
   min-height: 380px;
+}
+
+.team-completion-trend-tabs {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  overflow: hidden;
+  max-width: 100%;
+  border: 1px solid rgba(32, 48, 38, 0.12);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.team-completion-trend-tabs button {
+  min-width: 72px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-right: 1px solid rgba(32, 48, 38, 0.09);
+  background: transparent;
+  color: rgba(51, 51, 51, 0.66);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.team-completion-trend-tabs button:last-child {
+  border-right: 0;
+}
+
+.team-completion-trend-tabs button:hover,
+.team-completion-trend-tabs button:focus-visible {
+  background: rgba(31, 122, 69, 0.07);
+  color: #104020;
+  outline: none;
+}
+
+.team-completion-trend-tabs button.is-active {
+  background: rgba(31, 122, 69, 0.12);
+  color: #104020;
 }
 
 .team-completion-chart-shell {
@@ -1181,7 +1227,8 @@
 .team-completion-group-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
+  align-items: stretch;
 }
 
 .team-completion-group-card,
@@ -1193,6 +1240,24 @@
   border: 1px solid rgba(32, 48, 38, 0.1);
   border-radius: 8px;
   background: #fff;
+}
+
+.team-completion-group-card {
+  grid-template-rows: auto auto 1fr;
+  height: 100%;
+  padding: 10px 11px;
+  border-color: rgba(32, 48, 38, 0.06);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 -1px 0 rgba(32, 48, 38, 0.04);
+}
+
+.team-completion-group-card.is-active {
+  border-color: rgba(31, 122, 69, 0.24);
+  background: rgba(247, 252, 247, 0.74);
+  box-shadow:
+    inset 3px 0 0 rgba(31, 122, 69, 0.72),
+    inset 0 -1px 0 rgba(31, 122, 69, 0.08);
 }
 
 .team-completion-group-card header,
@@ -1277,6 +1342,44 @@
   font-size: 13px;
 }
 
+.team-completion-group-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  min-width: max-content;
+}
+
+.team-completion-group-actions b {
+  color: #104020;
+  font-size: 13px;
+  font-weight: 950;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.team-completion-group-actions button {
+  min-width: 42px;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 1px solid rgba(31, 122, 69, 0.18);
+  border-radius: 6px;
+  background: rgba(31, 122, 69, 0.06);
+  color: #104020;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.team-completion-group-actions button:hover,
+.team-completion-group-actions button:focus-visible {
+  border-color: rgba(31, 122, 69, 0.34);
+  background: rgba(31, 122, 69, 0.12);
+  outline: none;
+}
+
 .team-completion-member-footnote {
   display: flex;
   align-items: center;
@@ -1306,17 +1409,19 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
+  align-items: stretch;
 }
 
-.team-completion-scope-metrics span,
+.team-completion-scope-metrics > span,
 .team-completion-scope-metrics button.team-completion-scope-metric {
   display: grid;
-  gap: 2px;
+  gap: 6px;
   min-width: 0;
-  padding: 7px 8px;
-  border: 1px solid rgba(32, 48, 38, 0.08);
-  border-radius: 7px;
-  background: #fbfcfa;
+  min-height: 72px;
+  padding: 7px 8px 8px;
+  border: 1px solid rgba(32, 48, 38, 0.07);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.7);
 }
 
 .team-completion-scope-metrics button.team-completion-scope-metric {
@@ -1358,9 +1463,36 @@
 
 .team-completion-scope-metrics b {
   color: #104020;
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 950;
   line-height: 1;
+}
+
+.team-completion-metric-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  min-width: 0;
+}
+
+.team-completion-metric-values span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 5px 4px;
+  border-radius: 5px;
+  background: rgba(32, 48, 38, 0.035);
+}
+
+.team-completion-metric-values em {
+  font-size: 9px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.team-completion-metric-values b {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
 }
 
 .team-completion-scope-metrics .is-display b {
@@ -1406,25 +1538,27 @@
 .team-completion-group-members {
   display: flex;
   flex-wrap: wrap;
+  align-content: start;
+  align-items: start;
+  align-self: stretch;
   gap: 7px;
   min-width: 0;
-  padding-top: 9px;
-  border-top: 1px solid rgba(32, 48, 38, 0.08);
+  padding-top: 8px;
+  border-top: 1px solid rgba(32, 48, 38, 0.07);
 }
 
 .team-completion-member-pill {
   display: inline-grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 5px;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  min-width: 88px;
-  max-width: 154px;
+  min-width: 78px;
+  max-width: 136px;
   min-height: 30px;
   padding: 0 8px;
-  border: 1px solid rgba(32, 48, 38, 0.12);
+  border: 1px solid rgba(32, 48, 38, 0.1);
   border-left-width: 4px;
-  border-radius: 7px;
-  background: #fff;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.74);
   color: #202721;
   cursor: pointer;
   font: inherit;
@@ -1452,26 +1586,6 @@
   font-size: 12px;
   font-weight: 950;
   text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.team-completion-member-pill b {
-  color: #104020;
-  font-size: 12px;
-  font-weight: 950;
-  font-variant-numeric: tabular-nums;
-}
-
-.team-completion-member-pill i {
-  min-width: 0;
-  padding: 2px 4px;
-  border-radius: 4px;
-  background: rgba(183, 121, 31, 0.1);
-  color: #8a5a12;
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 900;
-  line-height: 1;
   white-space: nowrap;
 }
 
@@ -1982,9 +2096,10 @@
   gap: 8px;
   align-items: center;
   min-height: 38px;
+  margin: -4px 0 16px;
   padding: 9px 12px;
   border: 1px dashed rgba(138, 90, 18, 0.26);
-  border-radius: 8px;
+  border-radius: 6px;
   background: #fffdf8;
 }
 

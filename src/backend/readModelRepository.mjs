@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import zlib from 'node:zlib';
 
 import { paths } from './config.mjs';
+import { summarizeProjectRawFields } from './projectPresentation.mjs';
 import { mergeTeamWorkCompletionDetailPayload } from './teamWorkCompletionPayload.mjs';
 
 const gzipAsync = promisify(zlib.gzip);
@@ -269,8 +270,20 @@ function withProjectCatalogInteractionStatus(projectCatalog = null) {
   };
 }
 
-function projectCatalogHasRawFields(projectCatalog = null) {
-  return (projectCatalog?.items || []).some((project) => Object.hasOwn(project || {}, 'rawFields'));
+function projectHasDisallowedSummaryRawFields(project = {}) {
+  if (!Object.hasOwn(project || {}, 'rawFields')) {
+    return false;
+  }
+  const rawFields = project.rawFields;
+  if (!rawFields || typeof rawFields !== 'object') {
+    return true;
+  }
+  const allowed = summarizeProjectRawFields(rawFields);
+  return Object.keys(rawFields).some((key) => !Object.hasOwn(allowed, key));
+}
+
+function projectCatalogHasDisallowedRawFields(projectCatalog = null) {
+  return (projectCatalog?.items || []).some((project) => projectHasDisallowedSummaryRawFields(project));
 }
 
 function readProjectDetailIndex(dir) {
@@ -501,7 +514,7 @@ function buildReadModelResult(dir, params = {}, { stale = false, currentUnavaila
   if (!projectCatalog) {
     return { status: 'incomplete', payload: null, reason: 'project catalog summary read model is missing' };
   }
-  if (projectCatalogHasRawFields(projectCatalog)) {
+  if (projectCatalogHasDisallowedRawFields(projectCatalog)) {
     return { status: 'incomplete', payload: null, reason: 'project catalog summary contains raw fields' };
   }
   if (!profileDashboards.direct || !profileDashboards.franchise || !profileDashboards.department) {
@@ -624,7 +637,7 @@ function buildProjectCatalogSummaryReadModelResult(
   if (!projectCatalog) {
     return { status: 'incomplete', payload: null, reason: 'project catalog summary read model is missing' };
   }
-  if (projectCatalogHasRawFields(projectCatalog)) {
+  if (projectCatalogHasDisallowedRawFields(projectCatalog)) {
     return { status: 'incomplete', payload: null, reason: 'project catalog summary contains raw fields' };
   }
   if (!hasRequiredProjectCatalogSummaryFields(projectCatalog)) {

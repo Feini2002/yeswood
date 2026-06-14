@@ -160,3 +160,47 @@ test('refresh renders successful overview data without falling back to the start
   assert.doesNotMatch(app.elements.kpiGrid.innerHTML, /dashboard-status-panel/);
   assert.match(app.elements.syncedAt.textContent, /06\/09 14:13/);
 });
+
+test('drill modal opens with a polished matching state before project rows resolve', async () => {
+  let resolveCatalog;
+  const catalogPromise = new Promise((resolve) => {
+    resolveCatalog = () =>
+      resolve({
+        ok: true,
+        json: async () => ({
+          items: [{ id: 'p-1', name: 'Smoke Project', province: 'Shanghai', rawFields: {} }],
+          fieldCatalog: [],
+        }),
+      });
+  });
+  const app = await loadHarness({
+    fetchImpl: async (path) => {
+      const url = String(path);
+      if (url.startsWith('/api/projects') && url.includes('view=summary')) {
+        return catalogPromise;
+      }
+      if (url.startsWith('/api/projects') && url.includes('fields=ids')) {
+        return {
+          ok: true,
+          json: async () => ({ ids: ['p-1'], total: 1, readOnly: true }),
+        };
+      }
+      return { ok: true, json: async () => ({}) };
+    },
+  });
+  app.state.snapshot = { source: 'mock', syncedAt: '2026-06-09T00:00:00.000Z', totalRecords: 1 };
+
+  const { openDrillProjectModal } = await import('../public/components/drill-modal.mjs');
+  const modalPromise = openDrillProjectModal({ metric: 'totalProjects' }, { targetCount: 7, title: '项目总量' });
+
+  try {
+    assert.equal(app.elements.drillProjectModal.hidden, false);
+    assert.equal(app.elements.drillProjectModalStatus.textContent, '正在匹配项目');
+    assert.equal(app.elements.drillProjectModalCount.textContent, '7 项');
+    assert.match(app.elements.drillProjectRows.innerHTML, /drill-loading-state/);
+    assert.match(app.elements.drillProjectRows.innerHTML, /预计 7 项/);
+  } finally {
+    resolveCatalog?.();
+    await modalPromise;
+  }
+});

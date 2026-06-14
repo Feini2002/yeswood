@@ -231,14 +231,16 @@ export async function loadTeamDashboardSessionBundle(
   if (payload?.status === 'preparing' && !payload.team) {
     const previousReview = state.teamWorkCompletion?.owner ? state.teamWorkCompletion : null;
     const preserveReview = teamWorkCompletionReviewMatchesOwner(previousReview, owner);
-    state.teamWorkCompletion = preserveReview ? previousReview : null;
+    const switchingReview = previousReview && !preserveReview ? previousReview : null;
+    const visibleReview = preserveReview ? previousReview : switchingReview;
+    state.teamWorkCompletion = visibleReview || null;
     state.teamWorkCompletionYear = normalizedYear;
-    state.teamWorkCompletionLoading = !preserveReview;
+    state.teamWorkCompletionLoading = !visibleReview;
     state.teamWorkCompletionError = '';
     state.selectedTeamOwner = owner;
-    state.teamWorkCompletionRefreshStatus = 'preparing';
+    state.teamWorkCompletionRefreshStatus = switchingReview ? 'switching' : 'preparing';
     state.teamWorkCompletionRefreshError = payload.reason || '';
-    state.teamWorkCompletionSwitchTarget = preserveReview ? '' : owner;
+    state.teamWorkCompletionSwitchTarget = switchingReview ? owner : '';
     return {
       status: 'preparing',
       reason: payload.reason || payload.status,
@@ -677,9 +679,10 @@ export async function loadTeamWorkCompletion(
   }
   const previousReview = state.teamWorkCompletion?.owner ? state.teamWorkCompletion : null;
   const previousReviewMatchesOwner = teamWorkCompletionReviewMatchesOwner(previousReview, owner);
-  const staleReview = !cachedReview && !background && previousReviewMatchesOwner ? previousReview : null;
-  const visibleReview = cachedReview || staleReview;
   const switchingOwner = Boolean(previousReview && String(owner || '').trim() && !previousReviewMatchesOwner);
+  const staleReview = !cachedReview && !background && previousReviewMatchesOwner ? previousReview : null;
+  const switchingReview = !cachedReview && !background && switchingOwner ? previousReview : null;
+  const visibleReview = cachedReview || staleReview || switchingReview;
   if (!background) {
     state.teamWorkCompletion = visibleReview || null;
     state.teamWorkCompletionYear = normalizedYear;
@@ -1168,6 +1171,7 @@ export function clearTeamDashboardContent() {
 
 export function renderTeamDashboardLoading(owner = state.selectedTeamOwner) {
   const ownerName = teamOwnerDisplayName(owner);
+  const hasVisibleMetrics = Boolean(state.teamMetrics?.owner);
   elements.teamDashboardTitle.textContent = '负责人项目盘面';
   elements.teamHeadline.innerHTML = `
     <span class="team-refresh-chip">
@@ -1175,6 +1179,9 @@ export function renderTeamDashboardLoading(owner = state.selectedTeamOwner) {
       ${escapeHtml(ownerName ? `正在刷新 ${ownerName}` : '正在刷新小组数据')}
     </span>
   `;
+  if (hasVisibleMetrics) {
+    return;
+  }
   elements.teamHeroStats.innerHTML = renderTeamHeroStoreTierDistribution({}, { loading: true });
   elements.teamDashboardMeta.textContent = '';
   if (elements.teamCoverageNote) {

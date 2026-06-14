@@ -807,6 +807,41 @@
   min-height: 260px;
 }
 
+.drill-loading-state {
+  grid-column: 1 / -1;
+  min-height: 210px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  padding: 28px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.drill-loading-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: var(--green-soft);
+  box-shadow: inset 0 0 0 8px rgba(16, 64, 32, 0.06);
+  animation: team-refresh-pulse 1s ease-out infinite;
+}
+
+.drill-loading-state strong {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.drill-loading-state p {
+  max-width: 360px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.55;
+}
+
 .drill-project-table .project-workbench-row {
   min-height: 54px;
   padding-top: 8px;

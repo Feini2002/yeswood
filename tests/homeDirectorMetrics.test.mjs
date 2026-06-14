@@ -120,9 +120,10 @@ test('classifyProjectStage keeps recovered pause projects in active lifecycle st
       rawFields: {
         硬装项目进度: raw('曾暂停，现施工图推进'),
         软装项目进度: raw('未开始'),
+        躺平内部审核结束时间: raw('2026-06-01'),
       },
     }),
-    { key: 'point', label: '点位设计' }
+    { key: 'drawing', label: '施工图' }
   );
 });
 
@@ -215,6 +216,31 @@ test('classifyProjectStage treats single-track workflow closure as company close
   );
 });
 
+test('classifyProjectStage ignores unstarted point status values when soft work has not started', () => {
+  const projects = [
+    {
+      id: 'meeting-point-unstarted',
+      rawFields: {
+        硬装项目进度: raw('完成上会'),
+        软装项目进度: raw('未开始'),
+        点位完成情况: raw('未开始'),
+      },
+    },
+    {
+      id: 'measure-point-paused',
+      rawFields: {
+        硬装项目进度: raw('完成复尺'),
+        软装项目进度: raw('未开始'),
+        点位完成情况: raw('暂停'),
+      },
+    },
+  ];
+
+  assert.deepEqual(classifyProjectStage(projects[0]), { key: 'meeting', label: '待复尺' });
+  assert.deepEqual(classifyProjectStage(projects[1]), { key: 'plan', label: '平面方案' });
+  assert.deepEqual(filterProjects(projects, { lifecycleStage: 'point' }), []);
+});
+
 test('classifyProjectStage uses summary stage reminder when raw fields are absent', () => {
   assert.deepEqual(
     classifyProjectStage({
@@ -252,9 +278,9 @@ test('classifyProjectStage maps summary-only unified stage chain without raw fie
   assert.equal(classifyProjectStage(projectForStage('softInProgress')).key, 'softEntry');
   assert.equal(classifyProjectStage(projectForStage('pointDone')).key, 'softEntry');
   assert.equal(classifyProjectStage(projectForStage('pointInProgress')).key, 'point');
-  assert.equal(classifyProjectStage(projectForStage('constructionReviewDone')).key, 'point');
-  assert.equal(classifyProjectStage(projectForStage('constructionInProgress')).key, 'point');
-  assert.equal(classifyProjectStage(projectForStage('floorPlanDone')).key, 'drawing');
+  assert.equal(classifyProjectStage(projectForStage('constructionReviewDone')).key, 'drawing');
+  assert.equal(classifyProjectStage(projectForStage('constructionInProgress')).key, 'drawing');
+  assert.equal(classifyProjectStage(projectForStage('floorPlanDone')).key, 'plan');
   assert.equal(classifyProjectStage(projectForStage('floorPlanInProgress')).key, 'plan');
   assert.equal(classifyProjectStage(projectForStage('measured')).key, 'plan');
   assert.equal(classifyProjectStage(projectForStage('meeting')).key, 'meeting');
@@ -323,7 +349,7 @@ test('classifyProjectStage follows the real lifecycle gate before soft not-start
         软装项目进度: raw('未开始'),
       },
     }),
-    { key: 'point', label: '点位设计' }
+    { key: 'plan', label: '平面方案' }
   );
 
   assert.deepEqual(
@@ -371,7 +397,7 @@ test('classifyProjectStage follows the real lifecycle gate before soft not-start
   );
 });
 
-test('classifyProjectStage moves finished floor plans into active point design', () => {
+test('classifyProjectStage keeps finished floor plans in plan until construction drawing has evidence', () => {
   const floorPlanStarted = {
     id: 'floor-plan-started',
     rawFields: {
@@ -389,36 +415,37 @@ test('classifyProjectStage moves finished floor plans into active point design',
   };
 
   assert.deepEqual(classifyProjectStage(floorPlanStarted), { key: 'plan', label: '平面方案' });
-  assert.deepEqual(classifyProjectStage(floorPlanFinished), { key: 'point', label: '点位设计' });
+  assert.deepEqual(classifyProjectStage(floorPlanFinished), { key: 'plan', label: '平面方案' });
   assert.deepEqual(
     filterProjects([floorPlanStarted, floorPlanFinished], { lifecycleStage: 'plan' }).map((project) => project.id),
-    ['floor-plan-started']
-  );
-  assert.deepEqual(
-    filterProjects([floorPlanStarted, floorPlanFinished], { lifecycleStage: 'point' }).map((project) => project.id),
-    ['floor-plan-finished']
+    ['floor-plan-started', 'floor-plan-finished']
   );
   assert.deepEqual(filterProjects([floorPlanFinished], { lifecycleStage: 'drawing' }), []);
+  assert.deepEqual(
+    filterProjects([floorPlanStarted, floorPlanFinished], { lifecycleStage: 'point' }).map((project) => project.id),
+    []
+  );
 });
 
-test('classifyProjectStage treats construction text as point design handoff when soft stage is not updated', () => {
+test('classifyProjectStage treats construction text as drawing when soft stage is not updated', () => {
   const constructionStarted = {
     id: 'construction-started-soft-waiting',
     rawFields: {
       硬装项目进度: raw('施工图'),
       软装项目进度: raw('未开始'),
+      躺平内部审核结束时间: raw('2026-06-01'),
     },
   };
 
-  assert.deepEqual(classifyProjectStage(constructionStarted), { key: 'point', label: '点位设计' });
+  assert.deepEqual(classifyProjectStage(constructionStarted), { key: 'drawing', label: '施工图' });
   assert.deepEqual(
-    filterProjects([constructionStarted], { lifecycleStage: 'point' }).map((project) => project.id),
+    filterProjects([constructionStarted], { lifecycleStage: 'drawing' }).map((project) => project.id),
     ['construction-started-soft-waiting']
   );
-  assert.deepEqual(filterProjects([constructionStarted], { lifecycleStage: 'drawing' }), []);
+  assert.deepEqual(filterProjects([constructionStarted], { lifecycleStage: 'point' }), []);
 });
 
-test('buildDirectorOverviewModel keeps construction handoff visible as parallel work inside point stage', () => {
+test('buildDirectorOverviewModel keeps construction drawing visible before point stage', () => {
   const model = buildDirectorOverviewModel({
     projects: [
       {
@@ -427,13 +454,36 @@ test('buildDirectorOverviewModel keeps construction handoff visible as parallel 
         rawFields: {
           硬装项目进度: raw('施工图'),
           软装项目进度: raw('未开始'),
+          躺平内部审核结束时间: raw('2026-06-01'),
+        },
+      },
+      {
+        id: 'point-with-parallel-drawing',
+        progress: 58,
+        rawFields: {
+          硬装项目进度: raw('施工图'),
+          躺平内部审核结束时间: raw('2026-06-01'),
+          软装项目进度: raw('点位设计'),
+          点位完成情况: raw('未完成'),
+        },
+      },
+      {
+        id: 'point-with-finished-floor-plan',
+        progress: 48,
+        rawFields: {
+          硬装项目进度: raw('平面方案'),
+          躺平内部审核结束时间: raw('2026-06-01'),
+          软装项目进度: raw('点位设计'),
+          点位完成情况: raw('未完成'),
         },
       },
     ],
   });
 
+  const drawingStage = model.stageLane.find((stage) => stage.key === 'drawing');
   const pointStage = model.stageLane.find((stage) => stage.key === 'point');
-  assert.equal(pointStage.total, 1);
+  assert.equal(drawingStage.total, 2);
+  assert.equal(pointStage.total, 2);
   assert.equal(pointStage.parallelHardConstruction, 1);
 });
 
@@ -469,6 +519,17 @@ test('filterProjects can drill by the same lifecycle stage used by the director 
       rawFields: {
         硬装项目进度: raw('施工图'),
         软装项目进度: raw('未开始'),
+        躺平内部审核结束时间: raw('2026-06-01'),
+      },
+    },
+    {
+      id: 'drawing-and-point-parallel',
+      progress: 58,
+      rawFields: {
+        硬装项目进度: raw('施工图'),
+        躺平内部审核结束时间: raw('2026-06-01'),
+        软装项目进度: raw('点位设计'),
+        点位完成情况: raw('未完成'),
       },
     },
     {
@@ -482,10 +543,13 @@ test('filterProjects can drill by the same lifecycle stage used by the director 
   ];
 
   assert.deepEqual(
-    filterProjects(stagedProjects, { lifecycleStage: 'point' }).map((project) => project.id),
-    ['drawing-soft-waiting']
+    filterProjects(stagedProjects, { lifecycleStage: 'drawing' }).map((project) => project.id),
+    ['drawing-soft-waiting', 'drawing-and-point-parallel']
   );
-  assert.deepEqual(filterProjects(stagedProjects, { lifecycleStage: 'drawing' }), []);
+  assert.deepEqual(
+    filterProjects(stagedProjects, { lifecycleStage: 'point' }).map((project) => project.id),
+    ['drawing-and-point-parallel']
+  );
   assert.deepEqual(
     filterProjects(stagedProjects, { lifecycleStage: 'notStarted' }).map((project) => project.id),
     ['true-not-started']

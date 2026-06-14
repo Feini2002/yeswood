@@ -304,13 +304,55 @@ async function loadSelectedTeamOwner(owner = elements.teamOwnerSelect.value) {
   return loadTeamDashboardScope(owner, dashboardContext || 'direct', state.teamWorkCompletionYear);
 }
 
+const DASHBOARD_RUNTIME_STATE_STORAGE_KEY = 'yeswood.dashboard.runtimeState.v1';
+
+export function captureDashboardRuntimeState({ reason = '' } = {}) {
+  return {
+    version: 1,
+    reason,
+    savedAt: new Date().toISOString(),
+    route: window.location.hash || '#overview',
+    snapshot: state.snapshot || null,
+    metrics: state.metrics || null,
+    profileMetrics: state.profileMetrics || {},
+    allProjects: state.allProjects || [],
+    fieldCatalog: state.fieldCatalog || [],
+    projectsCatalogLoaded: Boolean(state.projectsCatalogLoaded),
+    projectsCatalogSignature: state.projectsCatalogSignature || '',
+    selectedTeamOwner: state.selectedTeamOwner || '',
+    teamWorkCompletionYear: state.teamWorkCompletionYear || '',
+    teamMetrics: state.teamMetrics || null,
+    teamWorkCompletion: state.teamWorkCompletion || null,
+    ownerReview: state.ownerReview || null,
+    teamMetricsByOwner: state.teamMetricsByOwner || {},
+    teamWorkCompletionByKey: state.teamWorkCompletionByKey || {},
+    ownerReviewByKey: state.ownerReviewByKey || {},
+  };
+}
+
+export function persistDashboardRuntimeState(options = {}) {
+  const storage = globalThis.sessionStorage || window.sessionStorage;
+  if (!storage?.setItem) {
+    return false;
+  }
+  try {
+    storage.setItem(DASHBOARD_RUNTIME_STATE_STORAGE_KEY, JSON.stringify(captureDashboardRuntimeState(options)));
+    return true;
+  } catch (error) {
+    console.warn('Dashboard runtime state persistence failed', error);
+    return false;
+  }
+}
+
 export async function init() {
   initTooltipSystem();
   showPage(currentPageId(), { skipPageDataLoad: true });
   bindEvents();
   updateSyncControl();
   updatePageRefreshControl();
-  startDevReload();
+  startDevReload({
+    beforeReload: () => persistDashboardRuntimeState({ reason: 'dev-reload' }),
+  });
   renderDashboardStatusState('loading');
   try {
     await loadDashboard();

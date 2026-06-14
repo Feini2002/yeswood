@@ -2,6 +2,7 @@ import { state } from '../lib/state.mjs';
 import { fetchJson } from '../lib/api.mjs';
 import { runtimeStore } from '../lib/runtime-flags.mjs';
 import { snapshotSignature } from '../realtime.js';
+import { matchesProjectLifecycleStage } from '../dashboard/project-lifecycle.mjs';
 
 const COMPLEX_FILTER_KEYS = [
   'metric',
@@ -22,6 +23,15 @@ const COMPLEX_FILTER_KEYS = [
 
 const DRILL_CACHE_LIMIT = 32;
 const PROJECT_DETAIL_CACHE_LIMIT = 48;
+const LOCAL_DRILL_FILTER_KEYS = new Set([
+  'search',
+  'province',
+  'businessType',
+  'storeStatus',
+  'status',
+  'riskLevel',
+  'lifecycleStage',
+]);
 
 function normalizeText(value) {
   return String(value ?? '').trim();
@@ -206,9 +216,15 @@ export function filterProjectsLocally(projects = [], filters = readFilters()) {
       matchesValue(project.province, filters.province) &&
       matchesValue(project.businessType, filters.businessType) &&
       matchesValue(project.storeStatus, filters.storeStatus) &&
-      matchesValue(project.status, filters.status)
+      matchesValue(project.status, filters.status) &&
+      matchesValue(project.riskLevel, filters.riskLevel) &&
+      matchesProjectLifecycleStage(project, filters.lifecycleStage)
     );
   });
+}
+
+function canResolveDrillProjectsLocally(filters = {}) {
+  return Object.entries(filters || {}).every(([key, value]) => !normalizeText(value) || LOCAL_DRILL_FILTER_KEYS.has(key));
 }
 
 export async function fetchFilteredProjects(filters = readFilters(), { view = 'summary' } = {}) {
@@ -281,11 +297,10 @@ export async function fetchProjectDetail(projectId) {
   }
 
   const readModelPath = `/api/projects?id=${encodeURIComponent(id)}&view=full&fallback=readModel`;
-  const computePath = `/api/projects?id=${encodeURIComponent(id)}&view=full&fallback=compute`;
   const request = fetchJson(readModelPath)
     .then((payload) => {
       if (payload?.status === 'preparing') {
-        return fetchJson(computePath);
+        return null;
       }
       return payload;
     })
@@ -357,6 +372,10 @@ async function resolveDrillProjectsUncached(filters = {}) {
   if (!catalogIsFresh() || !state.allProjects.length) {
     const payload = await fetchFilteredProjects(filters, { view: 'summary' });
     return payload.items || [];
+  }
+
+  if (canResolveDrillProjectsLocally(filters)) {
+    return filterProjectsLocally(state.allProjects, filters);
   }
 
   const ids = await fetchDrillProjectIds(filters);

@@ -178,6 +178,10 @@ function disposeTeamCompletionMonthlyChart() {
   teamCompletionMonthlyChartInstance = null;
 }
 
+function currentTeamCompletionChartHost() {
+  return elements.teamCompletionMonthlyChart?.querySelector?.('[data-team-completion-chart-host]') || null;
+}
+
 function metricSummary(source = {}, key) {
   return source.summary?.[key] || {};
 }
@@ -696,6 +700,45 @@ function groupByName(name, review = state.teamWorkCompletion) {
   return (review?.groups || []).find((group) => group.name === target) || null;
 }
 
+function selectedTeamCompletionTrendGroupName(review = state.teamWorkCompletion) {
+  const groupName = String(state.selectedTeamCompletionTrendGroup || '').trim();
+  return groupByName(groupName, review) ? groupName : '';
+}
+
+function setTeamCompletionTrendScope(scopeValue = 'team', review = state.teamWorkCompletion) {
+  const nextScope = String(scopeValue || '').trim();
+  if (!nextScope || nextScope === 'team') {
+    state.selectedTeamCompletionTrendGroup = '';
+    return '';
+  }
+  const group = groupByName(nextScope, review);
+  state.selectedTeamCompletionTrendGroup = group?.name || '';
+  return state.selectedTeamCompletionTrendGroup;
+}
+
+function ensureTeamCompletionTrendScope(review = state.teamWorkCompletion) {
+  if (state.selectedTeamCompletionTrendGroup && !groupByName(state.selectedTeamCompletionTrendGroup, review)) {
+    state.selectedTeamCompletionTrendGroup = '';
+  }
+}
+
+function teamCompletionTrendScope(review = state.teamWorkCompletion, fallbackMonths = review?.monthly?.months || []) {
+  const groupName = selectedTeamCompletionTrendGroupName(review);
+  const group = groupName ? groupByName(groupName, review) : null;
+  const year = review?.year || state.teamWorkCompletionYear;
+  const label = group?.name || '团队';
+  const months = group ? group.monthly?.months || [] : fallbackMonths || [];
+  return {
+    group,
+    groupName: group?.name || '',
+    label,
+    scopeValue: group?.name || 'team',
+    title: `${label} 1-12 月完成趋势`,
+    ariaLabel: `${year} 年${label}月度完成趋势`,
+    months,
+  };
+}
+
 function membersByName(review = state.teamWorkCompletion) {
   return new Map((review?.members || []).map((member) => [member.name, member]));
 }
@@ -801,12 +844,14 @@ function monthlyProjectIds(month = {}, metricKey = '', status = 'completed') {
   return uniqueProjectIds(month.projectIds?.[monthlyProjectIdsKey(metricKey, status)] || []);
 }
 
-function teamCompletionMonthByNumber(monthNumber, review = state.teamWorkCompletion) {
+function teamCompletionMonthByNumber(monthNumber, review = state.teamWorkCompletion, groupName = '') {
   const targetMonth = safeNumber(monthNumber);
-  return (review?.monthly?.months || []).find((month) => safeNumber(month.month) === targetMonth) || null;
+  const group = groupByName(groupName, review);
+  const months = group ? group.monthly?.months || [] : review?.monthly?.months || [];
+  return months.find((month) => safeNumber(month.month) === targetMonth) || null;
 }
 
-function monthCompletionScope(month = {}, review = state.teamWorkCompletion) {
+function monthCompletionScope(month = {}, review = state.teamWorkCompletion, group = null) {
   const summary = {};
   const allProjectIds = new Set();
   TEAM_COMPLETION_METRICS.forEach((metric) => {
@@ -829,6 +874,8 @@ function monthCompletionScope(month = {}, review = state.teamWorkCompletion) {
     label: teamCompletionMonthLabel(month),
     year: review?.year || state.teamWorkCompletionYear,
     dashboardContext: review?.dashboardContext || 'all',
+    groupName: group?.name || '',
+    name: group?.name || '',
     projectCount: projectIds.length,
     projectIds,
     summary,
@@ -1135,15 +1182,24 @@ export function buildTeamCompletionMonthlyChartOption(months = [], review = stat
   };
 }
 
-export async function renderTeamCompletionECharts(months = state.teamWorkCompletion?.monthly?.months || [], review = state.teamWorkCompletion) {
-  const host = elements.teamCompletionMonthlyChart?.querySelector?.('[data-team-completion-chart-host]');
+export async function renderTeamCompletionECharts(
+  months = state.teamWorkCompletion?.monthly?.months || [],
+  review = state.teamWorkCompletion,
+  options = {}
+) {
+  const host = currentTeamCompletionChartHost();
   if (!host || shouldSkipTeamCompletionChartRuntime()) {
     return;
   }
+  const loadECharts = typeof options.loadECharts === 'function' ? options.loadECharts : loadTeamCompletionECharts;
   const renderToken = (teamCompletionMonthlyChartRenderToken += 1);
   try {
-    const echarts = resolveTeamCompletionECharts(await loadTeamCompletionECharts());
-    if (renderToken !== teamCompletionMonthlyChartRenderToken || !echarts?.init) {
+    const echarts = resolveTeamCompletionECharts(await loadECharts());
+    if (
+      renderToken !== teamCompletionMonthlyChartRenderToken ||
+      !echarts?.init ||
+      currentTeamCompletionChartHost() !== host
+    ) {
       return;
     }
     disposeTeamCompletionMonthlyChart();
@@ -1160,7 +1216,9 @@ export async function renderTeamCompletionECharts(months = state.teamWorkComplet
     teamCompletionMonthlyChartInstance = chart;
     window.setTimeout(() => chart.resize?.(), 0);
   } catch (error) {
-    host.innerHTML = renderTeamCompletionChartFallback(`ECharts 加载失败：${error?.message || '未知错误'}`);
+    if (renderToken === teamCompletionMonthlyChartRenderToken && currentTeamCompletionChartHost() === host) {
+      host.innerHTML = renderTeamCompletionChartFallback(`ECharts 加载失败：${error?.message || '未知错误'}`);
+    }
   }
 }
 
@@ -1302,37 +1360,109 @@ export function renderTeamCompletionHeroStats(review = state.teamWorkCompletion)
   if (!elements.teamCompletionHeroStats) {
     return;
   }
-  elements.teamCompletionHeroStats.innerHTML = TEAM_COMPLETION_FILTERS.map((filter) =>
-    renderTeamCompletionFilterCard(review, filter)
-  ).join('');
+  const refreshChip = renderTeamCompletionRefreshChip();
+  elements.teamCompletionHeroStats.innerHTML = [
+    refreshChip,
+    ...TEAM_COMPLETION_FILTERS.map((filter) => renderTeamCompletionFilterCard(review, filter)),
+  ]
+    .filter(Boolean)
+    .join('');
 }
 
-export function renderTeamCompletionMonthlyChart(months = state.teamWorkCompletion?.monthly?.months || []) {
+function renderTeamCompletionRefreshChip() {
+  const status = state.teamWorkCompletionRefreshStatus;
+  if (!status) {
+    return '';
+  }
+  const target = String(state.teamWorkCompletionSwitchTarget || '').trim();
+  const messages = {
+    switching: target ? `正在切换到 ${target}` : '正在切换团队完成情况',
+    refreshing: '刷新中',
+    preparing: '读模型生成中，当前显示上次结果',
+    stale: '刷新失败，显示上次结果',
+  };
+  const label = messages[status] || '';
+  if (!label) {
+    return '';
+  }
+  const warningClass = status === 'stale' || status === 'preparing' ? ' is-warning' : '';
+  return `
+    <span class="team-refresh-chip${warningClass}">
+      <span class="team-refresh-dot" aria-hidden="true"></span>
+      ${escapeHtml(label)}
+    </span>
+  `;
+}
+
+function renderTeamCompletionTrendScopeTabs(review = state.teamWorkCompletion, activeScopeValue = 'team') {
+  const groups = Array.isArray(review?.groups) ? review.groups : [];
+  const scopes = [{ value: 'team', label: '团队整体' }, ...groups.map((group) => ({ value: group.name || '', label: group.name || '未命名小组' }))];
+  return `
+    <div class="team-completion-trend-tabs" role="tablist" aria-label="月度趋势统计范围">
+      ${scopes
+        .filter((scope) => scope.value)
+        .map((scope) => {
+          const active = scope.value === activeScopeValue;
+          return `
+            <button
+              class="${active ? 'is-active' : ''}"
+              type="button"
+              role="tab"
+              data-team-completion-trend-scope="${escapeHtml(scope.value)}"
+              aria-selected="${active ? 'true' : 'false'}"
+            >
+              ${escapeHtml(scope.label)}
+            </button>
+          `;
+        })
+        .join('')}
+    </div>
+  `;
+}
+
+export function renderTeamCompletionMonthlyChart(
+  months = state.teamWorkCompletion?.monthly?.months || [],
+  review = state.teamWorkCompletion
+) {
   if (!elements.teamCompletionMonthlyChart) {
     return;
   }
   disposeTeamCompletionMonthlyChart();
-  if (!months.length) {
-    elements.teamCompletionMonthlyChart.innerHTML = renderEmptyState({
-      title: '暂无月度完成记录',
-      description: '当前年份没有可靠完成日期可用于柱状图。',
-      compact: true,
-    });
+  ensureTeamCompletionTrendScope(review);
+  const trendScope = teamCompletionTrendScope(review, months);
+  const chartHeader = `
+    <header class="team-completion-chart-heading">
+      <div>
+        <h4>${escapeHtml(trendScope.title)}</h4>
+      </div>
+      ${renderTeamCompletionTrendScopeTabs(review, trendScope.scopeValue)}
+    </header>
+  `;
+  if (!trendScope.months.length) {
+    elements.teamCompletionMonthlyChart.innerHTML = `
+      ${chartHeader}
+      ${renderEmptyState({
+        title: `${trendScope.label}暂无月度完成记录`,
+        description: '当前年份没有可靠完成日期可用于柱状图。',
+        compact: true,
+      })}
+    `;
     return;
   }
   elements.teamCompletionMonthlyChart.innerHTML = `
+    ${chartHeader}
     <div class="team-completion-chart-shell">
       <div
         class="team-completion-chart-host"
         data-team-completion-chart-host
         role="img"
-        aria-label="${escapeHtml(state.teamWorkCompletion?.year || state.teamWorkCompletionYear)} 年团队月度完成趋势"
+        aria-label="${escapeHtml(trendScope.ariaLabel)}"
       >
         ${renderTeamCompletionChartFallback()}
       </div>
     </div>
   `;
-  void renderTeamCompletionECharts(months, state.teamWorkCompletion);
+  void renderTeamCompletionECharts(trendScope.months, review);
 }
 
 function renderMiniMonthlyChart(months = []) {
@@ -1366,8 +1496,16 @@ function renderScopeMetricStrip(scope = {}, { groupName = '' } = {}) {
         const inProgress = metricInProgress(scope, metric.key);
         const content = `
           <small>${escapeHtml(metric.label)}</small>
-          <b>${completed}</b>
-          <em>${inProgress} 进行中</em>
+          <span class="team-completion-metric-values">
+            <span>
+              <em>已完成</em>
+              <b>${completed}</b>
+            </span>
+            <span>
+              <em>进行中</em>
+              <b>${inProgress}</b>
+            </span>
+          </span>
         `;
         if (groupName) {
           return `
@@ -1432,8 +1570,6 @@ function renderTeamCompletionMemberButton(member = {}, fallbackName = '') {
       title="${escapeHtml(`${displayName} · ${projectCount} 项${missingDateCount ? ` · 缺日期 ${missingDateCount}` : ''}`)}"
     >
       <span>${escapeHtml(displayName)}</span>
-      <b>${escapeHtml(projectCount)}</b>
-      ${missingDateCount ? `<i>缺${escapeHtml(missingDateCount)}</i>` : ''}
     </button>
   `;
 }
@@ -1493,6 +1629,7 @@ export function renderTeamCompletionGroups(review = state.teamWorkCompletion) {
     return;
   }
   const groups = Array.isArray(review?.groups) ? review.groups : [];
+  const activeGroupName = selectedTeamCompletionTrendGroupName(review);
   if (!groups.length) {
     elements.teamCompletionGroupGrid.innerHTML = renderEmptyState({
       title: '暂无小组配置',
@@ -1503,21 +1640,33 @@ export function renderTeamCompletionGroups(review = state.teamWorkCompletion) {
   }
   elements.teamCompletionGroupGrid.innerHTML = groups
     .map(
-      (group) => `
-        <article class="team-completion-group-card">
+      (group) => {
+        const groupName = group.name || '未命名小组';
+        const active = Boolean(activeGroupName && group.name === activeGroupName);
+        return `
+        <article class="team-completion-group-card${active ? ' is-active' : ''}" data-team-completion-group-card="${escapeHtml(groupName)}">
           <header>
             <div>
               <span class="team-completion-group-titleline">
-                <strong>${escapeHtml(group.name || '未命名小组')}</strong>
+                <strong>${escapeHtml(groupName)}</strong>
                 <small><span class="team-completion-group-lead">组长 ${escapeHtml(teamCompletionGroupLeadDisplay(group))}</span> · ${safeNumber(group.memberNames?.length)} 人</small>
               </span>
             </div>
-            <span>${safeNumber(group.projectCount)} 项</span>
+            <span class="team-completion-group-actions">
+              <b>${safeNumber(group.projectCount)} 项</b>
+              <button
+                type="button"
+                data-team-completion-group-trend="${escapeHtml(groupName)}"
+                aria-pressed="${active ? 'true' : 'false'}"
+                aria-label="查看${escapeHtml(groupName)} 1-12 月完成趋势"
+              >趋势</button>
+            </span>
           </header>
-          ${renderScopeMetricStrip(group, { groupName: group.name || '' })}
+          ${renderScopeMetricStrip(group, { groupName: groupName })}
           ${renderTeamCompletionGroupMembers(group, review)}
         </article>
-      `
+      `;
+      }
     )
     .join('');
 }
@@ -1814,12 +1963,14 @@ function teamCompletionModalScope(review = state.teamWorkCompletion) {
     };
   }
   if (state.teamCompletionModalScopeType === 'month') {
-    const month = teamCompletionMonthByNumber(state.selectedTeamCompletionMonth, review);
-    const scope = month ? monthCompletionScope(month, review) : null;
+    const group = groupByName(state.selectedTeamCompletionGroup, review);
+    const month = teamCompletionMonthByNumber(state.selectedTeamCompletionMonth, review, group?.name || '');
+    const scope = month ? monthCompletionScope(month, review, group) : null;
+    const year = review?.year || state.teamWorkCompletionYear;
     return {
       scope,
-      title: month ? `${review?.year || state.teamWorkCompletionYear}年 ${teamCompletionMonthLabel(month)}完成` : '月度完成',
-      subtitle: `${contextLabel(review?.dashboardContext || 'all')} · 月度完成明细`,
+      title: month ? `${group ? `${group.name} ` : ''}${year}年 ${teamCompletionMonthLabel(month)}完成` : '月度完成',
+      subtitle: `${contextLabel(review?.dashboardContext || 'all')} · ${group ? '小组月度完成明细' : '月度完成明细'}`,
       emptyTitle: '暂无月度完成详情',
     };
   }
@@ -2021,13 +2172,15 @@ export function openTeamCompletionMonthModal(monthNumber, metricKey = '') {
   if (!elements.teamCompletionMemberModal) {
     return;
   }
-  const month = teamCompletionMonthByNumber(monthNumber);
+  const trendGroupName = selectedTeamCompletionTrendGroupName(state.teamWorkCompletion);
+  const trendGroup = groupByName(trendGroupName, state.teamWorkCompletion);
+  const month = teamCompletionMonthByNumber(monthNumber, state.teamWorkCompletion, trendGroupName);
   if (!month) {
     return;
   }
-  const monthScope = monthCompletionScope(month);
+  const monthScope = monthCompletionScope(month, state.teamWorkCompletion, trendGroup);
   state.selectedTeamCompletionMember = '';
-  state.selectedTeamCompletionGroup = '';
+  state.selectedTeamCompletionGroup = trendGroupName;
   state.selectedTeamCompletionMonth = safeNumber(month.month);
   state.teamCompletionModalScopeType = 'month';
   state.teamCompletionModalFilter = firstAvailableMonthCompletionFilter(monthScope, metricKey).key;
@@ -2046,6 +2199,16 @@ export function closeTeamCompletionMemberModal() {
 }
 
 export function handleTeamCompletionMonthClick(event) {
+  const scopeButton = event.target.closest('[data-team-completion-trend-scope]');
+  if (scopeButton) {
+    if (scopeButton.disabled) {
+      return false;
+    }
+    setTeamCompletionTrendScope(scopeButton.dataset.teamCompletionTrendScope || 'team');
+    renderTeamCompletionMonthlyChart(state.teamWorkCompletion?.monthly?.months || [], state.teamWorkCompletion);
+    renderTeamCompletionGroups(state.teamWorkCompletion);
+    return true;
+  }
   const monthButton = event.target.closest('[data-team-completion-month]');
   if (!monthButton || monthButton.disabled) {
     return false;
@@ -2072,12 +2235,25 @@ function teamCompletionProjectDetailMeta(activeFilter = TEAM_COMPLETION_FILTERS[
   }
   if (state.teamCompletionModalScopeType === 'month') {
     const year = state.teamWorkCompletion?.year || state.teamWorkCompletionYear;
+    if (state.selectedTeamCompletionGroup) {
+      return `${state.selectedTeamCompletionGroup} · ${year}年${state.selectedTeamCompletionMonth}月 · ${activeFilter.label}`;
+    }
     return `${year}年${state.selectedTeamCompletionMonth}月 · ${activeFilter.label}`;
   }
   return `${state.selectedTeamCompletionMember || ''} · ${activeFilter.label}`;
 }
 
 export function handleTeamCompletionGroupGridClick(event) {
+  const trendButton = event.target.closest('[data-team-completion-group-trend]');
+  if (trendButton) {
+    if (trendButton.disabled) {
+      return;
+    }
+    setTeamCompletionTrendScope(trendButton.dataset.teamCompletionGroupTrend || 'team');
+    renderTeamCompletionMonthlyChart(state.teamWorkCompletion?.monthly?.months || [], state.teamWorkCompletion);
+    renderTeamCompletionGroups(state.teamWorkCompletion);
+    return;
+  }
   const metricButton = event.target.closest('[data-team-completion-group-metric]');
   if (metricButton) {
     openTeamCompletionGroupModal(
@@ -2276,6 +2452,13 @@ function shouldBlockStaleTeamWorkCompletionReview(review = null) {
   if (currentPageId() !== 'teams' || !review?.owner) {
     return false;
   }
+  if (
+    state.teamWorkCompletionRefreshStatus === 'switching' &&
+    state.teamWorkCompletionSwitchTarget &&
+    state.teamWorkCompletion === review
+  ) {
+    return false;
+  }
   const owner = currentTeamWorkCompletionOwner();
   return Boolean(owner && !teamWorkCompletionReviewMatchesOwner(review, owner));
 }
@@ -2330,7 +2513,8 @@ export function renderTeamWorkCompletionDashboard(review = state.teamWorkComplet
   renderTeamCompletionHeroStats(review);
   renderTeamCompletionProcessingQueues(review);
   renderTeamCompletionScopeNote(review, state.teamMetrics);
-  renderTeamCompletionMonthlyChart(review.monthly?.months || []);
+  ensureTeamCompletionTrendScope(review);
+  renderTeamCompletionMonthlyChart(review.monthly?.months || [], review);
   renderTeamCompletionGroups(review);
   renderTeamCompletionMembers(review);
   renderTeamCompletionDataQuality(review);

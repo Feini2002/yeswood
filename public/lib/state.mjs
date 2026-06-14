@@ -28,6 +28,7 @@ export function createAppState() {
     selectedTeamCompletionMember: '',
     selectedTeamCompletionGroup: '',
     selectedTeamCompletionMonth: 0,
+    selectedTeamCompletionTrendGroup: '',
     teamCompletionModalScopeType: 'member',
     teamCompletionModalFilter: '',
     ownerReview: null,

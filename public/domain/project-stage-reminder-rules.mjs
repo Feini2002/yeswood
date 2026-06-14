@@ -288,9 +288,15 @@ export function resolveProjectWorkflowFacts(project = {}) {
     (hasNode(nodes, 'pointDone') || isCompleteText(nodes.pointStatus) || softStarted || softDone || /点位.*完成|软装|产品清单|采购|摆场|闭环/.test(text));
   const pointStarted = !sleepStore && (pointDone || /点位/.test(text));
 
-  const constructionReviewDone = hasNode(nodes, 'constructionReview') || /施工图.*(完成审核|审核完成|审核通过)|点位|软装|产品清单|采购|摆场|闭环/.test(text);
-  const constructionStarted = constructionReviewDone || hasNode(nodes, 'constructionDraft') || /施工图|内审|审核|施工整改/.test(text);
-  const floorPlanDone = hasNode(nodes, 'floorPlanFinish') || constructionStarted || constructionReviewDone || /施工图|点位|软装|产品清单|采购|摆场|闭环/.test(text);
+  const floorPlanDoneDirect = hasNode(nodes, 'floorPlanFinish');
+  const constructionReviewDone =
+    hasNode(nodes, 'constructionReview') ||
+    /施工图.*(完成审核|审核完成|审核通过)|施工图完成审核|施工图审核通过/.test(nodes.hardStage);
+  const constructionStarted =
+    constructionReviewDone ||
+    hasNode(nodes, 'constructionDraft') ||
+    (floorPlanDoneDirect && /施工图|内审|审核|施工整改/.test(nodes.hardStage));
+  const floorPlanDone = floorPlanDoneDirect || constructionStarted || constructionReviewDone || /点位|软装|产品清单|采购|摆场|闭环/.test(text);
   const floorPlanStarted = hasNode(nodes, 'floorPlanStart') || floorPlanDone || /平面|躺平|方案/.test(text);
   const measured = hasNode(nodes, 'measureDate') || floorPlanStarted || floorPlanDone || constructionStarted;
   const meeting = hasNode(nodes, 'meetingDate') || measured || /上会/.test(text);

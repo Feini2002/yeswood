@@ -56,7 +56,10 @@ function project(id, fields = {}) {
       业态: raw('旗舰店'),
       省份: raw('浙江'),
       负责人: raw('苏:佳*蕾'),
+      CD组长: raw('周丹阳'),
       CD设计师: raw('陈菲菲'),
+      VM组长: raw('张情'),
+      VM设计师: raw('陈燕玲'),
       硬装项目进度: raw('闭环'),
       软装项目进度: raw('闭环'),
       上会时间: raw(id.includes('2025') ? '2025-05-20' : '2026-05-20'),
@@ -748,7 +751,13 @@ test('precomputeTeamDashboards publishes hard read model current bundle', async 
   const catalog = JSON.parse(await fs.readFile(path.join(currentDir, 'project-catalog', 'summary.json'), 'utf8'));
   assert.ok(Array.isArray(catalog.items));
   assert.ok(catalog.items.length > 0);
-  assert.equal(catalog.items.some((item) => item.rawFields), false);
+  assert.ok(catalog.items[0].rawFields);
+  assert.equal(catalog.items[0].rawFields.CD组长.display, '周丹阳');
+  assert.equal(catalog.items[0].rawFields.CD设计师.display, '陈菲菲');
+  assert.equal(catalog.items[0].rawFields.VM组长.display, '张情');
+  assert.equal(catalog.items[0].rawFields.VM设计师.display, '陈燕玲');
+  assert.equal(catalog.items[0].rawFields.闭环周期, undefined);
+  assert.equal(catalog.items[0].rawFields.attachmentUrl, undefined);
   assert.equal(catalog.items[0].hardProgressStage, '闭环');
   assert.equal(catalog.items[0].stageReminder.currentStage.label, '闭环完成');
   assert.equal(typeof catalog.items[0].stageReminder.dataGapCount, 'number');

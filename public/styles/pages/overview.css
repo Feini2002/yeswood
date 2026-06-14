@@ -175,6 +175,26 @@
   box-shadow: none;
 }
 
+.overview-signal-strip .dashboard-status-panel {
+  grid-column: 1 / -1;
+  min-height: 66px;
+  padding: 12px 14px;
+  box-shadow: none;
+}
+
+.overview-signal-strip .dashboard-status-mark {
+  width: 30px;
+  height: 30px;
+}
+
+.overview-signal-strip .dashboard-status-panel strong {
+  font-size: 15px;
+}
+
+.overview-signal-strip .dashboard-status-panel p {
+  margin-top: 3px;
+}
+
 .overview-signal-cell {
   position: relative;
   min-width: 0;

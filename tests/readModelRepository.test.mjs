@@ -38,6 +38,7 @@ async function seedReadModel(
     catalogWorkflowFields = true,
     catalogStageReminderFields = true,
     catalogRawFields = false,
+    catalogSummaryRawFields = false,
     asOfDate = '2026-06-11',
     summaryAsOfDate = asOfDate,
     detailAsOfDate = asOfDate,
@@ -87,6 +88,7 @@ async function seedReadModel(
   const catalogProject = {
     id: 'p1',
     name: 'P1',
+    ...(catalogSummaryRawFields ? { rawFields: { CD组长: { display: '周丹阳', kind: 'array' }, CD设计师: { display: '陈菲菲', kind: 'array' } } } : {}),
     ...(catalogRawFields ? { rawFields: { Note: { display: 'large detail field', kind: 'text' } } } : {}),
     ...(catalogWorkflowFields
       ? { franchiseScope: 'direct', hardProgressStage: '施工图', softProgressStage: '未开始' }
@@ -251,9 +253,9 @@ test('readDashboardSessionShellReadModel serves core without team sidecars', asy
   assert.equal(Object.hasOwn(result.payload, 'projectCatalog'), false);
 });
 
-test('readProjectCatalogSummaryReadModel serves catalog without dashboard sidecars', async () => {
+test('readProjectCatalogSummaryReadModel serves catalog with summary-safe raw fields', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
-  await seedReadModel(tempDir);
+  await seedReadModel(tempDir, { catalogSummaryRawFields: true });
 
   const result = readProjectCatalogSummaryReadModel({ readModelDir: tempDir });
 
@@ -261,10 +263,11 @@ test('readProjectCatalogSummaryReadModel serves catalog without dashboard sideca
   assert.equal(result.payload.items.length, 1);
   assert.equal(result.payload.items[0].id, 'p1');
   assert.equal(result.payload.view, 'summary');
-  assert.equal(Object.hasOwn(result.payload.items[0], 'rawFields'), false);
+  assert.equal(result.payload.items[0].rawFields.CD组长.display, '周丹阳');
+  assert.equal(result.payload.items[0].rawFields.CD设计师.display, '陈菲菲');
 });
 
-test('readProjectCatalogSummaryReadModel rejects summary catalog raw fields', async () => {
+test('readProjectCatalogSummaryReadModel rejects non-summary raw fields', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
   await seedReadModel(tempDir, { catalogRawFields: true });
 

@@ -17,6 +17,7 @@ import { DASHBOARD_CONTEXTS, resolveCanonicalOwner } from './metrics/projectScop
 import { readProjectOwnerNames, splitPersonnelNames } from './personnelNames.mjs';
 import { createFilterOptions, filterProjects } from './projectData.mjs';
 import { compactProjectForDetailReadModel } from './projectDetailPayload.mjs';
+import { summarizeProjectRawFields } from './projectPresentation.mjs';
 import {
   buildDashboardSessionShellPayload,
   currentReadModelDir,
@@ -625,7 +626,7 @@ const READ_MODEL_PROJECT_FIELDS = [
   'primaryReminder',
 ];
 
-function compactProjectForReadModel(project = {}) {
+function compactProjectForReadModel(project = {}, options = {}) {
   if (!project || typeof project !== 'object') {
     return project;
   }
@@ -641,6 +642,12 @@ function compactProjectForReadModel(project = {}) {
   const stageReminder = resolveProjectStageReminder(project);
   summary.stageReminder = compactProjectStageReminder(stageReminder);
   summary.workflowFacts = compactProjectWorkflowFacts(stageReminder.facts);
+  if (options.includeSummaryRawFields) {
+    const rawFields = summarizeProjectRawFields(project.rawFields);
+    if (Object.keys(rawFields).length) {
+      summary.rawFields = rawFields;
+    }
+  }
   if (project.recordMeta) {
     summary.recordMeta = {
       id: project.recordMeta.id,
@@ -650,8 +657,8 @@ function compactProjectForReadModel(project = {}) {
   return summary;
 }
 
-function compactProjectsForReadModel(projects = []) {
-  return Array.isArray(projects) ? projects.map(compactProjectForReadModel) : [];
+function compactProjectsForReadModel(projects = [], options = {}) {
+  return Array.isArray(projects) ? projects.map((project) => compactProjectForReadModel(project, options)) : [];
 }
 
 function projectDetailReadModelIds(project = {}) {
@@ -947,7 +954,7 @@ async function cleanupStalePrecomputeTempDirs(config = {}) {
 function buildProjectCatalogSummary(snapshot = {}) {
   const projects = Array.isArray(snapshot.projects) ? snapshot.projects : [];
   return {
-    items: compactProjectsForReadModel(projects),
+    items: compactProjectsForReadModel(projects, { includeSummaryRawFields: true }),
     total: projects.length,
     view: 'summary',
     fieldCatalog: Array.isArray(snapshot.fieldCatalog) ? snapshot.fieldCatalog : [],
@@ -1486,7 +1493,7 @@ export function readPrecomputedTeamMetricsBatch(config = {}, snapshot = {}, arch
   const metricsByOwner = {};
   for (const owner of owners) {
     const metrics = payload.metricsByOwner[owner];
-    if (!metrics) {
+    if (!metrics || !Array.isArray(metrics.team?.groups)) {
       return null;
     }
     metricsByOwner[owner] = metrics;

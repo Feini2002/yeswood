@@ -148,7 +148,8 @@ test('overview command center owns sync and full-page refresh actions', async ()
   assert.match(html, />\s*刷新\s*<\/button>/);
   assert.match(js, /pageRefreshButton/);
   assert.match(js, /async function refreshCurrentPage/);
-  assert.match(js, /window\.location\.reload\(\)/);
+  assert.doesNotMatch(js, /window\.location\.reload\(\)/);
+  assert.doesNotMatch(js, /fallback=compute/);
   assert.match(css, /\.overview-sync-state/);
   assert.match(css, /\.page-refresh-button/);
   assert.doesNotMatch(html, /id="analysisAgentButton"|运行分析 Agent|分析小组/);
@@ -283,10 +284,16 @@ test('frontend exposes team work completion module inside team dashboard', async
   assert.match(js, /loadTeamCompletionECharts/);
   assert.match(js, /buildTeamCompletionMonthlyChartOption/);
   assert.doesNotMatch(teamSection, /<h4>团队整体完成情况<\/h4>/);
+  const teamCompletionGroupsBlock =
+    teamSection.match(/<section class="team-completion-groups-module[\s\S]*?<div class="team-completion-member-modal"/)?.[0] || '';
+  assert.match(teamCompletionGroupsBlock, /id="teamCompletionGroupGrid"/);
+  assert.doesNotMatch(teamCompletionGroupsBlock, /id="teamCompletionDataQuality"/);
   assert.match(
     teamSection,
-    /class="[^"]*team-completion-groups-module[^"]*"[\s\S]*小组完成情况[\s\S]*id="teamCompletionGroupGrid"[\s\S]*id="teamCompletionDataQuality"/
+    /<\/section>\s*<section class="team-completion-data-quality" id="teamCompletionDataQuality" aria-label="数据质量提示"><\/section>\s*<section class="team-section team-ops-overview-section/
   );
+  assert.doesNotMatch(teamSection, /<h4>小组完成情况<\/h4>/);
+  assert.doesNotMatch(teamSection, /按组员项目关系聚合/);
   assert.match(teamSection, /id="teamCompletionMonthlyChart"/);
   assert.match(teamSection, /id="teamCompletionGroupGrid"/);
   assert.match(teamSection, /id="teamCompletionMemberGrid"/);
@@ -417,6 +424,18 @@ test('frontend exposes team work completion module inside team dashboard', async
   assert.match(completionMetricRule, /border-right:\s*1px solid/);
   assert.doesNotMatch(completionMetricRule, /border-left/);
   assert.match(css, /\.team-completion-group-grid/);
+  const completionGroupGridRule = css.match(/\.team-completion-group-grid\s*\{[\s\S]*?\}/)?.[0] || '';
+  const completionGroupCardRule = css.match(/\.team-completion-group-card\s*\{[\s\S]*?\}/)?.[0] || '';
+  const completionGroupMembersRule = css.match(/\.team-completion-group-members\s*\{[\s\S]*?\}/)?.[0] || '';
+  const completionScopeMetricsRule = css.match(/\.team-completion-scope-metrics\s*\{[\s\S]*?\}/)?.[0] || '';
+  const completionMetricValuesRule = css.match(/\.team-completion-metric-values\s*\{[\s\S]*?\}/)?.[0] || '';
+  assert.match(completionGroupGridRule, /align-items:\s*stretch/);
+  assert.match(completionGroupCardRule, /grid-template-rows:\s*auto auto 1fr/);
+  assert.match(completionGroupCardRule, /height:\s*100%/);
+  assert.match(completionGroupMembersRule, /align-content:\s*start/);
+  assert.match(completionScopeMetricsRule, /grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(completionScopeMetricsRule, /align-items:\s*stretch/);
+  assert.match(completionMetricValuesRule, /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
   assert.match(css, /\.owner-review-hero/);
   assert.match(css, /\.owner-review-hero-title/);
   assert.match(css, /\.owner-review-headline/);

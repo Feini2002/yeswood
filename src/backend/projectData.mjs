@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 
 import { normalizePersonnelArchitecture } from './personnelArchitecture.mjs';
-import { classifyProjectLifecycleStage } from '../../public/dashboard/project-lifecycle.mjs';
+import { matchesProjectLifecycleStage } from '../../public/dashboard/project-lifecycle.mjs';
 import { provinceDisplayName } from '../../public/dashboard/province-display.mjs';
 import { isClassifiableStoreStatus } from '../../public/lib/constants.mjs';
 import { resolveOwnerDisplayTitle } from './personnelOwners.mjs';
@@ -1111,7 +1111,7 @@ function matchesProvince(projectValue, expected) {
 }
 
 function matchesLifecycleStage(project, expected) {
-  return !expected || classifyProjectLifecycleStage(project).key === expected;
+  return matchesProjectLifecycleStage(project, expected);
 }
 
 function normalizeStoreNatureFilter(value = '') {

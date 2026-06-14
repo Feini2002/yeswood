@@ -1,6 +1,7 @@
 import {
   LIFECYCLE_STAGE_ORDER,
   classifyProjectLifecycleStage,
+  classifyProjectLifecycleStages,
   deriveProjectWorkflowFacts,
   readRawFieldDisplay,
 } from './project-lifecycle.mjs';
@@ -656,18 +657,20 @@ function buildStageLane(projects = []) {
   });
 
   for (const project of projects || []) {
-    const stage = classifyProjectStage(project);
-    if (!stageMap.has(stage.key)) {
-      stageMap.set(stage.key, { key: stage.key, label: stage.label, total: 0, delayed: 0, urgent: 0, progressTotal: 0, parallelHardConstruction: 0, projects: [] });
-    }
-    const bucket = stageMap.get(stage.key);
+    const projectStages = classifyProjectLifecycleStages(project);
     const facts = deriveProjectWorkflowFacts(project);
-    bucket.total += 1;
-    bucket.delayed += isDelayed(project) ? 1 : 0;
-    bucket.urgent += isUrgent(project) ? 1 : 0;
-    bucket.progressTotal += safeNumber(project?.progress);
-    bucket.parallelHardConstruction += stage.key === 'point' && facts.hardConstructionStarted ? 1 : 0;
-    bucket.projects.push(project);
+    for (const stage of projectStages) {
+      if (!stageMap.has(stage.key)) {
+        stageMap.set(stage.key, { key: stage.key, label: stage.label, total: 0, delayed: 0, urgent: 0, progressTotal: 0, parallelHardConstruction: 0, projects: [] });
+      }
+      const bucket = stageMap.get(stage.key);
+      bucket.total += 1;
+      bucket.delayed += isDelayed(project) ? 1 : 0;
+      bucket.urgent += isUrgent(project) ? 1 : 0;
+      bucket.progressTotal += safeNumber(project?.progress);
+      bucket.parallelHardConstruction += stage.key === 'point' && facts.hardConstructionStarted ? 1 : 0;
+      bucket.projects.push(project);
+    }
   }
 
   const activeBuckets = Array.from(stageMap.values()).filter((stage) => stage.total > 0);

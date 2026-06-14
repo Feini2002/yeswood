@@ -60,14 +60,24 @@ export function renderDrillProjectRows() {
   }
   const viewKey = projectWorkbenchViewKey(state.drillWorkbenchView);
   const view = DETAILS_WORKBENCH_VIEWS[viewKey];
-  const { projects, loading, error } = state.drillModal;
+  const { projects, loading, error, targetCount } = state.drillModal;
 
   renderDrillViewTabs();
   renderDrillProjectHead(viewKey);
   elements.drillProjectRows.className = `project-workbench-rows drill-project-rows ${view.gridClass}`;
 
   if (loading) {
-    elements.drillProjectRows.innerHTML = '<div class="empty-state">正在加载匹配项目...</div>';
+    const count = Number(targetCount);
+    const detail = Number.isFinite(count)
+      ? `预计 ${count} 项，正在匹配当前口径下的项目清单。`
+      : '正在匹配当前卡片口径下的项目清单。';
+    elements.drillProjectRows.innerHTML = `
+      <div class="drill-loading-state" role="status" aria-live="polite">
+        <span class="drill-loading-mark" aria-hidden="true"></span>
+        <strong>正在匹配项目</strong>
+        <p>${escapeHtml(detail)}</p>
+      </div>
+    `;
     return;
   }
 
@@ -115,7 +125,7 @@ export function renderDrillProjectModal() {
     elements.drillProjectModalCount.textContent = `${count} 项`;
   }
   if (elements.drillProjectModalStatus) {
-    elements.drillProjectModalStatus.textContent = loading ? '正在加载' : error ? '加载失败' : '';
+    elements.drillProjectModalStatus.textContent = loading ? '正在匹配项目' : error ? '加载失败' : '';
   }
   renderDrillProjectRows();
 }
