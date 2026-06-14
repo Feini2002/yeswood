@@ -528,6 +528,8 @@ test('precomputeTeamDashboards writes team metrics payloads for batch reads', as
   assert.deepEqual(actual.owners, [owner]);
   assert.equal(actual.metricsByOwner[owner].owner, owner);
   assert.equal(actual.metricsByOwner[owner].dashboardContext, 'direct');
+  assert.equal(actual.metricsByOwner[owner].team.groups.length, 1);
+  assert.deepEqual(actual.metricsByOwner[owner].team.groups[0].memberNames, ['陈菲菲']);
   assert.ok(actual.metricsByOwner[owner].summary);
   assert.ok(actual.metricsByOwner[owner].riskHealthAnalysis);
 });

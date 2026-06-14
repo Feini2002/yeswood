@@ -1297,12 +1297,57 @@ export function teamHeroSummaryParts(metrics) {
 
   const inProgress = metrics.totals?.inProgress ?? summary.activeProjects ?? 0;
   const teamPaused = metrics.pausedCount ?? summary.pausedProjects ?? 0;
+  const memberCount = teamHeroTeamMemberCount(metrics);
   const chips = [
     { label: '总项目', amount: String(total), unit: '项' },
     { label: '进行中', amount: String(inProgress), unit: '项' },
     { label: '暂停', amount: String(teamPaused), unit: '家', tone: teamPaused > 0 ? 'muted' : '' },
   ];
+  if (memberCount !== null) {
+    chips.push({ label: '团队人数', amount: String(memberCount), unit: '人' });
+  }
   return chips;
+}
+
+function teamHeroMemberName(member) {
+  if (typeof member === 'string') {
+    return member.trim();
+  }
+  return String(member?.name || member?.displayName || '').trim();
+}
+
+export function teamHeroTeamMemberCount(metrics = {}) {
+  const groups = Array.isArray(metrics.team?.groups) ? metrics.team.groups : [];
+  if (!groups.length) {
+    return null;
+  }
+  const memberNames = new Set();
+  for (const group of groups) {
+    const members = Array.isArray(group?.memberNames)
+      ? group.memberNames
+      : Array.isArray(group?.members)
+        ? group.members
+        : [];
+    for (const member of members) {
+      const name = teamHeroMemberName(member);
+      if (name) {
+        memberNames.add(name);
+      }
+    }
+  }
+  for (const ownerName of [
+    metrics.owner,
+    metrics.displayName,
+    metrics.sourceOwner,
+    metrics.team?.owner,
+    metrics.team?.requestedOwner,
+  ]) {
+    const normalizedOwner = teamHeroMemberName(ownerName);
+    if (normalizedOwner) {
+      memberNames.delete(normalizedOwner);
+    }
+  }
+  return memberNames.size;
 }
 
 

@@ -1965,6 +1965,35 @@ function buildTeamDataHealth(projects) {
   };
 }
 
+function serializeTeamGroupForMetrics(group = {}, index = 0) {
+  const members = Array.isArray(group.members) ? group.members.filter(Boolean) : [];
+  return {
+    id: group.id || `group-${index + 1}`,
+    name: group.name || `小组${index + 1}`,
+    lead: group.lead || '',
+    members: members.slice(),
+    memberNames: members.slice(),
+  };
+}
+
+function serializeTeamForMetrics(team = {}, ownerName = '') {
+  const groups = (Array.isArray(team.groups) ? team.groups : []).map(serializeTeamGroupForMetrics);
+  const memberNames = new Set();
+  for (const group of groups) {
+    for (const member of group.members || []) {
+      if (member) {
+        memberNames.add(member);
+      }
+    }
+  }
+  return {
+    owner: ownerName,
+    groupCount: groups.length,
+    memberCount: memberNames.size,
+    groups,
+  };
+}
+
 export function calculateTeamDashboardMetrics(allProjects, team, personnelArchitecture = {}, options = {}) {
   const normalizedPersonnelArchitecture = normalizePersonnelArchitecture(personnelArchitecture);
   const ownerName = team?.owner || '';
@@ -2159,9 +2188,7 @@ export function calculateTeamDashboardMetrics(allProjects, team, personnelArchit
     soleDualDisciplineOwner: normalizedPersonnelArchitecture.soleDualDisciplineOwner || null,
     pausedCount: teamPausedCount,
     totalScopeCount: teamScopeProjects.length,
-    team: {
-      owner: ownerName,
-    },
+    team: serializeTeamForMetrics(team, ownerName),
     summary: {
       totalProjects,
       pausedProjects: teamPausedCount,

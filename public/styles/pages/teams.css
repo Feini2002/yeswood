@@ -1988,6 +1988,10 @@
   background: #fffdf8;
 }
 
+.team-completion-data-quality[hidden] {
+  display: none;
+}
+
 .team-completion-data-quality.is-clean {
   border-style: solid;
   border-color: rgba(49, 119, 84, 0.16);

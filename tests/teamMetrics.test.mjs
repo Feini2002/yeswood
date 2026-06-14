@@ -1502,6 +1502,9 @@ test('/api/team-metrics requires owner and returns team metrics payload', async 
     assert.equal(payload.body.owner, '苏佳蕾');
     assert.equal(payload.body.dashboardContext, 'all');
     assert.ok(payload.body.summary);
+    assert.equal(payload.body.team.memberCount, 22);
+    assert.equal(payload.body.team.groups.length, 4);
+    assert.ok(Array.isArray(payload.body.team.groups[0].memberNames));
     assert.ok(payload.body.tiers);
     assert.ok(payload.body.monthlyOps);
     assert.ok(payload.body.monthlyEntry);

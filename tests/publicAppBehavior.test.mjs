@@ -372,6 +372,15 @@ test('team hero focuses on owner project status and store tier distribution', as
   const teamsPage = await import('../public/pages/teams.mjs');
   const metrics = {
     owner: '苏佳蕾',
+    team: {
+      owner: '苏佳蕾',
+      groups: [
+        { name: '直营1组', members: ['苏佳蕾', '陈菲菲', '乔玲玲', '陈晶晶', '张莹莹', '杨雪倩'] },
+        { name: '直营2组', members: ['陶媛媛', '梁玉贞', '安灵玲', '何赛平', '古茂琨'] },
+        { name: '直营3组', memberNames: ['杨晓芸', '陈红燕', '臧传宝', '庞小琪', '禹凯鹏', '陈梦然', '占俊鑫'] },
+        { name: '直营4组', members: ['刘雯蓓', '董一凡', '郭后冲', '杨莉', '牛超凡'] },
+      ],
+    },
     summary: {
       totalProjects: 140,
       activeProjects: 125,
@@ -414,6 +423,7 @@ test('team hero focuses on owner project status and store tier distribution', as
       ['总项目', '140', '项'],
       ['进行中', '125', '项'],
       ['暂停', '1', '家'],
+      ['团队人数', '22', '人'],
     ]
   );
 
@@ -423,6 +433,7 @@ test('team hero focuses on owner project status and store tier distribution', as
   assert.match(app.elements.teamHeadline.innerHTML, /总项目[\s\S]*140/);
   assert.match(app.elements.teamHeadline.innerHTML, /进行中[\s\S]*125/);
   assert.match(app.elements.teamHeadline.innerHTML, /暂停[\s\S]*1/);
+  assert.match(app.elements.teamHeadline.innerHTML, /团队人数[\s\S]*22/);
   assert.doesNotMatch(app.elements.teamHeadline.innerHTML, /未开始|责任负荷|人月/);
 
   assert.match(app.elements.teamHeroStats.innerHTML, /店态分布/);
@@ -930,6 +941,7 @@ test('team work completion renders in the teams context with explicit owner, con
     { dataset: { page: 'details' } },
   ];
   app.window.location.hash = '#teams?owner=苏佳蕾&dashboardContext=direct';
+  app.state.snapshot = { developerDocumentationVisible: true };
   const sectionShells = attachTeamCompletionSectionShells(app);
   assert.equal(typeof app.loadTeamWorkCompletion, 'function');
 
@@ -962,8 +974,42 @@ test('team work completion renders in the teams context with explicit owner, con
   assert.match(app.elements.teamCompletionGroupGrid.innerHTML, /data-team-completion-member="陈晶晶"/);
   assert.match(app.elements.teamCompletionGroupGrid.innerHTML, /缺1/);
   assert.equal(app.elements.teamCompletionMemberGrid.innerHTML, '');
+  assert.equal(app.elements.teamCompletionDataQuality.hidden, false);
   assert.match(app.elements.teamCompletionDataQuality.innerHTML, /1 条/);
   assert.match(app.elements.teamCompletionDataQuality.innerHTML, /稳定 id/);
+});
+
+test('team work completion data quality note is hidden outside development dashboard mode', async () => {
+  const app = await loadPublicAppHarness();
+  attachTeamCompletionSectionShells(app);
+  app.state.snapshot = { developerDocumentationVisible: false, dashboardDisplayMode: 'intranet' };
+  app.state.teamWorkCompletion = {
+    owner: 'Owner A',
+    requestedOwner: 'Owner A',
+    dashboardContext: 'direct',
+    year: 2026,
+    team: { owner: 'Owner A', groupCount: 1, memberCount: 1 },
+    summary: {
+      floorPlan: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+      display: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+      lifecycle: { completedCount: 0, inProgressCount: 0, missingDateCount: 0 },
+    },
+    monthly: { months: [] },
+    groups: [],
+    members: [],
+    dataQuality: {
+      notes: [{ type: 'unmappedMember', message: 'Visible only in development mode.' }],
+      unmappedMemberCount: 1,
+      missingDateCompletionCount: 0,
+      weakProjectKeyCount: 0,
+    },
+    readOnly: true,
+  };
+
+  app.renderTeamWorkCompletionDashboard();
+
+  assert.equal(app.elements.teamCompletionDataQuality.hidden, true);
+  assert.equal(app.elements.teamCompletionDataQuality.innerHTML, '');
 });
 
 test('team work completion processing queues show fixed top five lists and expand urgent projects only', async () => {
@@ -3108,6 +3154,7 @@ test('team subpage render guards block stale owner completion and load payloads'
 test('team work completion franchise context is kept as a data-audit empty state', async () => {
   const app = await loadPublicAppHarness();
   attachTeamCompletionSectionShells(app);
+  app.state.snapshot = { developerDocumentationVisible: true };
   app.state.teamWorkCompletion = {
     owner: '苏佳蕾',
     requestedOwner: '苏佳蕾',

@@ -4,6 +4,7 @@ import { buildRiskHealthAnalysis } from './agents/riskHealthAnalysis.mjs';
 import { calculateTeamDashboardMetrics } from './projectData.mjs';
 import { readLatestRiskHealthAnalysis, saveRiskHealthAnalysis } from './riskHealthRepository.mjs';
 import { enrichTeamDashboardMetrics } from './teamInsights.mjs';
+import { teamWithStaticGroups } from './teamStructureFallbacks.mjs';
 
 export function resolveTeamForOwner(owner, architecture = {}) {
   return (
@@ -46,7 +47,7 @@ function resolveRiskHealthAnalysis(config, metrics, { owner, dashboardContext })
 }
 
 export function buildTeamMetricsPayload(config, snapshot, architecture, owner, dashboardContext, options = {}) {
-  const team = resolveTeamForOwner(owner, architecture);
+  const team = teamWithStaticGroups(resolveTeamForOwner(owner, architecture), { fillMissingLeads: true });
   const metrics = enrichTeamDashboardMetrics(
     snapshot.projects || [],
     calculateTeamDashboardMetrics(snapshot.projects || [], team, architecture, { dashboardContext }),

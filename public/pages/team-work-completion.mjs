@@ -8,7 +8,7 @@ import {
 } from '../lib/constants.mjs';
 import { bindDashboardTooltips, elements } from '../lib/dom.mjs';
 import { escapeHtml } from '../lib/format.mjs';
-import { currentPageId } from '../lib/router.mjs';
+import { currentPageId, isDevelopmentDocumentationVisible } from '../lib/router.mjs';
 import { runtimeStore } from '../lib/runtime-flags.mjs';
 import { state } from '../lib/state.mjs';
 import { TEAM_WORK_COMPLETION_ENDPOINT, fetchJson } from '../lib/api.mjs';
@@ -2201,6 +2201,13 @@ function isFranchiseAuditEmptyReview(review = state.teamWorkCompletion) {
 
 export function renderTeamCompletionDataQuality(review = state.teamWorkCompletion) {
   if (!elements.teamCompletionDataQuality) {
+    return;
+  }
+  elements.teamCompletionDataQuality.hidden = !isDevelopmentDocumentationVisible();
+  if (elements.teamCompletionDataQuality.hidden) {
+    elements.teamCompletionDataQuality.innerHTML = '';
+    elements.teamCompletionDataQuality.classList.remove('is-clean');
+    elements.teamCompletionDataQuality.classList.remove('is-warning');
     return;
   }
   const dataQuality = review?.dataQuality || review?.dataQualitySummary || {};
