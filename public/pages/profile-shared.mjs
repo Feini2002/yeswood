@@ -30,6 +30,11 @@ import { displayProjectHardOwner, displayProjectOwner, displayProjectSoftOwner }
 import { renderBarChart as renderSharedBarChart } from '../dashboard/chart-bar.mjs';
 import { buildDirectorOverviewModel } from '../dashboard/home-director-metrics.mjs';
 
+function profileNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
 const PROFILE_OPERATION_COPY = {
   franchise: {
     label: '加盟',
@@ -867,7 +872,7 @@ export function renderProfileRegionMatrixMarkup(profile, model) {
 export function renderProfileMonthlyOpsMarkup(profile, model) {
   const matrix = model.monthlyOpsMatrix || {};
   const maxMonthlyValue = Math.max(
-    ...(matrix.rows || []).flatMap((row) => (row.values || []).map((cell) => overviewNumber(cell.value))),
+    ...(matrix.rows || []).flatMap((row) => (row.values || []).map((cell) => profileNumber(cell.value))),
     1
   );
   const opsMarkup =

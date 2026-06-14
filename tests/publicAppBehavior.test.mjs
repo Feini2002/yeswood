@@ -2426,7 +2426,10 @@ test('team dashboard scope switch computes current scope when session is prepari
 
   assert.match(requested[0], /^\/api\/dashboard-session\?/);
   assert.ok(requested.some((path) => path.startsWith('/api/team-metrics-batch')));
-  assert.ok(requested.some((path) => path.startsWith('/api/team-work-completion') && path.includes('forceRefresh=true')));
+  assert.equal(
+    requested.some((path) => path.startsWith('/api/team-work-completion') && path.includes('forceRefresh=true')),
+    false
+  );
   assert.ok(requested.some((path) => path.startsWith('/api/team-responsibility-review')));
   assert.equal(app.state.teamMetrics.dashboardContext, 'franchise');
   assert.equal(app.state.teamWorkCompletion.dashboardContext, 'franchise');
@@ -2814,7 +2817,10 @@ test('team dashboard scope preparing refreshes cached target completion via modu
   assert.equal(app.state.teamWorkCompletionRefreshStatus, '');
   assert.match(app.elements.teamCompletionGroupGrid.innerHTML, /Cached Franchise Group/);
   assert.ok(requested.some((path) => path.startsWith('/api/team-metrics-batch')));
-  assert.ok(requested.some((path) => path.startsWith('/api/team-work-completion') && path.includes('forceRefresh=true')));
+  assert.equal(
+    requested.some((path) => path.startsWith('/api/team-work-completion') && path.includes('forceRefresh=true')),
+    false
+  );
   assert.ok(requested.some((path) => path.startsWith('/api/team-responsibility-review')));
 });
 
@@ -3021,7 +3027,10 @@ test('team dashboard session preparing falls back to current owner module loader
 
   assert.match(requested[0], /^\/api\/dashboard-session\?/);
   assert.ok(requested.some((path) => path.startsWith('/api/team-metrics-batch')));
-  assert.ok(requested.some((path) => path.startsWith('/api/team-work-completion') && path.includes('forceRefresh=true')));
+  assert.equal(
+    requested.some((path) => path.startsWith('/api/team-work-completion') && path.includes('forceRefresh=true')),
+    false
+  );
   assert.ok(requested.some((path) => path.startsWith('/api/team-responsibility-review')));
   assert.equal(app.state.teamMetrics.owner, 'Owner B');
   assert.equal(app.state.teamWorkCompletion.owner, 'Owner B');
@@ -4013,7 +4022,10 @@ test('initial teams route falls back to module loaders when dashboard session is
 
   assert.ok(requested.filter((path) => path.startsWith('/api/dashboard-session')).length >= 1);
   assert.ok(requested.some((path) => path.startsWith('/api/team-metrics-batch')));
-  assert.ok(requested.some((path) => path.startsWith('/api/team-work-completion') && path.includes('forceRefresh=true')));
+  assert.equal(
+    requested.some((path) => path.startsWith('/api/team-work-completion') && path.includes('forceRefresh=true')),
+    false
+  );
   assert.ok(requested.some((path) => path.startsWith('/api/team-responsibility-review')));
   assert.equal(app.state.teamMetrics.owner, 'Owner A');
   assert.equal(app.state.teamWorkCompletion.owner, 'Owner A');
@@ -4917,7 +4929,7 @@ test('teams dashboard refresh loads work completion after team owner options res
   assert.equal(app.state.ownerReview?.owner, 'Owner A');
 });
 
-test('team page refresh action force refreshes team subpage modules', async () => {
+test('overview refresh action uses browser-level reload instead of subpage data refresh', async () => {
   const requested = [];
   const app = await loadPublicAppHarness({
     fetchImpl: async (url) => {
@@ -4983,35 +4995,22 @@ test('team page refresh action force refreshes team subpage modules', async () =
       return { ok: true, json: async () => ({}) };
     },
   });
-  app.elements.pageSections = [
-    { dataset: { page: 'overview' }, classList: fakeElement().classList },
-    { dataset: { page: 'teams' }, classList: fakeElement().classList },
-    { dataset: { page: 'details' }, classList: fakeElement().classList },
-  ];
-  app.window.location.hash = '#teams?owner=苏佳蕾&dashboardContext=direct&year=2026';
-  app.state.snapshot = { source: 'mock', syncedAt: '2026-06-09T00:00:00.000Z', totalRecords: 1 };
-  app.state.metrics = {
-    personnel: {
-      roles: [{ key: 'cdOwner', people: [{ name: '苏佳蕾', displayName: '苏佳蕾' }] }],
-    },
+  let reloadCalled = false;
+  app.window.location.reload = () => {
+    reloadCalled = true;
   };
+  app.window.location.hash = '#overview';
+  app.state.snapshot = { source: 'mock', syncedAt: '2026-06-09T00:00:00.000Z', totalRecords: 1 };
 
   assert.equal(typeof app.refreshCurrentPage, 'function');
   await app.refreshCurrentPage();
 
-  const metricsUrl = requested.find((path) => path.startsWith('/api/team-metrics-batch'));
-  const completionUrl = requested.find((path) => path.startsWith('/api/team-work-completion'));
-  const reviewUrl = requested.find((path) => path.startsWith('/api/team-responsibility-review'));
-  assert.ok(metricsUrl);
-  assert.ok(completionUrl);
-  assert.ok(reviewUrl);
+  assert.equal(reloadCalled, true);
   assert.equal(requested.some((path) => path.startsWith('/api/dashboard-session')), false);
-  assert.equal(new URL(metricsUrl, 'http://local').searchParams.get('context'), 'direct');
-  assert.equal(new URL(metricsUrl, 'http://local').searchParams.get('owner'), '苏佳蕾');
-  assert.equal(new URL(completionUrl, 'http://local').searchParams.get('forceRefresh'), 'true');
-  assert.equal(new URL(completionUrl, 'http://local').searchParams.get('year'), '2026');
-  assert.equal(new URL(reviewUrl, 'http://local').searchParams.get('context'), 'direct');
-  assert.equal(app.elements.syncMessage.textContent, '已刷新');
+  assert.equal(requested.some((path) => path.startsWith('/api/team-metrics-batch')), false);
+  assert.equal(requested.some((path) => path.startsWith('/api/team-work-completion')), false);
+  assert.equal(requested.some((path) => path.startsWith('/api/team-responsibility-review')), false);
+  assert.equal(app.elements.syncMessage.textContent, '正在重新加载');
 });
 
 test('sync action reports read model warming instead of synced when dashboard reload remains preparing', async () => {
@@ -5921,6 +5920,84 @@ function project(rawFields = {}, overrides = {}) {
   };
 }
 
+test('project detail modal omits asset and note section', async () => {
+  const app = await loadPublicAppHarness();
+  app.renderProjectDetailModal(
+    project({
+      项目名称: '资料备注店',
+      硬装资料: 'hard docs',
+      软装资料: 'soft docs',
+      备注: '{"markdown":"**CD**"}',
+    })
+  );
+
+  const html = app.elements.projectDetailModalBody.innerHTML;
+  assert.doesNotMatch(html, /资料与备注/);
+  assert.doesNotMatch(html, /硬装资料/);
+  assert.doesNotMatch(html, /软装资料/);
+  assert.doesNotMatch(html, /"markdown"/);
+});
+
+test('project detail modal uses the lightweight single detail layout', async () => {
+  const app = await loadPublicAppHarness();
+  app.renderProjectDetailModal(
+    project({
+      项目名称: '轻量详情店',
+      硬装项目进度: '施工图',
+      软装项目进度: '软装方案',
+      启动时间: '2026-04-22',
+      计划开业时间: '2026-05-25',
+      上会日期: '2026-04-24',
+      复尺时间: '2026-04-27',
+      CD组长: '硬装组长',
+      VM组长: '软装组长',
+      CD设计师: '硬装设计师',
+      VM设计师: '软装设计师',
+      摆场设计师: '苏佳蕾',
+    })
+  );
+
+  const html = app.elements.projectDetailModalBody.innerHTML;
+  assert.match(html, /project-detail-snapshot/);
+  assert.match(html, /project-detail-stage-panel/);
+  assert.match(html, /project-detail-stage-stream/);
+  assert.match(html, /阶段事实/);
+  assert.match(html, /下一阶段动作/);
+  assert.match(html, /表单补录/);
+  assert.match(html, /project-detail-sections/);
+  assert.match(html, /人员协作/);
+  assert.match(html, /关键日期[\s\S]*启动时间[\s\S]*计划开业时间[\s\S]*上会日期[\s\S]*复尺时间/);
+  assert.match(html, /人员协作[\s\S]*硬装组长[\s\S]*软装组长[\s\S]*硬装设计师[\s\S]*软装设计师/);
+  assert.doesNotMatch(html, /摆场设计师|苏佳蕾/);
+  assert.doesNotMatch(html, /当前推进/);
+  assert.doesNotMatch(html, /<details/);
+  assert.doesNotMatch(html, /project-stage-chip|project-key-date/);
+  assert.doesNotMatch(html, /project-detail-meta|project-detail-progress|project-detail-deadline/);
+});
+
+test('project detail separates project stage actions from form completion reminders', async () => {
+  const app = await loadPublicAppHarness();
+  app.renderProjectDetailModal(
+    project({
+      项目名称: '采购推进店',
+      硬装项目进度: '施工图',
+      软装项目进度: '待采购',
+      施工图完成审核时间: '2026-05-01',
+      点位完成情况: '已完成',
+      点位完成时间: '2026-05-02',
+      软装方案开始时间: '2026-05-03',
+      软装发项目群时间: '2026-05-04',
+      采购时间: '2026-05-05',
+    })
+  );
+
+  const html = app.elements.projectDetailModalBody.innerHTML;
+  assert.match(html, /下一阶段动作[\s\S]*当前采购中[\s\S]*待采购完成/);
+  assert.match(html, /表单补录[\s\S]*软装完成情况待补录[\s\S]*待补录/);
+  assert.doesNotMatch(html, /来自项目表单进度字段|项目真实推进提醒|管理动作，不等同项目阶段/);
+  assert.doesNotMatch(html, /当前推进/);
+});
+
 test('project key date can advance from downstream hard stage text while exact dates remain field facts', async () => {
   const app = await loadPublicAppHarness();
 
@@ -5998,13 +6075,14 @@ test('floor plan handoff shows parallel construction drawing and point design wo
 
   app.renderProjectDetailModal(handoffProject);
   const html = app.elements.projectDetailModalBody.innerHTML;
-  assert.match(html, /硬装：施工图/);
-  assert.match(html, /点位：点位设计/);
+  assert.match(html, /硬装项目进度[\s\S]*平面躺平/);
+  assert.match(html, /软装项目进度[\s\S]*未开始/);
+  assert.doesNotMatch(html, /点位\/软装进度|点位：点位设计|project-stage-chip/);
   assert.match(html, /待施工图初稿/);
   assert.match(html, /待点位完成/);
 });
 
-test('system hard deadline reminder is appended after unified stage action and keeps detail explanation', async () => {
+test('system hard deadline reminder stays in key date stack but is omitted from detail modal', async () => {
   const app = await loadPublicAppHarness();
   const deadlineProject = project(
     {
@@ -6090,11 +6168,11 @@ test('system hard deadline reminder is appended after unified stage action and k
   app.renderProjectDetailModal(deadlineProject);
   const html = app.elements.projectDetailModalBody.innerHTML;
   assert.doesNotMatch(html, /系统提醒与判断依据/);
-  assert.match(html, /平面超期/);
-  assert.match(html, /系统平面 Deadline 已延期/);
+  assert.doesNotMatch(html, /平面超期/);
+  assert.doesNotMatch(html, /系统平面 Deadline 已延期/);
 });
 
-test('hard deadline detail shows final source and conflict review from deadline payload', async () => {
+test('hard deadline final source and conflict review are omitted from detail modal', async () => {
   const app = await loadPublicAppHarness();
   const conflictProject = project(
     {
@@ -6144,12 +6222,12 @@ test('hard deadline detail shows final source and conflict review from deadline 
   app.renderProjectDetailModal(conflictProject);
   const html = app.elements.projectDetailModalBody.innerHTML;
 
-  assert.match(html, /硬装 Deadline/);
-  assert.match(html, /最终延期状态[\s\S]*准时完成/);
-  assert.match(html, /最终来源[\s\S]*表单优先/);
-  assert.match(html, /表单判断[\s\S]*准时完成/);
-  assert.match(html, /规则判断[\s\S]*延期完成/);
-  assert.match(html, /复核状态[\s\S]*待复核/);
+  assert.doesNotMatch(html, /硬装 Deadline/);
+  assert.doesNotMatch(html, /最终延期状态/);
+  assert.doesNotMatch(html, /最终来源/);
+  assert.doesNotMatch(html, /表单判断/);
+  assert.doesNotMatch(html, /规则判断/);
+  assert.doesNotMatch(html, /复核状态/);
   assert.doesNotMatch(html, /表单判断[\s\S]*未填写/);
 
   const booleanOnlyProject = {
@@ -6167,10 +6245,7 @@ test('hard deadline detail shows final source and conflict review from deadline 
   };
 
   app.renderProjectDetailModal(booleanOnlyProject);
-  assert.match(
-    app.elements.projectDetailModalBody.innerHTML,
-    /<span>最终延期状态<\/span>\s*<strong[^>]*>延期<\/strong>/
-  );
+  assert.doesNotMatch(app.elements.projectDetailModalBody.innerHTML, /最终延期状态/);
 });
 
 test('paused and canceled projects show only status reminder in detail instead of deadline or overtime copy', async () => {
@@ -6343,7 +6418,7 @@ test('deadline exception workbench view lists hard deadline manual review projec
   assert.doesNotMatch(app.elements.projectWorkbenchRows.innerHTML, /正常推进店/);
 });
 
-test('project detail people section shows display designer from DingTalk raw field', async () => {
+test('project detail people section keeps hard and soft collaboration as a two by two grid', async () => {
   const app = await loadPublicAppHarness();
   const displayProject = project({
     CD组长: '硬装组长',
@@ -6357,8 +6432,8 @@ test('project detail people section shows display designer from DingTalk raw fie
   const html = app.elements.projectDetailModalBody.innerHTML;
 
   assert.match(html, /人员协作/);
-  assert.match(html, /摆场设计师/);
-  assert.match(html, /苏佳蕾/);
+  assert.match(html, /人员协作[\s\S]*硬装组长[\s\S]*软装组长[\s\S]*硬装设计师[\s\S]*软装设计师/);
+  assert.doesNotMatch(html, /摆场设计师|苏佳蕾/);
 });
 
 test('updated construction stage starts point design even when floor plan handoff time is missing', async () => {

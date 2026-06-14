@@ -428,7 +428,7 @@ test('buildTeamWorkCompletionReview reuses static groups when owner has no expli
   );
 
   assert.equal(review.team.groupCount, 4);
-  assert.equal(review.team.memberCount, 24);
+  assert.equal(review.team.memberCount, 23);
   assert.equal(review.groups.length, 4);
   assert.equal(review.projectCount, 1);
   assert.equal(group(review, '直营1组').leadDisplay, '陈菲菲');
@@ -593,6 +593,17 @@ test('buildTeamWorkCompletionReview buckets completion months from business date
         },
       }),
       project({
+        id: 'lifecycle-cycle-fallback',
+        rawFields: {
+          组别: raw('直营新店'),
+          CD设计师: raw('陈菲菲'),
+          硬装项目进度: raw('闭环'),
+          软装项目进度: raw('待采购'),
+          上会日期: raw('2026-05-20'),
+          闭环周期: raw('12'),
+        },
+      }),
+      project({
         id: 'lifecycle-deadline-fallback',
         dueDate: '2026-04-10',
         rawFields: {
@@ -609,15 +620,17 @@ test('buildTeamWorkCompletionReview buckets completion months from business date
 
   assert.equal(month(review, 4).floorPlanCompleted, 1);
   assert.deepEqual(month(review, 4).projectIds.floorPlan, ['floor-completed']);
-  assert.equal(month(review, 4).lifecycleCompleted, 0);
-  assert.deepEqual(month(review, 4).projectIds.lifecycle, []);
-  assert.equal(review.projectsById['lifecycle-deadline-fallback'].metrics.lifecycle.missingDate, true);
-  assert.equal(review.projectsById['lifecycle-deadline-fallback'].metrics.lifecycle.monthlyEligible, false);
+  assert.equal(month(review, 4).lifecycleCompleted, 1);
+  assert.deepEqual(month(review, 4).projectIds.lifecycle, ['lifecycle-deadline-fallback']);
+  assert.equal(review.projectsById['lifecycle-deadline-fallback'].metrics.lifecycle.missingDate, false);
+  assert.equal(review.projectsById['lifecycle-deadline-fallback'].metrics.lifecycle.monthlyEligible, true);
+  assert.equal(review.projectsById['lifecycle-deadline-fallback'].metrics.lifecycle.dateSourceType, 'projectDeadline');
   assert.equal(month(review, 5).displayCompleted, 1);
   assert.deepEqual(month(review, 5).projectIds.display, ['display-completed']);
-  assert.equal(month(review, 6).lifecycleCompleted, 1);
-  assert.deepEqual(month(review, 6).projectIds.lifecycle, ['lifecycle-completed']);
-  assert.equal(review.monthly.months.reduce((sum, item) => sum + item.lifecycleCompleted, 0), 1);
+  assert.equal(month(review, 6).lifecycleCompleted, 2);
+  assert.deepEqual(month(review, 6).projectIds.lifecycle, ['lifecycle-completed', 'lifecycle-cycle-fallback']);
+  assert.equal(review.projectsById['lifecycle-cycle-fallback'].metrics.lifecycle.dateSourceType, 'meetingCycle');
+  assert.equal(review.monthly.months.reduce((sum, item) => sum + item.lifecycleCompleted, 0), 3);
 });
 
 test('buildTeamWorkCompletionReview counts projects that only match the team owner', () => {

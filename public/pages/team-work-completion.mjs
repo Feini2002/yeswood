@@ -26,6 +26,7 @@ import {
 } from '../domain/team-work-completion-store.mjs';
 
 const TEAM_COMPLETION_ECHARTS_ASSET_URL = '../assets/echarts/echarts.esm.min.mjs';
+const TEAM_COMPLETION_ECHARTS_IMPORT_TIMEOUT_MS = 8000;
 const TEAM_COMPLETION_CHART_FONT_FAMILY =
   '"Source Han Sans SC", "Noto Sans CJK SC", "Microsoft YaHei UI", "PingFang SC", sans-serif';
 const TEAM_COMPLETION_CHART_COLORS = {
@@ -121,11 +122,41 @@ function safeNumber(value) {
   return Number.isFinite(number) ? number : 0;
 }
 
-export function loadTeamCompletionECharts() {
-  if (!teamCompletionEChartsModulePromise) {
-    teamCompletionEChartsModulePromise = import(TEAM_COMPLETION_ECHARTS_ASSET_URL);
+function withTeamCompletionEChartsImportTimeout(promise, timeoutMs) {
+  const normalizedTimeoutMs = Number(timeoutMs);
+  if (!Number.isFinite(normalizedTimeoutMs) || normalizedTimeoutMs <= 0) {
+    return promise;
   }
-  return teamCompletionEChartsModulePromise;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`ECharts import timed out after ${normalizedTimeoutMs}ms`));
+    }, normalizedTimeoutMs);
+    promise.then(
+      (module) => {
+        clearTimeout(timer);
+        resolve(module);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+export function loadTeamCompletionECharts(options = {}) {
+  const importer =
+    typeof options.importer === 'function' ? options.importer : () => import(TEAM_COMPLETION_ECHARTS_ASSET_URL);
+  const timeoutMs = Object.hasOwn(options, 'timeoutMs')
+    ? options.timeoutMs
+    : TEAM_COMPLETION_ECHARTS_IMPORT_TIMEOUT_MS;
+  if (options.importer) {
+    return withTeamCompletionEChartsImportTimeout(importer(), timeoutMs);
+  }
+  if (!teamCompletionEChartsModulePromise) {
+    teamCompletionEChartsModulePromise = importer();
+  }
+  return withTeamCompletionEChartsImportTimeout(teamCompletionEChartsModulePromise, timeoutMs);
 }
 
 function resolveTeamCompletionECharts(module) {

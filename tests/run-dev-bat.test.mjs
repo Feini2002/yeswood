@@ -28,20 +28,26 @@ test('development launcher starts after health and warms dashboard data in the b
   assert.match(ps1, /function Wait-DashboardHealth/);
   assert.match(ps1, /function Warm-DashboardData/);
   assert.match(ps1, /function Start-DashboardWarmup/);
+  assert.match(ps1, /api\/dashboard-warmup\?scope=boot/);
   assert.match(ps1, /Wait-DashboardHealth -ListenPort \$Port -TimeoutSec \d+/);
+  assert.match(ps1, /Warm-DashboardData -ListenPort \$Port -TimeoutSec \d+/);
   assert.match(ps1, /Start-DashboardWarmup -ListenPort \$Port -TimeoutSec \d+ -LogPath \$warmupLog/);
-  assert.match(ps1, /dashboard data is warming in the background/);
+  assert.match(ps1, /Full dashboard data is warming in the background/);
+  assert.doesNotMatch(ps1, /opening browser with read-model preparing state/);
 
   const healthIndex = ps1.indexOf('Wait-DashboardHealth -ListenPort $Port');
+  const bootIndex = ps1.indexOf('Warm-DashboardData -ListenPort $Port');
   const browserIndex = ps1.indexOf('Start-Process "http://localhost:$Port/"');
   const warmIndex = ps1.indexOf('Start-DashboardWarmup -ListenPort $Port');
 
   assert.notEqual(healthIndex, -1);
+  assert.notEqual(bootIndex, -1);
   assert.notEqual(browserIndex, -1);
   assert.notEqual(warmIndex, -1);
   assert.ok(healthIndex < browserIndex, 'browser must wait for server health');
-  assert.ok(healthIndex < warmIndex, 'background warmup must wait for server health');
-  assert.ok(warmIndex < browserIndex, 'browser should open after background warmup is scheduled');
+  assert.ok(healthIndex < bootIndex, 'boot warmup must wait for server health');
+  assert.ok(bootIndex < browserIndex, 'browser must wait for boot warmup');
+  assert.ok(browserIndex < warmIndex, 'full warmup should start after browser open');
   assert.doesNotMatch(
     ps1,
     /Wait-DashboardReady -ListenPort \$Port -TimeoutSec 120\s+Start-Process "http:\/\/localhost:\$Port\/"/,

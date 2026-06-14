@@ -5,7 +5,8 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import zlib from 'node:zlib';
-import { pathToFileURL } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const gzipAsync = promisify(zlib.gzip);
 
@@ -24,6 +25,7 @@ import { chinaToday } from './hardDecorationDeadlineRules.mjs';
 import { buildTeamOwnerRates } from './teamInsights.mjs';
 import {
   clearSnapshotCache,
+  ensureDashboardBootReadModel,
   ensureDashboardPrecompute,
   getSnapshot,
   readConfiguredPersonnelArchitecture,
@@ -35,6 +37,7 @@ import { findProjectInSnapshot, summarizeProject, summarizeProjects } from './pr
 import { compactProjectForDetailReadModel, decorateProjectForFullDetailResponse } from './projectDetailPayload.mjs';
 import {
   precomputeSnapshotHash,
+  buildTeamWorkCompletionSummaryPayload,
   readPrecomputedDashboardSession,
   readPrecomputedTeamMetricsBatch,
   readPrecomputedTeamResponsibilityReview,
@@ -52,10 +55,16 @@ import {
   readProjectCatalogSummaryReadModel,
   readProjectDetailReadModel,
   readTeamWorkCompletionDetailReadModel,
+  readTeamWorkCompletionSummaryReadModel,
 } from './readModelRepository.mjs';
 import { attachDepartmentOperations, buildTeamMetricsPayload, resolveTeamForOwner } from './teamMetricsPayload.mjs';
 
 let activeApiRequest = null;
+
+const APP_NAME = 'yeswood-dashboard';
+const RUNTIME_STARTED_AT = new Date().toISOString();
+const RUNTIME_ENTRY = fileURLToPath(import.meta.url);
+let cachedGitCommit;
 
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -72,6 +81,7 @@ const CONTENT_TYPES = {
 
 const DEFAULT_MAX_JSON_BODY_BYTES = 256 * 1024;
 const MAX_REQUEST_URL_LENGTH = 4096;
+const DYNAMIC_GZIP_MAX_BYTES = 128 * 1024;
 
 class HttpError extends Error {
   constructor(statusCode, message) {
@@ -162,7 +172,146 @@ function elapsedMs(startedAt) {
 }
 
 function precomputeActive(config = {}) {
-  return Boolean(config.precomputeScheduledHashes?.size || config.precomputePromises?.size || config.readModelRepairPromises?.size);
+  return Boolean(
+    config.precomputeScheduledHashes?.size ||
+      config.precomputePromises?.size ||
+      config.bootReadModelPromises?.size ||
+      config.readModelRepairPromises?.size
+  );
+}
+
+function serviceStatePath() {
+  return process.env.YESWOOD_SERVICE_STATE_FILE
+    ? path.resolve(process.env.YESWOOD_SERVICE_STATE_FILE)
+    : path.join(paths.root, '.tmp', 'dashboard-service.json');
+}
+
+function normalizePathForCompare(value = '') {
+  return path.resolve(String(value || '')).toLowerCase();
+}
+
+function samePath(left = '', right = '') {
+  return Boolean(left && right && normalizePathForCompare(left) === normalizePathForCompare(right));
+}
+
+function processIsAlive(pid) {
+  const value = Number(pid);
+  if (!Number.isInteger(value) || value <= 0) {
+    return false;
+  }
+  if (value === process.pid) {
+    return true;
+  }
+  try {
+    process.kill(value, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  }
+}
+
+function resolveGitCommit() {
+  if (cachedGitCommit !== undefined) {
+    return cachedGitCommit;
+  }
+  if (process.env.YESWOOD_GIT_COMMIT) {
+    cachedGitCommit = process.env.YESWOOD_GIT_COMMIT;
+    return cachedGitCommit;
+  }
+  try {
+    cachedGitCommit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: paths.root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    cachedGitCommit = '';
+  }
+  return cachedGitCommit;
+}
+
+async function assertNoActiveRegisteredService() {
+  if (process.env.YESWOOD_ALLOW_MULTIPLE === '1') {
+    return;
+  }
+  const stateFile = serviceStatePath();
+  const state = await readJsonIfExists(stateFile);
+  if (state?.app !== APP_NAME || !samePath(state.root, paths.root)) {
+    return;
+  }
+  const pid = Number(state.pid);
+  if (!Number.isInteger(pid) || pid === process.pid || !processIsAlive(pid)) {
+    return;
+  }
+  const url = state.url || `http://localhost:${state.port || 4200}/`;
+  throw new Error(
+    `Active yeswood dashboard service is already registered in ${stateFile}: PID ${pid}, URL ${url}. ` +
+      'Use npm run dev:restart to replace it, npm run dev:stop to stop it, or set YESWOOD_ALLOW_MULTIPLE=1.'
+  );
+}
+
+async function buildReadModelStatus(config = {}, options = {}) {
+  const includeGzipSidecars = options.includeGzipSidecars !== false;
+  const currentDir = currentReadModelDir(config);
+  const manifest = await readJsonIfExists(path.join(currentDir, 'manifest.json'));
+  const gzipSidecars = includeGzipSidecars
+    ? await countReadModelGzipSidecars(currentDir)
+    : { skipped: true };
+  const missingFeatures = REQUIRED_READ_MODEL_FEATURES.filter((feature) => !manifest?.features?.includes(feature));
+  const coreExists = fs.existsSync(path.join(currentDir, 'dashboard-session', 'core.json'));
+  const status = !manifest
+    ? 'missing'
+    : manifest.schemaVersion !== READ_MODEL_SCHEMA_VERSION
+      ? 'schema-mismatch'
+      : missingFeatures.length || !coreExists || (includeGzipSidecars && gzipSidecars.missing)
+        ? 'incomplete'
+        : 'ready';
+  return {
+    ok: status === 'ready',
+    readModel: true,
+    status,
+    current: manifest
+      ? {
+          schemaVersion: manifest.schemaVersion,
+          snapshotHash: manifest.snapshotHash || '',
+          generatedAt: manifest.generatedAt || manifest.createdAt || '',
+          features: manifest.features || [],
+          years: manifest.years || [],
+          excludedYears: manifest.excludedYears || [],
+        }
+      : null,
+    missingFeatures,
+    coreExists,
+    gzipSidecars,
+    precomputeActive: precomputeActive(config),
+  };
+}
+
+async function buildRuntimePayload(config = {}) {
+  const startedAt = config.runtimeStartedAt || RUNTIME_STARTED_AT;
+  const startedMs = Date.parse(startedAt);
+  const readModel = await buildReadModelStatus(config, { includeGzipSidecars: false });
+  return {
+    app: APP_NAME,
+    pid: process.pid,
+    port: Number(config.runtimePort || config.port || 0),
+    host: config.host || config.runtimeHost || '',
+    cwd: process.cwd(),
+    entry: RUNTIME_ENTRY,
+    startedAt,
+    uptimeMs: Number.isFinite(startedMs) ? Math.max(0, Date.now() - startedMs) : 0,
+    commit: resolveGitCommit(),
+    nodeVersion: process.version,
+    precomputeActive: precomputeActive(config),
+    readModel: {
+      ok: readModel.ok,
+      status: readModel.status,
+      current: readModel.current,
+      missingFeatures: readModel.missingFeatures,
+      coreExists: readModel.coreExists,
+      gzipSidecars: readModel.gzipSidecars,
+    },
+  };
 }
 
 function logApiPerformance(perf = {}, { jsonStringifyMs = 0, gzipMs = 0, payloadKb = 0 } = {}) {
@@ -302,7 +451,7 @@ async function countReadModelGzipSidecars(dir) {
   return counts;
 }
 
-async function sendJson(response, statusCode, payload, perf = {}) {
+async function sendJson(response, statusCode, payload, perf = {}, options = {}) {
   const stringifyStart = Date.now();
   const body = JSON.stringify(payload);
   const jsonStringifyMs = elapsedMs(stringifyStart);
@@ -314,7 +463,9 @@ async function sendJson(response, statusCode, payload, perf = {}) {
     'cache-control': 'no-store',
   };
 
-  if (body.length > 1024 && acceptEncoding.includes('gzip')) {
+  const gzipEnabled = options.gzip !== false;
+
+  if (gzipEnabled && body.length > 1024 && acceptEncoding.includes('gzip') && Buffer.byteLength(body) <= DYNAMIC_GZIP_MAX_BYTES) {
     headers['content-encoding'] = 'gzip';
     headers.vary = 'Accept-Encoding';
     response.writeHead(statusCode, headers);
@@ -326,6 +477,11 @@ async function sendJson(response, statusCode, payload, perf = {}) {
     }
     logApiPerformance(perf, { jsonStringifyMs, gzipMs: elapsedMs(gzipStart), payloadKb });
     return;
+  }
+  if (gzipEnabled && body.length > 1024 && acceptEncoding.includes('gzip')) {
+    headers.vary = 'Accept-Encoding';
+    headers['x-dashboard-gzip-skipped'] = 'dynamic-payload-too-large';
+    headers['x-dashboard-payload-kb'] = String(payloadKb);
   }
 
   response.writeHead(statusCode, headers);
@@ -351,12 +507,12 @@ function publicSyncPayload(snapshot) {
 }
 
 async function ensureSyncedDashboardReadModel(snapshot, config = {}) {
-  const manifest = await ensureDashboardPrecompute(snapshot, config);
+  const manifest = await ensureDashboardBootReadModel(snapshot, config);
   if (config.precomputeEnabled === false) {
     return manifest;
   }
-  if (!manifest || !REQUIRED_READ_MODEL_FEATURES.every((feature) => manifest.features?.includes(feature))) {
-    throw new Error('Dashboard read model warmup did not publish a complete manifest');
+  if (!manifest || !manifest.features?.includes('dashboard-session')) {
+    throw new Error('Dashboard boot read model warmup did not publish a shell manifest');
   }
   return manifest;
 }
@@ -475,34 +631,6 @@ function readTeamWorkCompletionReadModel(config, snapshot, architecture, params 
   return reader(config, snapshot, architecture, params);
 }
 
-function triggerDashboardPrecompute(snapshot, config = {}, route = '') {
-  if (config.precomputeEnabled === false) {
-    return false;
-  }
-  void ensureDashboardPrecompute(snapshot, config).catch((error) => {
-    logger.warn('Dashboard background precompute failed', {
-      route,
-      message: error?.message || String(error),
-    });
-  });
-  return true;
-}
-
-function triggerDashboardPrecomputeFromCurrentSnapshot(config = {}, route = '') {
-  if (config.precomputeEnabled === false) {
-    return false;
-  }
-  void getSnapshot(config)
-    .then((snapshot) => ensureDashboardPrecompute(snapshot, config))
-    .catch((error) => {
-      logger.warn('Dashboard background precompute failed', {
-        route,
-        message: error?.message || String(error),
-      });
-    });
-  return true;
-}
-
 function teamWorkCompletionRepairKey(snapshot = {}, architecture = {}, params = {}) {
   const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
   return [
@@ -543,7 +671,7 @@ function triggerTeamWorkCompletionReadModelRepair(snapshot, config = {}, params 
     .then((result) => {
       if (result?.repaired === false) {
         if (result.reason === 'matching read model directory is missing') {
-          return ensureDashboardPrecompute(snapshot, config);
+          return ensureDashboardBootReadModel(snapshot, config, params);
         }
         logger.warn('Scoped read model repair skipped', {
           route,
@@ -630,7 +758,7 @@ function triggerProjectDetailReadModelRepair(snapshot, config = {}, projectId = 
     .then((result) => {
       if (result?.repaired === false) {
         if (result.reason === 'matching project detail read model directory is missing') {
-          return ensureDashboardPrecompute(snapshot, config);
+          return ensureDashboardBootReadModel(snapshot, config);
         }
         logger.warn('Scoped project detail repair skipped', {
           route,
@@ -1089,6 +1217,15 @@ async function handleApiRequest(request, response, url, config) {
     return true;
   }
 
+  if (url.pathname === '/api/runtime') {
+    if (!['GET', 'HEAD'].includes(request.method)) {
+      sendNotAllowed(response, ['GET', 'HEAD']);
+      return true;
+    }
+    await sendJson(response, 200, await buildRuntimePayload(config), {}, { gzip: false });
+    return true;
+  }
+
   if (url.pathname === '/api/dev-events') {
     if (!config.devReloadEnabled) {
       return false;
@@ -1221,37 +1358,8 @@ async function handleApiRequest(request, response, url, config) {
   }
 
   if (url.pathname === '/api/read-model/status') {
-    const currentDir = currentReadModelDir(config);
-    const manifest = await readJsonIfExists(path.join(currentDir, 'manifest.json'));
-    const gzipSidecars = await countReadModelGzipSidecars(currentDir);
-    const missingFeatures = REQUIRED_READ_MODEL_FEATURES.filter((feature) => !manifest?.features?.includes(feature));
-    const coreExists = fs.existsSync(path.join(currentDir, 'dashboard-session', 'core.json'));
-    const status = !manifest
-      ? 'missing'
-      : manifest.schemaVersion !== READ_MODEL_SCHEMA_VERSION
-        ? 'schema-mismatch'
-        : missingFeatures.length || !coreExists || gzipSidecars.missing
-          ? 'incomplete'
-          : 'ready';
-    await sendJson(response, status === 'ready' ? 200 : 202, {
-      ok: status === 'ready',
-      readModel: true,
-      status,
-      current: manifest
-        ? {
-            schemaVersion: manifest.schemaVersion,
-            snapshotHash: manifest.snapshotHash || '',
-            generatedAt: manifest.generatedAt || manifest.createdAt || '',
-            features: manifest.features || [],
-            years: manifest.years || [],
-            excludedYears: manifest.excludedYears || [],
-          }
-        : null,
-      missingFeatures,
-      coreExists,
-      gzipSidecars,
-      precomputeActive: precomputeActive(config),
-    });
+    const status = await buildReadModelStatus(config);
+    await sendJson(response, status.ok ? 200 : 202, status);
     return true;
   }
 
@@ -1298,18 +1406,6 @@ async function handleApiRequest(request, response, url, config) {
       precomputeActive: precomputeActive(config),
     };
     if (readModel.status === 'ready' || readModel.status === 'stale') {
-      if (!hasRequestedOwner && readModel.payload?.shellOnly === true) {
-        const shellPath = path.join(currentReadModelDir(config), 'dashboard-session', 'shell.json');
-        const servedPrecompressed = await sendPrecompressedJson(response, 200, {
-          jsonPath: shellPath,
-          gzipPath: `${shellPath}.gz`,
-          relativePath: 'dashboard-session/shell.json',
-          perf,
-        });
-        if (servedPrecompressed) {
-          return true;
-        }
-      }
       await sendJson(response, 200, readModel.payload, perf);
       return true;
     }
@@ -1318,11 +1414,34 @@ async function handleApiRequest(request, response, url, config) {
       const snapshot = await getSnapshot(config);
       const architecture = snapshot.personnelArchitecture || {};
       const snapshotMs = elapsedMs(snapshotStartedAt);
-      triggerDashboardPrecompute(snapshot, config, '/api/dashboard-session');
+      const manifest = await ensureDashboardBootReadModel(snapshot, config, {
+        dashboardContext,
+        year,
+        today,
+      });
+      const repairedReadModel = readDashboardSessionShellReadModel(config, {
+        dashboardContext,
+        year,
+        today,
+      });
+      if (repairedReadModel.status === 'ready' || repairedReadModel.status === 'stale') {
+        await sendJson(response, 200, repairedReadModel.payload, {
+          ...perf,
+          snapshotMs,
+          readModelHit: true,
+          precomputedFileHit: true,
+          fallbackComputed: false,
+          precomputeActive: precomputeActive(config),
+        });
+        return true;
+      }
       await sendJson(
         response,
         200,
-        resolveDashboardSessionShell(config, snapshot, architecture, dashboardContext, year),
+        {
+          ...resolveDashboardSessionShell(config, snapshot, architecture, dashboardContext, year),
+          features: manifest?.features || [],
+        },
         {
           ...perf,
           snapshotMs,
@@ -1367,7 +1486,27 @@ async function handleApiRequest(request, response, url, config) {
     const snapshot = await getSnapshot(config);
     const architecture = snapshot.personnelArchitecture || {};
     const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
+    const scope = String(url.searchParams.get('scope') || 'full').trim().toLowerCase();
     try {
+      if (scope === 'boot') {
+        const result = await ensureDashboardBootReadModel(snapshot, config);
+        const features = result?.features || [];
+        if (!result || !features.includes('dashboard-session')) {
+          throw new Error('Dashboard boot read model warmup did not publish a shell manifest');
+        }
+        await sendJson(response, 200, {
+          ok: true,
+          warmed: true,
+          scope: 'boot',
+          readOnly: true,
+          source: snapshot.source,
+          syncedAt: snapshot.syncedAt,
+          totalRecords: snapshot.totalRecords,
+          snapshotHash: result?.snapshotHash || snapshotHash,
+          features,
+        });
+        return true;
+      }
       const result = await ensureDashboardPrecompute(snapshot, config);
       const features = result?.features || [];
       const complete = REQUIRED_READ_MODEL_FEATURES.every((feature) => features.includes(feature));
@@ -1377,6 +1516,7 @@ async function handleApiRequest(request, response, url, config) {
       await sendJson(response, 200, {
         ok: true,
         warmed: true,
+        scope: 'full',
         readOnly: true,
         source: snapshot.source,
         syncedAt: snapshot.syncedAt,
@@ -1389,6 +1529,7 @@ async function handleApiRequest(request, response, url, config) {
       await sendJson(response, 503, {
         ok: false,
         warmed: false,
+        scope,
         readOnly: true,
         source: snapshot.source,
         syncedAt: snapshot.syncedAt,
@@ -1459,7 +1600,6 @@ async function handleApiRequest(request, response, url, config) {
         });
         return true;
       }
-      triggerDashboardPrecomputeFromCurrentSnapshot(config, '/api/projects');
       if (fallback === 'readmodel') {
         await sendJson(
           response,
@@ -1649,6 +1789,31 @@ async function handleApiRequest(request, response, url, config) {
     );
     const fallbackMode = String(url.searchParams.get('fallback') || '').trim().toLowerCase();
     const shouldComputeMissingDetail = view === 'detail' && fallbackMode === 'compute';
+    if (!forceRefresh && view === 'summary') {
+      const today = config.today || chinaToday();
+      const readModel = readTeamWorkCompletionSummaryReadModel(config, {
+        owner: ownerParam,
+        requestedOwner: ownerParam,
+        dashboardContext,
+        year,
+        today,
+      });
+      if (readModel.status === 'ready') {
+        await sendJson(response, 200, readModel.payload, {
+          route: '/api/team-work-completion',
+          owner: ownerParam,
+          dashboardContext,
+          year,
+          startedAt,
+          snapshotMs: 0,
+          readModelHit: true,
+          precomputedFileHit: true,
+          fallbackComputed: false,
+          precomputeActive: precomputeActive(config),
+        });
+        return true;
+      }
+    }
     if (!forceRefresh && view === 'detail' && fallbackMode === 'readmodel') {
       const today = config.today || chinaToday();
       const readModel = readTeamWorkCompletionDetailReadModel(config, {
@@ -1756,6 +1921,23 @@ async function handleApiRequest(request, response, url, config) {
         },
         '/api/team-work-completion'
       );
+      if (view === 'summary') {
+        const computed = resolveTeamWorkCompletionReview(config, snapshot, architecture, team, {
+          requestedOwner: ownerParam,
+          dashboardContext,
+          personnelArchitecture: architecture,
+          year,
+          today,
+          skipPrecomputed: true,
+        });
+        await sendJson(
+          response,
+          200,
+          buildTeamWorkCompletionSummaryPayload(computed),
+          { ...perf, fallbackComputed: true, precomputeActive: precomputeActive(config) }
+        );
+        return true;
+      }
       await sendJson(
         response,
         202,
@@ -1884,6 +2066,9 @@ export function createServer(config = getConfig()) {
     dashboardAutoUpdateEnabled: config.dashboardAutoUpdateEnabled !== false,
     devReloadHub,
     syncState: config.syncState || { lastSyncAt: 0 },
+    runtimeStartedAt: config.runtimeStartedAt || RUNTIME_STARTED_AT,
+    runtimePort: config.port,
+    runtimeHost: config.host || '',
   };
   const server = http.createServer(async (request, response) => {
     try {
@@ -1914,6 +2099,13 @@ export function createServer(config = getConfig()) {
     serverConfig.devReloadEnabled && config.devReloadWatcher === undefined
       ? watchPublicDirForReload(serverConfig.publicDir, devReloadHub)
       : null;
+  server.on('listening', () => {
+    const address = server.address();
+    if (address && typeof address === 'object') {
+      serverConfig.runtimePort = address.port;
+      serverConfig.runtimeHost = address.address || serverConfig.runtimeHost;
+    }
+  });
   server.on('close', () => {
     watcher?.close();
   });
@@ -1931,5 +2123,11 @@ export function startServer(config = getConfig()) {
 }
 
 if (typeof process !== 'undefined' && process.argv?.[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  startServer();
+  try {
+    await assertNoActiveRegisteredService();
+    startServer();
+  } catch (error) {
+    console.error(error?.message || String(error));
+    process.exit(1);
+  }
 }

@@ -113,9 +113,9 @@ function Warm-DashboardData {
     [int]$TimeoutSec = 45
   )
 
-  $warmupUrl = "http://127.0.0.1:$ListenPort/api/dashboard-warmup"
+  $warmupUrl = "http://127.0.0.1:$ListenPort/api/dashboard-warmup?scope=boot"
 
-  Write-Host "[dashboard] Warming dashboard data before browser open (timeout ${TimeoutSec}s)..."
+  Write-Host "[dashboard] Warming dashboard boot shell before browser open (timeout ${TimeoutSec}s)..."
   try {
     $response = Invoke-WebRequest -Uri $warmupUrl -UseBasicParsing -TimeoutSec $TimeoutSec
     if ($response.StatusCode -eq 200) {
@@ -123,23 +123,15 @@ function Warm-DashboardData {
       $records = if ($null -ne $snapshot.totalRecords) { [int]$snapshot.totalRecords } else { 0 }
       $features = if ($null -ne $snapshot.features) { ($snapshot.features -join ', ') } else { '' }
       if ($snapshot.warmed -ne $true) {
-        throw "Dashboard warmup did not publish a complete read model. $($snapshot.error)"
+        throw "Dashboard boot warmup did not publish a shell read model. $($snapshot.error)"
       }
-      Write-Host "[dashboard] Data ready: $records project(s), synced at $($snapshot.syncedAt), warmed: $features"
+      Write-Host "[dashboard] Boot shell ready: $records project(s), synced at $($snapshot.syncedAt), warmed: $features"
       return $snapshot
     }
-    throw "Dashboard warmup returned HTTP $($response.StatusCode)."
+    throw "Dashboard boot warmup returned HTTP $($response.StatusCode)."
   } catch {
     $message = $_.Exception.Message
-    if ($message -match 'timed out|operation has timed out|操作超时|请求超时') {
-      Write-Host "[dashboard] Warmup is still running after ${TimeoutSec}s; opening browser with read-model preparing state." -ForegroundColor Yellow
-      return [pscustomobject]@{
-        warmed = $false
-        timedOut = $true
-        warning = $message
-      }
-    }
-    throw "Dashboard data warmup failed before browser open: $message"
+    throw "Dashboard boot warmup failed before browser open: $message"
   }
 }
 
@@ -214,12 +206,21 @@ try {
   }
 
   Wait-DashboardHealth -ListenPort $Port -TimeoutSec 60
-  $warmupJob = Start-DashboardWarmup -ListenPort $Port -TimeoutSec 300 -LogPath $warmupLog
+  Warm-DashboardData -ListenPort $Port -TimeoutSec 45 | Out-Null
   Start-Process "http://localhost:$Port/"
-  Write-Host '[dashboard] Browser opened; dashboard data is warming in the background.'
+  Write-Host '[dashboard] Browser opened after boot shell warmup.'
+  try {
+    $warmupJob = Start-DashboardWarmup -ListenPort $Port -TimeoutSec 300 -LogPath $warmupLog
+    Write-Host '[dashboard] Full dashboard data is warming in the background.'
+  } catch {
+    $warmupJob = $null
+    Write-Host "[dashboard] Full warmup background start failed; browser remains available. $($_.Exception.Message)" -ForegroundColor Yellow
+  }
   Write-Host "[dashboard] Server PID: $($server.Id)"
   Write-Host "[dashboard] Logs: $stdoutLog"
-  Write-Host "[dashboard] Warmup Job ID: $($warmupJob.Id)"
+  if ($warmupJob) {
+    Write-Host "[dashboard] Warmup Job ID: $($warmupJob.Id)"
+  }
   Write-Host '[dashboard] Press Ctrl+C to stop.'
 
   while (-not $server.HasExited) {

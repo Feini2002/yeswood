@@ -104,7 +104,7 @@ test('syncProjects seeds SQLite and getSnapshot reads the SQLite final project v
   assert.ok(snapshot.filters.provinces.length > 0);
 });
 
-test('syncProjects schedules dashboard precompute after returning the SQLite refreshed snapshot', async () => {
+test('syncProjects does not schedule full dashboard precompute after returning the SQLite refreshed snapshot', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-sqlite-precompute-'));
   let queuedPrecompute = null;
   const config = {
@@ -124,8 +124,8 @@ test('syncProjects schedules dashboard precompute after returning the SQLite ref
 
   const synced = await syncProjects({ config, source: 'mock' });
   const [owner] = ownersFromSnapshot(synced, synced.personnelArchitecture);
-  assert.equal(typeof queuedPrecompute, 'function');
-  assert.equal(config.precomputeScheduledHashes?.size, 1);
+  assert.equal(queuedPrecompute, null);
+  assert.equal(config.precomputeScheduledHashes?.size || 0, 0);
   assert.equal(
     readPrecomputedTeamWorkCompletion(config, synced, synced.personnelArchitecture, {
       owner,
@@ -142,33 +142,10 @@ test('syncProjects schedules dashboard precompute after returning the SQLite ref
     null
   );
 
-  await queuedPrecompute();
-  assert.equal(config.precomputeScheduledHashes?.size || 0, 0);
-  const payload = readPrecomputedTeamWorkCompletion(config, synced, synced.personnelArchitecture, {
-    owner,
-    dashboardContext: 'all',
-    year: new Date().getFullYear(),
-  });
-  const detailPayload = readPrecomputedTeamWorkCompletionDetail(config, synced, synced.personnelArchitecture, {
-    owner,
-    dashboardContext: 'all',
-    year: new Date().getFullYear(),
-  });
-  const metricsPayload = readPrecomputedTeamMetricsBatch(config, synced, synced.personnelArchitecture, {
-    owners: [owner],
-    dashboardContext: 'all',
-  });
-
   assert.ok(owner);
-  assert.equal(payload?.readOnly, true);
-  assert.equal(payload?.owner, owner);
-  assert.equal(payload?.projectsById, undefined);
-  assert.equal(typeof detailPayload?.projectsById, 'object');
-  assert.equal(metricsPayload?.readOnly, true);
-  assert.equal(metricsPayload?.metricsByOwner?.[owner]?.owner, owner);
 });
 
-test('getSnapshot schedules dashboard precompute when reading an existing SQLite snapshot', async () => {
+test('getSnapshot does not schedule full dashboard precompute when reading an existing SQLite snapshot', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'dashboard-sqlite-existing-precompute-'));
   const baseConfig = {
     mode: 'mock',
@@ -200,8 +177,8 @@ test('getSnapshot schedules dashboard precompute when reading an existing SQLite
   const snapshot = await getSnapshot(config);
   const [owner] = ownersFromSnapshot(snapshot, snapshot.personnelArchitecture);
   assert.ok(owner);
-  assert.equal(typeof queuedPrecompute, 'function');
-  assert.equal(config.precomputeScheduledHashes?.size, 1);
+  assert.equal(queuedPrecompute, null);
+  assert.equal(config.precomputeScheduledHashes?.size || 0, 0);
   assert.equal(
     readPrecomputedTeamMetricsBatch(config, snapshot, snapshot.personnelArchitecture, {
       owners: [owner],
@@ -209,15 +186,6 @@ test('getSnapshot schedules dashboard precompute when reading an existing SQLite
     }),
     null
   );
-
-  await queuedPrecompute();
-  assert.equal(config.precomputeScheduledHashes?.size || 0, 0);
-  const metricsPayload = readPrecomputedTeamMetricsBatch(config, snapshot, snapshot.personnelArchitecture, {
-    owners: [owner],
-    dashboardContext: 'all',
-  });
-
-  assert.equal(metricsPayload?.metricsByOwner?.[owner]?.owner, owner);
 });
 
 test('getSnapshot skips dashboard precompute scheduling when complete read model already exists', async () => {

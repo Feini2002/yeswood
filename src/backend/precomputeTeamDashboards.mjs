@@ -21,6 +21,7 @@ import {
   buildDashboardSessionShellPayload,
   currentReadModelDir,
   publishReadModelDirectory,
+  readModelBaseDir,
 } from './readModelRepository.mjs';
 import { mergeTeamWorkCompletionDetailPayload } from './teamWorkCompletionPayload.mjs';
 import { buildTeamMetricsPayload, resolveTeamForOwner } from './teamMetricsPayload.mjs';
@@ -488,6 +489,74 @@ function buildDashboardSessionPayload({
   };
 }
 
+export async function precomputeDashboardBootShell(snapshot = {}, options = {}) {
+  const config = options.config || {};
+  const architecture = snapshot.personnelArchitecture || {};
+  const snapshotHash = precomputeSnapshotHash(snapshot, architecture);
+  const currentDir = currentReadModelDir(config);
+  const currentManifest = readJsonFile(path.join(currentDir, 'manifest.json'));
+  const currentCore = readJsonFile(path.join(currentDir, DASHBOARD_SESSION_PRECOMPUTE_FEATURE, 'core.json'));
+  if (
+    currentManifest?.schemaVersion === PRECOMPUTE_SCHEMA_VERSION &&
+    currentManifest?.snapshotHash === snapshotHash &&
+    manifestHasFeature(currentManifest, DASHBOARD_SESSION_PRECOMPUTE_FEATURE) &&
+    currentCore?.snapshotHash === snapshotHash
+  ) {
+    return currentManifest;
+  }
+
+  const generatedAt = new Date().toISOString();
+  const contexts = normalizeContexts(options.contexts);
+  const years = normalizeYears(options.years, options.now);
+  const dashboardContext = normalizeContexts([options.dashboardContext])[0] || (contexts.includes('all') ? 'all' : contexts[0]);
+  const year = normalizeYears([options.year], options.now)[0] || years[0] || new Date().getFullYear();
+  const features = [DASHBOARD_SESSION_PRECOMPUTE_FEATURE];
+  const manifest = {
+    schemaVersion: PRECOMPUTE_SCHEMA_VERSION,
+    readModel: true,
+    snapshotHash,
+    generatedAt,
+    asOfDate: resolvePrecomputeAsOfDate(options),
+    features,
+    contexts,
+    years,
+    detailYears: [],
+    owners: [],
+    excludedYears: [],
+    warnings: [],
+  };
+  const dashboardSessionPayload = buildDashboardSessionPayload({
+    config,
+    snapshot,
+    snapshotHash,
+    architecture,
+    generatedAt,
+    features,
+    owner: '',
+    dashboardContext,
+    year,
+  });
+  const baseDir = readModelBaseDir(config);
+  await fsp.mkdir(baseDir, { recursive: true });
+  const tmpDir = await fsp.mkdtemp(path.join(baseDir, 'boot.tmp-'));
+  try {
+    await writeJson(path.join(tmpDir, DASHBOARD_SESSION_PRECOMPUTE_FEATURE, 'core.json'), dashboardSessionPayload);
+    await writeJson(
+      path.join(tmpDir, DASHBOARD_SESSION_PRECOMPUTE_FEATURE, 'shell.json'),
+      buildDashboardSessionShellPayload(dashboardSessionPayload, manifest, {
+        config,
+        dashboardContext,
+        year,
+      })
+    );
+    await writeJson(path.join(tmpDir, 'manifest.json'), manifest);
+    await publishReadModelDirectory(config, tmpDir);
+    return manifest;
+  } finally {
+    await removePathWithRetry(tmpDir).catch(() => {});
+  }
+}
+
 function normalizeContexts(contexts) {
   const defaults = Array.from(DASHBOARD_CONTEXTS);
   return (Array.isArray(contexts) && contexts.length ? contexts : defaults).filter((context) =>
@@ -952,7 +1021,7 @@ function dataQualitySummary(dataQuality = {}) {
   };
 }
 
-function buildTeamWorkCompletionSummaryPayload(payload = {}) {
+export function buildTeamWorkCompletionSummaryPayload(payload = {}) {
   const {
     projectsById: _projectsById,
     sourceProjects: _sourceProjects,
@@ -977,6 +1046,8 @@ function buildTeamWorkCompletionSummaryPayload(payload = {}) {
     groups: Array.isArray(groups) ? groups.map(completionGroupSummary) : [],
     members: Array.isArray(members) ? members.map(completionMemberSummary) : [],
     dataQualitySummary: dataQualitySummary(dataQuality),
+    detailReady: false,
+    detailStatus: 'missing',
     readOnly: true,
   };
 }

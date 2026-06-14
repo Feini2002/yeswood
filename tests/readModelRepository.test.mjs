@@ -303,7 +303,7 @@ test('readDashboardSessionReadModel rejects project board metrics without pause 
   assert.match(result.reason, /project board/i);
 });
 
-test('readDashboardSessionReadModel rejects summary catalogs without workflow fields', async () => {
+test('readDashboardSessionReadModel keeps base catalog ready when base workflow fields are missing', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
   await seedReadModel(tempDir, { catalogWorkflowFields: false });
 
@@ -312,12 +312,11 @@ test('readDashboardSessionReadModel rejects summary catalogs without workflow fi
     { owner: 'Owner A', dashboardContext: 'direct', year: 2026 }
   );
 
-  assert.equal(result.status, 'incomplete');
-  assert.equal(result.payload, null);
-  assert.match(result.reason, /project catalog/i);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.payload.projectCatalog.interactionStatus, 'ready');
 });
 
-test('readDashboardSessionReadModel rejects summary catalogs without stage reminder fields', async () => {
+test('readDashboardSessionReadModel keeps base catalog ready when stage reminder fields are missing', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'read-model-repository-'));
   await seedReadModel(tempDir, { catalogStageReminderFields: false });
 
@@ -326,9 +325,8 @@ test('readDashboardSessionReadModel rejects summary catalogs without stage remin
     { owner: 'Owner A', dashboardContext: 'direct', year: 2026 }
   );
 
-  assert.equal(result.status, 'incomplete');
-  assert.equal(result.payload, null);
-  assert.match(result.reason, /project catalog/i);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.payload.projectCatalog.interactionStatus, 'partial');
 });
 
 test('readTeamWorkCompletionDetailReadModel tolerates trimmed owner input on the fast path', async () => {

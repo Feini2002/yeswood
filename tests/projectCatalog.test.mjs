@@ -243,6 +243,48 @@ test('fetchProjectDetail uses read model fallback and caches returned detail', a
   assert.equal(runtimeStore.projectDetailCache.get('p1')?.project.name, 'Project One');
 });
 
+test('fetchProjectDetail computes detail when read model is still preparing', async () => {
+  const { state } = await import('../public/lib/state.mjs');
+  const { runtimeStore } = await import('../public/lib/runtime-flags.mjs');
+  const { snapshotSignature } = await import('../public/realtime.js');
+  state.snapshot = { syncedAt: '2026-06-11T00:00:00.000Z', totalRecords: 1 };
+  state.projectsCatalogSignature = snapshotSignature(state.snapshot);
+  runtimeStore.projectDetailCache = new Map();
+  runtimeStore.projectDetailPromises = new Map();
+
+  const requested = [];
+  globalThis.fetch = async (url) => {
+    const path = String(url);
+    requested.push(path);
+    if (path.includes('fallback=readModel')) {
+      return {
+        ok: true,
+        json: async () => ({ status: 'preparing', readModel: true }),
+      };
+    }
+    if (path.includes('fallback=compute')) {
+      return {
+        ok: true,
+        json: async () => ({
+          item: {
+            id: 'p1',
+            name: 'Project One',
+            rawFields: { usefulNote: { display: 'Computed detail', kind: 'text' } },
+          },
+        }),
+      };
+    }
+    throw new Error(`unexpected fetch ${path}`);
+  };
+
+  const project = await fetchProjectDetail('p1');
+
+  assert.equal(project.name, 'Project One');
+  assert.match(requested[0], /fallback=readModel/);
+  assert.match(requested[1], /fallback=compute/);
+  assert.equal(runtimeStore.projectDetailCache.get('p1')?.project.name, 'Project One');
+});
+
 test('fetchProjectDetail remembers canonical and record id aliases', async () => {
   const { state } = await import('../public/lib/state.mjs');
   const { runtimeStore } = await import('../public/lib/runtime-flags.mjs');

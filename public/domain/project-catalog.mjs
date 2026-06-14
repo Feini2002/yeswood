@@ -280,7 +280,15 @@ export async function fetchProjectDetail(projectId) {
     return inflight;
   }
 
-  const request = fetchJson(`/api/projects?id=${encodeURIComponent(id)}&view=full&fallback=readModel`)
+  const readModelPath = `/api/projects?id=${encodeURIComponent(id)}&view=full&fallback=readModel`;
+  const computePath = `/api/projects?id=${encodeURIComponent(id)}&view=full&fallback=compute`;
+  const request = fetchJson(readModelPath)
+    .then((payload) => {
+      if (payload?.status === 'preparing') {
+        return fetchJson(computePath);
+      }
+      return payload;
+    })
     .then((payload) => {
       const item = payload?.item || null;
       if (!item) {

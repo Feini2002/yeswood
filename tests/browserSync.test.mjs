@@ -98,11 +98,14 @@ test('enabled same-origin dashboard sync refreshes the backend cache without fro
   assert.doesNotMatch(publicApp, /SYNC_API_KEY/);
 });
 
-test('enabled browser dashboard sync waits for read model warmup before reporting success', async () => {
+test('enabled browser dashboard sync waits for boot read model warmup before reporting success', async () => {
+  let fullPrecomputeSchedules = 0;
   await withTestServer(
     {
       dashboardSyncEnabled: true,
-      precomputeScheduler: () => {},
+      precomputeScheduler: () => {
+        fullPrecomputeSchedules += 1;
+      },
     },
     async (baseUrl, config) => {
       const response = await fetch(`${baseUrl}/api/dashboard-sync`, {
@@ -117,10 +120,12 @@ test('enabled browser dashboard sync waits for read model warmup before reportin
 
       assert.equal(response.status, 200);
       assert.equal(payload.source, 'mock');
+      assert.deepEqual(payload.features, ['dashboard-session']);
+      assert.equal(fullPrecomputeSchedules, 0);
       const manifestPath = path.join(path.dirname(config.precomputeDir), 'read-model', 'current', 'manifest.json');
       const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
       assert.equal(manifest.readModel, true);
-      assert.ok(manifest.features.includes('team-work-completion-detail'));
+      assert.deepEqual(manifest.features, ['dashboard-session']);
     }
   );
 });

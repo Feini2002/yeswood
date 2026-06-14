@@ -252,7 +252,7 @@ test('floor plan follows flat start and tap audit end dates only', () => {
   );
 });
 
-test('company lifecycle completion does not use derived meeting cycle as trusted completion date', () => {
+test('company lifecycle completion falls back to meeting date plus closure cycle when explicit date is missing', () => {
   const closedWithCycle = project({
     rawFields: {
       硬装项目进度: raw('闭环'),
@@ -275,17 +275,18 @@ test('company lifecycle completion does not use derived meeting cycle as trusted
 
   assert.equal(state.completed, true);
   assert.equal(state.inProgress, false);
-  assert.equal(state.completedAt, '');
-  assert.equal(state.missingDate, true);
-  assert.equal(state.monthlyEligible, false);
-  assert.equal(state.dateSourceType, 'none');
+  assert.equal(state.completedAt, '2026-06-01');
+  assert.equal(state.missingDate, false);
+  assert.equal(state.monthlyEligible, true);
+  assert.equal(state.dateSourceType, 'meetingCycle');
+  assert.ok(state.evidence.includes('上会日期 + 闭环周期'));
   assert.equal(missingDateState.completed, true);
   assert.equal(missingDateState.completedAt, '');
   assert.equal(missingDateState.missingDate, true);
   assert.equal(missingDateState.monthlyEligible, false);
 });
 
-test('company lifecycle completion date does not fall back to project deadline when business date is missing', () => {
+test('company lifecycle completion falls back to project deadline after explicit date and cycle are missing', () => {
   const state = resolveCompanyLifecycleState(
     project({
       dueDate: '2026/04/10',
@@ -297,15 +298,14 @@ test('company lifecycle completion date does not fall back to project deadline w
   );
 
   assert.equal(state.completed, true);
-  assert.equal(state.completedAt, '');
-  assert.equal(state.missingDate, true);
-  assert.equal(state.monthlyEligible, false);
-  assert.equal(state.dateSourceType, 'none');
-  assert.equal(state.dateTrust, 'missing');
-  assert.equal(state.evidence.includes('项目 Deadline'), false);
+  assert.equal(state.completedAt, '2026-04-10');
+  assert.equal(state.missingDate, false);
+  assert.equal(state.monthlyEligible, true);
+  assert.equal(state.dateSourceType, 'projectDeadline');
+  assert.equal(state.evidence.includes('项目 Deadline'), true);
 });
 
-test('company lifecycle completion date prefers explicit closed date over deadline and normalizes it', () => {
+test('company lifecycle completion date prefers explicit closed date over derived cycle and deadline', () => {
   const state = resolveCompanyLifecycleState(
     project({
       dueDate: '2026-04-10',
@@ -313,6 +313,8 @@ test('company lifecycle completion date prefers explicit closed date over deadli
         硬装项目进度: raw('闭环'),
         软装项目进度: raw('闭环'),
         项目闭环时间: raw('2026年4月8日'),
+        上会日期: raw('2026-05-20'),
+        闭环周期: raw('12'),
       },
     })
   );
@@ -323,7 +325,7 @@ test('company lifecycle completion date prefers explicit closed date over deadli
   assert.ok(state.evidence.includes('项目闭环时间'));
 });
 
-test('company lifecycle completion treats DingTalk meeting time as derived and not monthly eligible', () => {
+test('company lifecycle completion accepts meeting time plus closure cycle fallback', () => {
   const state = resolveCompanyLifecycleState(
     project({
       rawFields: {
@@ -336,10 +338,10 @@ test('company lifecycle completion treats DingTalk meeting time as derived and n
   );
 
   assert.equal(state.completed, true);
-  assert.equal(state.completedAt, '');
-  assert.equal(state.missingDate, true);
-  assert.equal(state.monthlyEligible, false);
-  assert.equal(state.dateSourceType, 'none');
+  assert.equal(state.completedAt, '2026-06-01');
+  assert.equal(state.missingDate, false);
+  assert.equal(state.monthlyEligible, true);
+  assert.equal(state.dateSourceType, 'meetingCycle');
 });
 
 test('completion date parsing rejects partial and numeric-only values', () => {

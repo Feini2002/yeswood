@@ -59,6 +59,11 @@ test('importSnapshotToDatabase stores raw rows, final projects, metrics, filters
         项目状态: '推进中',
         负责人: '陈立营',
         硬装项目进度: '75%',
+        硬装资料: 'hard docs should not persist',
+        软装资料: 'soft docs should not persist',
+        备注: '{"markdown":"should not persist"}',
+        特殊备注: '运营复核保留',
+        '平面开始时间（二次设计备注好，然后以第二次为准，第一次时间写备注）': '2026-04-10',
         启动时间: 1764547200000,
         计划开业时间: 1774454400000,
         CD组长: '张宸瑞',
@@ -99,6 +104,20 @@ test('importSnapshotToDatabase stores raw rows, final projects, metrics, filters
   assert.equal(sqliteSnapshot.metrics.summary.totalProjects, 2);
   assert.ok(sqliteSnapshot.filters.provinces.includes('浙江省'));
   assert.ok(sqliteSnapshot.fieldCatalog.some((field) => field.key === '项目名称'));
+  assert.equal(sqliteSnapshot.fieldCatalog.some((field) => ['硬装资料', '软装资料', '备注'].includes(field.key)), false);
+  assert.equal(sqliteSnapshot.projects[0].rawFields.硬装资料, undefined);
+  assert.equal(sqliteSnapshot.projects[0].rawFields.软装资料, undefined);
+  assert.equal(sqliteSnapshot.projects[0].rawFields.备注, undefined);
+  assert.equal(sqliteSnapshot.projects[0].rawFields.特殊备注.display, '运营复核保留');
+  assert.equal(sqliteSnapshot.projects[0].rawFields['平面开始时间（二次设计备注好，然后以第二次为准，第一次时间写备注）'].display, '2026-04-10');
+  const storedProjectFields = JSON.parse(db.prepare('select raw_fields_json from projects where id = ?').get('rec-1').raw_fields_json);
+  const storedRawFields = JSON.parse(db.prepare('select raw_fields_json from dingtalk_raw_records where dingtalk_record_id = ?').get('rec-1').raw_fields_json);
+  assert.equal(storedProjectFields.硬装资料, undefined);
+  assert.equal(storedProjectFields.软装资料, undefined);
+  assert.equal(storedProjectFields.备注, undefined);
+  assert.equal(storedRawFields.硬装资料, undefined);
+  assert.equal(storedRawFields.软装资料, undefined);
+  assert.equal(storedRawFields.备注, undefined);
   db.close();
 });
 

@@ -48,6 +48,14 @@
   gap: 8px;
 }
 
+.overview-command-topline {
+  display: flex;
+  align-items: center;
+  gap: 10px 14px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
 .overview-command-kicker,
 .overview-panel-kicker {
   display: inline-flex;
@@ -58,6 +66,11 @@
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.overview-command-topline .overview-command-kicker {
+  flex: 1 1 178px;
+  min-width: 168px;
 }
 
 .overview-command-kicker::before {
@@ -82,6 +95,37 @@
   font-size: 12px;
   font-weight: 700;
   line-height: 1.6;
+}
+
+.overview-sync-state {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 3px 4px 3px 10px;
+  gap: 8px;
+  border-color: rgba(16, 64, 32, 0.14);
+  box-shadow: none;
+}
+
+.overview-sync-state span,
+.overview-sync-state strong {
+  font-size: 12px;
+}
+
+.overview-sync-state .sync-message {
+  max-width: 88px;
+}
+
+.overview-sync-state .sync-button,
+.overview-sync-state .page-refresh-button {
+  height: 27px;
+  min-width: 42px;
+  padding: 0 9px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.overview-sync-state .page-refresh-button {
+  min-width: 56px;
 }
 
 .overview-command-facts {

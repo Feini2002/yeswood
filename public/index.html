@@ -58,21 +58,6 @@
       </aside>
 
       <main class="workspace">
-        <header class="topbar">
-          <h1 class="topbar-title">源氏木语门店项目一览</h1>
-          <div class="sync-state">
-            <span id="sourceLabel">演示数据</span>
-            <strong id="syncedAt">--</strong>
-            <span class="sync-message" id="syncMessage" aria-live="polite"></span>
-            <button class="sync-button" id="syncButton" type="button" aria-label="同步项目数据" title="同步项目数据">
-              同步
-            </button>
-            <button class="page-refresh-button" id="pageRefreshButton" type="button" aria-label="刷新当前页面" title="刷新当前页面">
-              刷新
-            </button>
-          </div>
-        </header>
-
         <section
           class="filter-bar"
           id="projectFilterBar"
@@ -110,23 +95,32 @@
         <section class="dashboard-page is-active" id="overview" data-page="overview">
           <section class="overview-dashboard" aria-label="总监级项目运营总盘">
             <section class="overview-command-deck">
-              <header class="overview-command-center" id="overviewCommandCenter"></header>
+              <header class="overview-command-center" id="overviewCommandCenter">
+                <div class="overview-command-main">
+                  <div class="overview-command-topline">
+                    <div class="sync-state overview-sync-state" aria-label="首页数据同步与刷新">
+                      <span id="sourceLabel">导入数据</span>
+                      <strong id="syncedAt">--</strong>
+                      <span class="sync-message" id="syncMessage" aria-live="polite"></span>
+                      <button class="sync-button" id="syncButton" type="button" aria-label="同步项目数据" title="同步项目数据">
+                        同步
+                      </button>
+                      <button class="page-refresh-button" id="pageRefreshButton" type="button" aria-label="整页刷新总览" title="整页刷新总览">
+                        刷新
+                      </button>
+                    </div>
+                    <span class="overview-command-kicker">Director Command Console</span>
+                  </div>
+                  <h2>项目运营总控台</h2>
+                  <p>先看风险，再看责任与节点节奏；所有数字可下钻到项目明细。</p>
+                </div>
+                <dl class="overview-command-facts" id="overviewCommandFacts" aria-label="总盘数据口径"></dl>
+              </header>
               <section class="overview-signal-strip" id="overviewSignalStrip" aria-label="经营指挥条"></section>
             </section>
 
             <section class="overview-control-grid">
               <div class="overview-action-stack">
-                <article class="overview-panel overview-risk-command" id="overviewRiskCommand">
-                  <header class="overview-panel-header">
-                    <div>
-                      <span class="overview-panel-kicker">总监动作队列</span>
-                      <h2>优先介入项目</h2>
-                    </div>
-                    <span>Top 10</span>
-                  </header>
-                  <div class="overview-risk-queue" id="overviewRiskQueue"></div>
-                </article>
-
                 <article class="overview-panel overview-owner-panel">
                   <header class="overview-panel-header">
                     <div>
@@ -571,6 +565,6 @@
       </main>
     </div>
 
-    <script src="/app.js" type="module"></script>
+    <script src="/boot.js" type="module"></script>
   </body>
 </html>

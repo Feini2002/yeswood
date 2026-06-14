@@ -1133,6 +1133,26 @@ test('cleanProjectRecord keeps original DingTalk fields with readable values', (
   assert.equal(project.rawFields['空字段'].rawValue, null);
 });
 
+test('cleanProjectRecord filters asset and note fields without dropping business note fields', () => {
+  const project = cleanProjectRecord({
+    id: 'raw-filter-notes',
+    fields: {
+      项目名称: '过滤字段店',
+      硬装资料: 'hard docs',
+      软装资料: 'soft docs',
+      备注: '{"markdown":"**CD**"}',
+      特殊备注: '仍可检索',
+      '平面开始时间（二次设计备注好，然后以第二次为准，第一次时间写备注）': '2026-04-10',
+    },
+  });
+
+  assert.equal(project.rawFields.硬装资料, undefined);
+  assert.equal(project.rawFields.软装资料, undefined);
+  assert.equal(project.rawFields.备注, undefined);
+  assert.equal(project.rawFields.特殊备注.display, '仍可检索');
+  assert.equal(project.rawFields['平面开始时间（二次设计备注好，然后以第二次为准，第一次时间写备注）'].display, '2026-04-10');
+});
+
 test('createFieldCatalog summarizes original DingTalk fields for frontend columns', () => {
   const projects = [
     cleanProjectRecord({ id: '1', fields: { A: 'x', B: { name: '选项' } } }),

@@ -87,23 +87,25 @@ test('startDevReload reloads the browser when the server sends a reload event', 
   assert.equal(reloadCount, 1);
 });
 
-test('startDevReload leaves the page stable when the development event stream disconnects', () => {
+test('startDevReload reconnects after the development event stream disconnects', () => {
   let reloadCount = 0;
-  const listeners = {};
+  const sources = [];
   const timers = [];
-  let closed = false;
+  let closeCount = 0;
 
   class FakeEventSource {
     constructor(url) {
       this.url = url;
+      this.listeners = {};
+      sources.push(this);
     }
 
     addEventListener(type, listener) {
-      listeners[type] = listener;
+      this.listeners[type] = listener;
     }
 
     close() {
-      closed = true;
+      closeCount += 1;
     }
   }
 
@@ -116,9 +118,16 @@ test('startDevReload leaves the page stable when the development event stream di
     },
   });
 
-  listeners.error();
-  listeners.error();
-  assert.equal(timers.length, 0);
+  assert.equal(sources.length, 1);
+  sources[0].listeners.error();
   assert.equal(reloadCount, 0);
-  assert.equal(closed, true);
+  assert.equal(closeCount, 1);
+  assert.equal(timers.length, 1);
+
+  timers[0]();
+  assert.equal(sources.length, 2);
+  sources[1].listeners.reload();
+  assert.equal(timers.length, 2);
+  timers[1]();
+  assert.equal(reloadCount, 1);
 });

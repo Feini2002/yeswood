@@ -95,8 +95,12 @@ test('precompute writes gzip sidecars beside read model json files', async () =>
   assert.equal(gunzipSync(compressed).toString('utf8'), plain);
 });
 
-test('dashboard-session shell can be served from precompressed read model gzip', async () => {
+test('dashboard-session shell applies runtime flags instead of stale static shell flags', async () => {
   const { config } = await buildPrecomputedReadModel();
+  const shellPath = path.join(currentReadModelDir(config), 'dashboard-session', 'shell.json');
+  const staticShell = JSON.parse(await fs.readFile(shellPath, 'utf8'));
+  assert.equal(staticShell.snapshot.developerDocumentationVisible, false);
+  assert.equal(staticShell.snapshot.dashboardDisplayMode, 'intranet');
 
   await withServer(config, async (port) => {
     const payload = await requestRaw(port, '/api/dashboard-session?context=all&year=2026', {
@@ -105,10 +109,12 @@ test('dashboard-session shell can be served from precompressed read model gzip',
 
     assert.equal(payload.status, 200);
     assert.equal(payload.headers['content-encoding'], 'gzip');
-    assert.equal(payload.headers['x-read-model-transport'], 'precompressed');
+    assert.equal(payload.headers['x-read-model-transport'], undefined);
     const body = JSON.parse(gunzipSync(payload.body).toString('utf8'));
     assert.equal(body.schemaVersion, READ_MODEL_SCHEMA_VERSION);
     assert.equal(body.shellOnly, true);
+    assert.equal(body.snapshot.developerDocumentationVisible, true);
+    assert.equal(body.snapshot.dashboardDisplayMode, 'development');
 
     const head = await requestRaw(port, '/api/dashboard-session?context=all&year=2026', {
       method: 'HEAD',
@@ -116,17 +122,34 @@ test('dashboard-session shell can be served from precompressed read model gzip',
     });
     assert.equal(head.status, 200);
     assert.equal(head.headers['content-encoding'], 'gzip');
-    assert.equal(head.headers['x-read-model-transport'], 'precompressed');
+    assert.equal(head.headers['x-read-model-transport'], undefined);
     assert.equal(head.body.length, 0);
+    assert.equal(payload.headers.etag, undefined);
+  });
+});
 
-    const cached = await requestRaw(port, '/api/dashboard-session?context=all&year=2026', {
-      headers: {
-        'accept-encoding': 'gzip',
-        'if-none-match': payload.headers.etag,
-      },
-    });
-    assert.equal(cached.status, 304);
-    assert.equal(cached.body.length, 0);
+test('large owner dashboard-session payloads skip dynamic gzip instead of stalling startup interactions', async () => {
+  const { config } = await buildPrecomputedReadModel();
+  const manifest = JSON.parse(await fs.readFile(path.join(currentReadModelDir(config), 'manifest.json'), 'utf8'));
+  const owner = manifest.owners?.[0]?.owner || '';
+  assert.ok(owner, 'precomputed read model should include at least one owner');
+
+  await withServer(config, async (port) => {
+    const payload = await requestRaw(
+      port,
+      `/api/dashboard-session?owner=${encodeURIComponent(owner)}&context=all&year=2026`,
+      {
+        headers: { 'accept-encoding': 'gzip' },
+      }
+    );
+
+    assert.equal(payload.status, 200);
+    assert.equal(payload.headers['content-encoding'], undefined);
+    assert.equal(payload.headers['x-dashboard-gzip-skipped'], 'dynamic-payload-too-large');
+    assert.match(payload.headers['x-dashboard-payload-kb'] || '', /^\d/);
+    const body = JSON.parse(payload.body.toString('utf8'));
+    assert.equal(body.readModel, true);
+    assert.equal(body.team.owner, owner);
   });
 });
 

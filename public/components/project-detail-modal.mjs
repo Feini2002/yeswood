@@ -1,7 +1,7 @@
 import { state } from '../lib/state.mjs';
 import { elements } from '../lib/dom.mjs';
 import { runtimeStore } from '../lib/runtime-flags.mjs';
-import { escapeHtml, displayOrDash, formatDate, formatDateTime } from '../lib/format.mjs';
+import { escapeHtml, displayOrDash, formatDate } from '../lib/format.mjs';
 import {
   isSleepStoreProject,
   readRawFieldDisplay,
@@ -13,15 +13,11 @@ import {
   renderProjectAssignmentReminder,
 } from '../domain/project-display.mjs';
 import {
-  renderProjectFieldGapReminder,
   renderProjectStatusConflictReminder,
-  renderProjectStageStack,
-  renderProjectKeyDateStack,
 } from './project-cell-render.mjs';
 import { refreshDrillRowsIfOpen, refreshProjectWorkbenchAfterModal } from '../lib/view-coordinator.mjs';
 import {
   readEffectiveWorkflowStage,
-  readProjectStage,
   readProjectNodeValue,
   isProjectWorkflowClosed,
   isPausedOrCanceledProject,
@@ -30,11 +26,10 @@ import {
   PROJECT_NODE_FIELD_ALIASES,
 } from '../domain/project-workflow.mjs';
 import {
-  readProjectKeyDate,
   resolveProjectKeyDateReminders,
+  isEmptyProjectReminder,
   projectReminderTrackLabel,
   isHardDeadlineReminder,
-  normalizeSystemProjectReminder,
 } from '../domain/project-reminders.mjs';
 
 function buildProjectDetailFieldGroups() {
@@ -55,24 +50,12 @@ function buildProjectDetailFieldGroups() {
     ],
   },
   {
-    key: 'progress',
-    title: '当前推进',
-    open: true,
-    fields: [
-      { label: '硬装项目进度', value: (project) => displayOrDash(readEffectiveWorkflowStage(project, 'hard')) },
-      { label: '点位/软装进度', value: (project) => displayOrDash(readEffectiveWorkflowStage(project, 'soft')) },
-      { label: '硬装方案情况', fields: ['硬装方案情况'] },
-      { label: '点位完成情况', fields: ['点位完成情况'] },
-      { label: '上会情况', fields: ['上会情况'] },
-      { label: '软装完成情况', fields: ['软装完成情况'] },
-    ],
-  },
-  {
     key: 'reminders',
-    title: '日期与提醒',
+    title: '关键日期',
     open: false,
     fields: [
-      { label: '下一提醒', value: (project) => readProjectKeyDate(project), always: true },
+      { label: '启动时间', fields: PROJECT_NODE_FIELD_ALIASES.managementStart, value: (project) => formatDate(project.startDate || readProjectNodeValue(project, 'managementStart')), always: true },
+      { label: '计划开业时间', fields: PROJECT_NODE_FIELD_ALIASES.managementOpen, value: (project) => formatDate(project.dueDate || readProjectNodeValue(project, 'managementOpen')), always: true },
       { label: '上会日期', fields: PROJECT_NODE_FIELD_ALIASES.meetingDate, value: (project) => formatDate(readProjectNodeValue(project, 'meetingDate')), always: true },
       { label: '复尺时间', fields: PROJECT_NODE_FIELD_ALIASES.measureDate, value: (project) => formatDate(readProjectNodeValue(project, 'measureDate')), always: true },
       { label: '平面开始时间', fields: PROJECT_NODE_FIELD_ALIASES.floorPlanStart, value: (project) => formatDate(readProjectNodeValue(project, 'floorPlanStart')), always: true },
@@ -90,8 +73,6 @@ function buildProjectDetailFieldGroups() {
       { label: '摆场开始时间', fields: PROJECT_NODE_FIELD_ALIASES.displayStart, value: (project) => formatDate(readProjectNodeValue(project, 'displayStart')), always: true },
       { label: '摆场文件发出时间', fields: PROJECT_NODE_FIELD_ALIASES.displayFileSent, value: (project) => formatDate(readProjectNodeValue(project, 'displayFileSent')), always: true },
       { label: '摆场时间', fields: PROJECT_NODE_FIELD_ALIASES.displayTime, value: (project) => formatDate(readProjectNodeValue(project, 'displayTime')), always: true },
-      { label: '启动时间', fields: PROJECT_NODE_FIELD_ALIASES.managementStart, value: (project) => formatDate(project.startDate || readProjectNodeValue(project, 'managementStart')), always: true },
-      { label: '计划开业时间', fields: PROJECT_NODE_FIELD_ALIASES.managementOpen, value: (project) => formatDate(project.dueDate || readProjectNodeValue(project, 'managementOpen')), always: true },
     ],
   },
   {
@@ -103,20 +84,19 @@ function buildProjectDetailFieldGroups() {
       { label: '软装组长', fields: ['VM组长'] },
       { label: '硬装设计师', fields: ['CD设计师'] },
       { label: '软装设计师', fields: ['VM设计师'] },
-      { label: '摆场设计师', fields: ['摆场设计师'] },
-    ],
-  },
-  {
-    key: 'assets',
-    title: '资料与备注',
-    open: false,
-    fields: [
-      { label: '硬装资料', fields: ['硬装资料'] },
-      { label: '软装资料', fields: ['软装资料'] },
-      { label: '备注', fields: ['备注'] },
     ],
   },
 ];
+}
+
+function projectDetailGroupTone(group = {}) {
+  const tones = {
+    overview: 'overview',
+    progress: 'progress',
+    reminders: 'date',
+    people: 'people',
+  };
+  return tones[group.key] || 'overview';
 }
 
 export function projectDetailFieldValue(project, field) {
@@ -129,12 +109,21 @@ export function projectDetailFieldValue(project, field) {
   return displayOrDash(project[field.key]);
 }
 
+function projectDetailReminderProject(project = {}) {
+  const primaryReminder = isHardDeadlineReminder(project.primaryReminder) ? null : project.primaryReminder;
+  const reminders = Array.isArray(project.reminders)
+    ? project.reminders.filter((reminder) => !isHardDeadlineReminder(reminder))
+    : project.reminders;
+  return {
+    ...project,
+    primaryReminder,
+    reminders,
+  };
+}
+
 
 export function projectDetailFieldApplies(project, group, field) {
   const label = String(field.label || '');
-  if ((isProjectWorkflowClosed(project) || isPausedOrCanceledProject(project)) && group.key === 'reminders' && label === '下一提醒') {
-    return false;
-  }
   if (!isSleepStoreProject(project)) {
     return true;
   }
@@ -165,6 +154,23 @@ export function projectDetailFieldLabel(project, group, field) {
 }
 
 
+function projectDetailProgressValue(project = {}, discipline = 'hard') {
+  const rawFields = discipline === 'soft' ? ['软装项目进度'] : ['硬装项目进度'];
+  return readRawFieldDisplay(project, rawFields) || displayOrDash(readEffectiveWorkflowStage(project, discipline));
+}
+
+
+function projectDetailProgressItems(project = {}) {
+  const items = [
+    { key: 'hard', label: '硬装项目进度', value: projectDetailProgressValue(project, 'hard') },
+  ];
+  if (!isSleepStoreProject(project)) {
+    items.push({ key: 'soft', label: '软装项目进度', value: projectDetailProgressValue(project, 'soft') });
+  }
+  return items.filter((item) => displayOrDash(item.value) !== '--');
+}
+
+
 export function sleepStorePeopleDetailValues(project) {
   return [
     { label: '负责人', value: displayProjectHardOwner(project) },
@@ -181,70 +187,244 @@ export function sleepStorePeopleDetailValues(project) {
 
 
 export function projectDetailGroupValues(project, group) {
+  const detailProject = group.key === 'reminders' ? projectDetailReminderProject(project) : project;
   if (isSleepStoreProject(project) && group.key === 'people') {
     return sleepStorePeopleDetailValues(project);
   }
   return group.fields
-    .filter((field) => projectDetailFieldApplies(project, group, field))
+    .filter((field) => projectDetailFieldApplies(detailProject, group, field))
     .map((field) => ({
-      label: projectDetailFieldLabel(project, group, field),
-      value: projectDetailFieldValue(project, field),
+      label: projectDetailFieldLabel(detailProject, group, field),
+      value: projectDetailFieldValue(detailProject, field),
       always: Boolean(field.always),
     }))
     .filter((item) => item.always || item.value !== '--');
 }
 
+function renderProjectDetailHero(project = {}) {
+  const subtitle = [
+    displayOrDash(project.storeStatus),
+    displayOrDash(project.businessType),
+    displayOrDash(projectAreaLabel(project)),
+  ].filter((item) => item && item !== '--');
+
+  return `
+    <header class="project-detail-hero">
+      <div>
+        <p class="eyebrow">单项项目</p>
+        <h3 id="projectDetailTitle" title="${escapeHtml(project.name || '')}">${escapeHtml(project.name || '未命名项目')}</h3>
+        ${subtitle.length ? `<p class="project-detail-hero-subtitle">${escapeHtml(subtitle.join(' · '))}</p>` : ''}
+      </div>
+    </header>
+  `;
+}
+
+function projectDetailSnapshotTone(item, index) {
+  const label = String(item?.label || '');
+  if (/软装/.test(label)) {
+    return 'soft';
+  }
+  if (/硬装|负责人/.test(label)) {
+    return 'hard';
+  }
+  if (/地区|店态|业态/.test(label)) {
+    return index % 2 ? 'amber' : 'teal';
+  }
+  return 'neutral';
+}
+
+function renderProjectDetailSnapshot(items = []) {
+  if (!items.length) {
+    return '';
+  }
+  return `
+    <section class="project-detail-snapshot" aria-label="项目概况">
+      ${items
+        .map((item, index) => {
+          const value = displayOrDash(item.value);
+          return `
+            <div class="project-detail-snapshot-item is-${escapeHtml(projectDetailSnapshotTone(item, index))}">
+              <span>${escapeHtml(item.label)}</span>
+              <strong title="${escapeHtml(value)}">${escapeHtml(value)}</strong>
+            </div>
+          `;
+        })
+        .join('')}
+    </section>
+  `;
+}
+
+function isProjectDetailAdminReminder(reminder = {}) {
+  const text = [reminder.label, reminder.message, reminder.title, reminder.raw, reminder.stage].filter(Boolean).join(' ');
+  return /补录|待填|缺失|缺日期|缺时间|字段/.test(text);
+}
+
+function projectDetailSplitReminders(project = {}, { closedForReminder = false } = {}) {
+  if (closedForReminder) {
+    return { stageReminders: [], adminReminders: [] };
+  }
+  const reminders = resolveProjectKeyDateReminders(project).filter((item) => !isEmptyProjectReminder(item));
+  return {
+    stageReminders: reminders.filter((item) => !isProjectDetailAdminReminder(item)),
+    adminReminders: reminders.filter(isProjectDetailAdminReminder),
+  };
+}
+
+function projectDetailStageReminderTitle(reminder = {}) {
+  if (reminder.stage) {
+    return `当前${reminder.stage}`;
+  }
+  return projectReminderTrackLabel(reminder) || reminder.label || '当前阶段';
+}
+
+function projectDetailStageReminderAction(reminder = {}) {
+  const action = reminder.message || (reminder.label ? `待${reminder.label}` : '');
+  return action || displayOrDash(reminder.label);
+}
+
+function projectDetailStageReminderMeta(reminder = {}) {
+  return [reminder.formatted && reminder.formatted !== '--' ? reminder.formatted : '', projectReminderTrackLabel(reminder)]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function projectDetailAdminReminderTitle(reminder = {}) {
+  return reminder.message || (reminder.label ? `${reminder.label}待补录` : '表单字段待补录');
+}
+
+function projectDetailAdminReminderMeta(reminder = {}) {
+  return [projectReminderTrackLabel(reminder), reminder.stage ? `阶段：${reminder.stage}` : '管理补录']
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function renderProjectDetailStageRows(rows = [], emptyText = '暂无信息') {
+  if (!rows.length) {
+    return `<span class="project-detail-stage-empty">${escapeHtml(emptyText)}</span>`;
+  }
+  return rows
+    .map(
+      (row) => `
+        <span class="project-detail-stage-row is-${escapeHtml(row.tone || 'neutral')}">
+          <b>${escapeHtml(row.title)}</b>
+          <em>${escapeHtml(row.value)}</em>
+          ${row.meta ? `<small>${escapeHtml(row.meta)}</small>` : ''}
+        </span>
+      `
+    )
+    .join('');
+}
+
+function renderProjectDetailStageStream(stream = {}) {
+  return `
+    <div class="project-detail-stage-stream is-${escapeHtml(stream.tone || 'neutral')}">
+      <div class="project-detail-stage-stream-head">
+        <span>${escapeHtml(stream.label)}</span>
+        ${stream.caption ? `<small>${escapeHtml(stream.caption)}</small>` : ''}
+      </div>
+      <div class="project-detail-stage-stream-body">
+        ${renderProjectDetailStageRows(stream.rows, stream.emptyText)}
+      </div>
+    </div>
+  `;
+}
+
+function renderProjectDetailStagePanel(project, { closedForReminder = false, detailReminderProject = project } = {}) {
+  const { stageReminders, adminReminders } = projectDetailSplitReminders(detailReminderProject, { closedForReminder });
+  const streams = [
+    {
+      key: 'facts',
+      tone: 'hard',
+      label: '阶段事实',
+      emptyText: '暂无项目进度',
+      rows: projectDetailProgressItems(project).map((item) => ({
+        tone: item.key,
+        title: item.label,
+        value: displayOrDash(item.value),
+      })),
+    },
+    {
+      key: 'next',
+      tone: 'date',
+      label: '下一阶段动作',
+      emptyText: '暂无阶段提醒',
+      rows: stageReminders.map((reminder) => ({
+        tone: reminder.discipline || 'date',
+        title: projectDetailStageReminderTitle(reminder),
+        value: projectDetailStageReminderAction(reminder),
+        meta: projectDetailStageReminderMeta(reminder),
+      })),
+    },
+    {
+      key: 'admin',
+      tone: 'admin',
+      label: '表单补录',
+      emptyText: '暂无补录提醒',
+      rows: adminReminders.map((reminder) => ({
+        tone: 'admin',
+        title: projectDetailAdminReminderTitle(reminder),
+        value: '待补录',
+        meta: projectDetailAdminReminderMeta(reminder),
+      })),
+    },
+  ];
+  const reminderCount = stageReminders.length + adminReminders.length;
+
+  return `
+    <section class="project-detail-stage-panel" aria-label="当前状态">
+      <div class="project-detail-section-head">
+        <span>当前状态</span>
+        <small>${reminderCount} 条提醒</small>
+      </div>
+      <div class="project-detail-stage-grid">
+        ${streams.map(renderProjectDetailStageStream).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderProjectDetailNotices(html = '') {
+  if (!String(html || '').trim()) {
+    return '';
+  }
+  return `<section class="project-detail-alerts" aria-label="项目提醒">${html}</section>`;
+}
+
 
 export function renderDetailGroup(project, group) {
   const values = projectDetailGroupValues(project, group);
+  const tone = projectDetailGroupTone(group);
 
   const body = values.length
     ? values
         .map(
-          (item) => `
-            <div class="detail-kv-row">
+          (item) => {
+            const stateClass = displayOrDash(item.value) === '--' ? 'is-empty-value' : 'is-filled-value';
+            return `
+            <div class="detail-kv-row ${stateClass}">
               <span>${escapeHtml(item.label)}</span>
               <strong title="${escapeHtml(item.value)}">${escapeHtml(item.value)}</strong>
             </div>
-          `
+          `;
+          }
         )
         .join('')
     : '<div class="detail-kv-empty">暂无数据</div>';
 
   return `
-    <details class="project-detail-section" ${group.open ? 'open' : ''}>
-      <summary>
+    <section class="project-detail-section is-${escapeHtml(tone)}" aria-label="${escapeHtml(group.title)}">
+      <div class="project-detail-section-head">
         <span>${escapeHtml(group.title)}</span>
         <small>${values.length} 项</small>
-      </summary>
+      </div>
       <div class="detail-kv-grid">${body}</div>
-    </details>
+    </section>
   `;
 }
 
 
 export function renderProjectDetailContext(context = null, project = null) {
-  if (project && (isProjectWorkflowClosed(project) || isPausedOrCanceledProject(project))) {
-    return '';
-  }
-  if (!context?.action && !context?.reason) {
-    return '';
-  }
-  const facts = [
-    context.reason ? `原因：${context.reason}` : '',
-    context.meta || '',
-    context.owner ? `责任人：${context.owner}` : '',
-    context.due && context.due !== '--' ? `截止：${context.due}` : '',
-  ].filter(Boolean);
-  return `
-    <div class="project-detail-action-note" role="note">
-      <strong>今日动作建议</strong>
-      <div>
-        ${context.action ? `<b>${escapeHtml(context.action)}</b>` : ''}
-        ${facts.length ? `<span>${escapeHtml(facts.join(' · '))}</span>` : ''}
-      </div>
-    </div>
-  `;
+  return '';
 }
 
 export function renderSingleTrackLifecycleNote(project = {}) {
@@ -263,202 +443,13 @@ export function renderSingleTrackLifecycleNote(project = {}) {
 }
 
 
-export function hardDeadlineStatusLabel(status = '') {
-  const labels = {
-    calculated: '已计算',
-    needs_manual_review: '待复核',
-  };
-  return labels[status] || status || '--';
-}
-
-
-export function hardDeadlineFloorStatusLabel(status = '') {
-  const labels = {
-    on_time_start: '准时启动',
-    delayed_start: '延期启动',
-    delayed_start_open: '启动已超期',
-    pending_start: '待启动',
-    on_time_complete: '准时完成',
-    delayed_complete: '延期完成',
-    delayed_open: '已超平面截止',
-    pending_complete: '待完成',
-  };
-  return labels[status] || status || '--';
-}
-
-
-export function hardDeadlineEfficiencyLabel(status = '', summary = '') {
-  const labels = {
-    not_started: '尚未启动',
-    ok: '效率 OK',
-    overtime: '效率超时',
-    overtime_open: '效率已超时',
-    pending: '效率观察中',
-  };
-  return [labels[status] || status || '', summary].filter(Boolean).join(' · ') || '--';
-}
-
-function hardDeadlineFinalSourceLabel(source = '') {
-  const labels = {
-    form: '表单优先',
-    system_fallback: '系统兜底',
-    system_deadline: '系统规则',
-  };
-  return labels[source] || source || '--';
-}
-
-function hardDeadlineReviewLabel(conflictReview = {}) {
-  if (conflictReview?.needsReview) {
-    return '待复核：表单与系统规则不一致';
-  }
-  return '无需复核';
-}
-
-function hardDeadlineFormStatusLabel(floorPlan = {}, project = {}) {
-  const formStatus = floorPlan.formStatus || {};
-  if (formStatus.rawText) {
-    return formStatus.rawText;
-  }
-  if (formStatus.status) {
-    return hardDeadlineFloorStatusLabel(formStatus.status);
-  }
-  return readRawFieldDisplay(project, ['硬装方案情况（每周五刷新）', '硬装方案情况', '方案情况']) || '未填写';
-}
-
-function hardDeadlineSystemStatusLabel(floorPlan = {}) {
-  const systemStatus = floorPlan.systemStatus || {};
-  return hardDeadlineFloorStatusLabel(systemStatus.status || floorPlan.completionStatus || floorPlan.startStatus);
-}
-
-function hardDeadlineBooleanDelayLabel(delayStatus = {}) {
-  if (!('isDelayed' in delayStatus)) {
-    return '';
-  }
-  if (!delayStatus.status && !delayStatus.source && !delayStatus.date) {
-    return '';
-  }
-  return delayStatus.isDelayed ? '延期' : '未延期';
-}
-
-function hardDeadlineFinalStatusLabel(floorPlan = {}) {
-  const finalDelayStatus = floorPlan.finalDelayStatus || {};
-  const status = finalDelayStatus.status || floorPlan.completionStatus || floorPlan.startStatus;
-  return status ? hardDeadlineFloorStatusLabel(status) : hardDeadlineBooleanDelayLabel(finalDelayStatus) || '--';
-}
-
-function hardDeadlineEfficiencySummaryLabel(floorPlan = {}) {
-  const efficiencyModel = floorPlan.efficiencyStatusModel || {};
-  return hardDeadlineEfficiencyLabel(
-    efficiencyModel.status || floorPlan.efficiencyStatus,
-    floorPlan.efficiencySummary
-  );
-}
-
-
-export function hardDeadlineReminderItems(project = {}) {
-  const reminders = Array.isArray(project.reminders) ? project.reminders : [];
-  const normalized = reminders
-    .filter(isHardDeadlineReminder)
-    .map(normalizeSystemProjectReminder)
-    .filter(Boolean);
-  if (normalized.length) {
-    return normalized;
-  }
-  const primary = normalizeSystemProjectReminder(project.primaryReminder);
-  return primary ? [primary] : [];
-}
-
-
-export function projectDeadlineReminderBody(reminder = {}) {
-  const message = String(reminder.message || '').trim();
-  const title = String(reminder.title || '').trim();
-  if (message && title && message.startsWith(`${title} · `)) {
-    return message.slice(title.length + 3).trim();
-  }
-  return message || title;
-}
-
-
-export function renderProjectHardDeadlineSummary(project = {}) {
-  const hardDeadline = project.hardDeadline;
-  if (!hardDeadline) {
-    return '';
-  }
-  const floorPlan = hardDeadline.floorPlan || {};
-  const finalDelayStatus = floorPlan.finalDelayStatus || {};
-  const reminders = hardDeadlineReminderItems(project);
-  const summaryItems = [
-    { label: '规则状态', value: hardDeadlineStatusLabel(hardDeadline.status) },
-    { label: '面积档', value: hardDeadline.areaBucket?.label || (hardDeadline.reason ? '待复核' : '') },
-    { label: '复尺时间', value: hardDeadline.measureDate },
-    { label: '平面启动', value: floorPlan.startDueDate },
-    { label: '提醒触发', value: floorPlan.warnDueDate },
-    { label: '平面截止', value: floorPlan.dueDate },
-    { label: '最终延期状态', value: hardDeadlineFinalStatusLabel(floorPlan) },
-    { label: '最终来源', value: hardDeadlineFinalSourceLabel(finalDelayStatus.source) },
-    { label: '表单判断', value: hardDeadlineFormStatusLabel(floorPlan, project) },
-    { label: '规则判断', value: hardDeadlineSystemStatusLabel(floorPlan) },
-    { label: '复核状态', value: hardDeadlineReviewLabel(floorPlan.conflictReview) },
-    { label: '效率判断', value: hardDeadlineEfficiencySummaryLabel(floorPlan) },
-  ].filter((item) => item.value !== undefined && item.value !== null && String(item.value).trim());
-
-  return `
-    <section class="project-detail-deadline" aria-label="硬装 Deadline">
-      <div class="project-detail-deadline-head">
-        <div>
-          <span>硬装 Deadline</span>
-          <strong>最终状态与规则复核</strong>
-        </div>
-        <small>${escapeHtml(hardDeadline.ruleVersion || '规则版本待记录')}</small>
-      </div>
-      <div class="project-detail-deadline-grid">
-        ${summaryItems
-          .map(
-            (item) => `
-              <div>
-                <span>${escapeHtml(item.label)}</span>
-                <strong title="${escapeHtml(displayOrDash(item.value))}">${escapeHtml(displayOrDash(item.value))}</strong>
-              </div>
-            `
-          )
-          .join('')}
-      </div>
-      ${
-        reminders.length
-          ? `
-            <div class="project-detail-deadline-reminders">
-              ${reminders
-                .map(
-                  (reminder) => `
-                    <article class="project-detail-deadline-reminder is-${escapeHtml(reminder.severity || 'info')}">
-                      <span>${escapeHtml(reminder.label || '系统提醒')}</span>
-                      <strong>${escapeHtml(reminder.title || reminder.message || '硬装 Deadline 提醒')}</strong>
-                      <p>${escapeHtml(projectDeadlineReminderBody(reminder))}</p>
-                    </article>
-                  `
-                )
-                .join('')}
-            </div>
-          `
-          : ''
-      }
-    </section>
-  `;
-}
-
-
 export function renderProjectDetailModalLoading(project = {}) {
   if (!elements.projectDetailModal || !elements.projectDetailModalBody) {
     return;
   }
 
   elements.projectDetailModalBody.innerHTML = `
-    <header class="project-detail-hero">
-      <div>
-        <p class="eyebrow">单项项目</p>
-        <h3 id="projectDetailTitle" title="${escapeHtml(project.name || '')}">${escapeHtml(project.name || '未命名项目')}</h3>
-      </div>
-    </header>
+    ${renderProjectDetailHero(project)}
     ${renderProjectDetailContext(state.projectDetailContext, project)}
     <div class="project-detail-empty project-detail-loading" role="status" aria-live="polite">
       <strong>正在加载项目明细</strong>
@@ -476,12 +467,7 @@ export function renderProjectDetailModalLoadError(project = {}, error = null) {
 
   const message = error?.message ? String(error.message) : '项目明细暂时无法读取，请稍后重试。';
   elements.projectDetailModalBody.innerHTML = `
-    <header class="project-detail-hero">
-      <div>
-        <p class="eyebrow">单项项目</p>
-        <h3 id="projectDetailTitle" title="${escapeHtml(project.name || '')}">${escapeHtml(project.name || '未命名项目')}</h3>
-      </div>
-    </header>
+    ${renderProjectDetailHero(project)}
     ${renderProjectDetailContext(state.projectDetailContext, project)}
     <div class="project-detail-empty project-detail-loading is-error" role="alert">
       <strong>项目明细加载失败</strong>
@@ -507,56 +493,25 @@ export function renderProjectDetailModal(project) {
     { label: '业态', value: project.businessType },
     { label: '面积', value: projectAreaLabel(project) },
   ].filter((item) => !sleepStore || item.label !== '软装负责人');
-  const stage = displayOrDash(readProjectStage(project));
   const closed = isProjectWorkflowClosed(project);
   const closedForReminder = closed && !stopped;
-  const keyDateText = closedForReminder ? '' : readProjectKeyDate(project);
+  const detailReminderProject = projectDetailReminderProject(project);
   const assignmentReminder = stopped ? '' : renderProjectAssignmentReminder(project);
-  const fieldGapReminder = stopped ? '' : renderProjectFieldGapReminder(project);
   const statusConflictReminder = stopped ? '' : renderProjectStatusConflictReminder(project);
-  const hardDeadlineSummary = stopped ? '' : renderProjectHardDeadlineSummary(project);
   const singleTrackLifecycleNote = stopped ? '' : renderSingleTrackLifecycleNote(project);
+  const noticeHtml = [renderProjectDetailContext(state.projectDetailContext, project), singleTrackLifecycleNote, assignmentReminder, statusConflictReminder]
+    .filter(Boolean)
+    .join('');
+  const detailGroups = buildProjectDetailFieldGroups().filter((group) => group.key !== 'overview');
 
   elements.projectDetailModalBody.innerHTML = `
-    <header class="project-detail-hero">
-      <div>
-        <p class="eyebrow">单项项目</p>
-        <h3 id="projectDetailTitle" title="${escapeHtml(project.name)}">${escapeHtml(project.name || '未命名项目')}</h3>
-      </div>
-    </header>
-    ${renderProjectDetailContext(state.projectDetailContext, project)}
-    ${singleTrackLifecycleNote}
-    ${assignmentReminder}
-    ${fieldGapReminder}
-    ${statusConflictReminder}
-    ${hardDeadlineSummary}
-    <div class="project-detail-meta">
-      ${metaItems
-        .map(
-          (item) => `
-            <div>
-              <span>${escapeHtml(item.label)}</span>
-              <strong title="${escapeHtml(displayOrDash(item.value))}">${escapeHtml(displayOrDash(item.value))}</strong>
-            </div>
-          `
-        )
-        .join('')}
+    ${renderProjectDetailHero(project)}
+    ${renderProjectDetailSnapshot(metaItems)}
+    ${renderProjectDetailNotices(noticeHtml)}
+    ${renderProjectDetailStagePanel(project, { closedForReminder, detailReminderProject })}
+    <div class="project-detail-sections">
+      ${detailGroups.map((group) => renderDetailGroup(project, group)).join('')}
     </div>
-    <div class="project-detail-progress">
-      <div>
-        <span>当前节点</span>
-        <strong title="${escapeHtml(stage)}">${renderProjectStageStack(project)}</strong>
-      </div>
-      ${
-        closedForReminder
-          ? ''
-          : `<div>
-              <span>下一提醒</span>
-              <strong title="${escapeHtml(keyDateText)}">${renderProjectKeyDateStack(project)}</strong>
-            </div>`
-      }
-    </div>
-    ${buildProjectDetailFieldGroups().map((group) => renderDetailGroup(project, group)).join('')}
   `;
   elements.projectDetailModal.hidden = false;
 }

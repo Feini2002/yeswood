@@ -13,6 +13,9 @@ const DISPLAY_COMPLETION_DATE_FIELDS = [
 ];
 const DISPLAY_START_DATE_FIELDS = ['摆场开始时间', '摆场时间', '现场摆场时间'];
 const LIFECYCLE_COMPLETION_DATE_FIELDS = ['项目闭环时间', '项目闭环日期', '闭环时间', '闭环日期', '闭环完成时间'];
+const MEETING_DATE_FIELDS = ['上会日期', '上会时间'];
+const CLOSURE_CYCLE_FIELDS = ['闭环周期', '闭环期', '项目闭环周期'];
+const PROJECT_DEADLINE_DATE_FIELDS = ['项目 Deadline', '项目Deadline', '计划开业时间'];
 const DISPLAY_ACTIVE_STAGE_PATTERN = /摆场/;
 const NOT_STARTED_PATTERN = /未完成|未开始|未启动|未安排/;
 const STOPPED_PATTERN = /暂停|停止|取消|撤销|作废|废弃|终止/;
@@ -71,12 +74,59 @@ function readReliableRawDateWithEvidence(project, fields, evidenceLabel = '') {
   return { date: '', evidence: '' };
 }
 
+function parseClosureCycleDays(value) {
+  const text = normalizeCell(value);
+  if (!text) {
+    return null;
+  }
+  const match = text.match(/-?\d+(?:\.\d+)?/);
+  if (!match) {
+    return null;
+  }
+  const number = Number(match[0]);
+  if (!Number.isFinite(number) || number < 0) {
+    return null;
+  }
+  return Math.trunc(number);
+}
+
+function addCalendarDays(dateValue, days) {
+  const normalizedDate = normalizeReliableCompletionDate(dateValue);
+  const match = normalizedDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return '';
+  }
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function readProjectDeadlineDate(project) {
+  const rawDeadline = readReliableRawDateWithEvidence(project, PROJECT_DEADLINE_DATE_FIELDS, '项目 Deadline');
+  if (rawDeadline.date) {
+    return { ...rawDeadline, sourceType: 'projectDeadline' };
+  }
+  const dueDate = normalizeReliableCompletionDate(project?.dueDate);
+  return dueDate
+    ? { date: dueDate, evidence: '项目 Deadline', sourceType: 'projectDeadline' }
+    : { date: '', evidence: '' };
+}
+
 function readLifecycleCompletedAt(project) {
   const explicitDate = readReliableRawDateWithEvidence(project, LIFECYCLE_COMPLETION_DATE_FIELDS);
   if (explicitDate.date) {
     return { ...explicitDate, sourceType: 'completionDate' };
   }
-  return { date: '', evidence: '', sourceType: 'none' };
+  const meetingDate = readReliableRawDateWithEvidence(project, MEETING_DATE_FIELDS);
+  const cycleDays = parseClosureCycleDays(firstRawDisplay(project, CLOSURE_CYCLE_FIELDS));
+  if (meetingDate.date && cycleDays !== null) {
+    return {
+      date: addCalendarDays(meetingDate.date, cycleDays),
+      evidence: `${meetingDate.evidence} + 闭环周期`,
+      sourceType: 'meetingCycle',
+    };
+  }
+  return readProjectDeadlineDate(project);
 }
 
 export function isProjectStoppedForCompletion(project) {

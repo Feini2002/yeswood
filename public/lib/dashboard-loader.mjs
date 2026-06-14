@@ -533,7 +533,7 @@ export async function loadDashboard(options = {}) {
       reason: sessionPayload.reason || sessionPayload.status,
     });
     if (pageId === 'teams') {
-      await loadTeamPageModules({ forceRefresh: true });
+      await loadTeamPageModules();
       renderTeamDashboard();
       renderTeamWorkCompletionDashboard();
       renderOwnerReviewDashboard();
@@ -675,36 +675,13 @@ export async function refreshCurrentPage() {
 
   setPageRefreshInFlight(true);
   updatePageRefreshControl();
-  setSyncMessage('刷新中');
+  setSyncMessage('正在重新加载');
 
   try {
-    const pageId = currentPageId();
-    if (pageId === 'teams') {
-      const results = await Promise.allSettled([
-        loadTeamPageModules({ forceRefresh: true }),
-      ]);
-      renderTeamDashboard();
-      renderTeamWorkCompletionDashboard();
-      renderOwnerReviewDashboard();
-      const failed = results.find((result) => result.status === 'rejected');
-      if (failed) {
-        throw failed.reason;
-      }
-    } else if (pageId === 'franchise' || pageId === 'direct') {
-      await loadProfileDashboard(pageId, { forceRefresh: true });
-      renderProfilePage(pageId);
-    } else {
-      await loadCoreDashboard();
-      if (needsProjectCatalog(pageId)) {
-        await loadProjectCatalog({ force: true });
-        await applyVisibleProjects();
-      }
-      renderAll();
-    }
-    setSyncMessage('已刷新');
+    window.location.reload();
     return true;
   } catch (error) {
-    console.warn('Page refresh failed', error);
+    console.warn('Page reload failed', error);
     setSyncMessage('刷新失败');
     return false;
   } finally {

@@ -34,6 +34,7 @@
 ## Read Model 延时与无缝切换防复发规则
 
 - `/api/dashboard-session` 默认必须保持 shell-first：首屏只返回必要 `shell`、snapshot、轻量指标和当前 scope 所需数据；不得默认合并完整 `profileDashboards`、`projectCatalog.items`、`team.workCompletion.projectsById` 或其它大对象。新增 bundle 或字段扩容必须同步 endpoint 体积预算测试。
+- `/api/dashboard-session` shell 中的运行时字段（`dashboardSyncEnabled`、`dashboardAutoUpdateEnabled`、`developerDocumentationVisible`、`dashboardDisplayMode`）必须以当前 server config 动态覆盖；开发态/内网态切换不得信任磁盘 `shell.json(.gz)` 中的旧标记，禁止让 precompressed shell 绕过运行时覆盖。
 - `read-model/current` 是线上可读状态的权威入口；完整 precompute 目录不能单独代表 read model ready。warmup / precompute 发现预计算完整但 `read-model/current` 缺失、manifest 不匹配或核心 `dashboard-session` 缺失时，必须重发布 current 或明确失败，不得静默返回成功。
 - 默认预计算不得铺满完整 `owner * context * year` 明细矩阵；`team-work-completion-detail`、project full detail 和 owner/context/year sidecar 应按当前 key、近期交互 key 或显式 warmup key 生成。异常年份、空 owner 或无效 context 必须进入 warnings/excludedYears，不得静默放大矩阵。
 - read model miss、单个 owner/context/year 缺片或局部 sidecar 过期时，应优先走 scoped repair / single-key job；不得把一次局部缺失升级成全局完整 precompute，除非是人工明确触发的全量刷新。
@@ -106,3 +107,12 @@
 - 健康检查必须设置明确上限，默认 30 秒内完成；检查方式优先使用 `/api/snapshot`、健康接口、端口探测或浏览器快照。超时未通过时，立即读取日志、报告失败，并停止本次新启动的后台进程。
 - 如果用户没有明确要求服务持续运行，验收完成后应关闭本次新启动的临时服务；如果需要保留运行，必须在回复中写明 URL、PID、用途和关闭方式。
 - 最终回复不得只说“服务已启动”或“页面已验证”；必须同时给出健康检查结果、访问地址、是否保留进程，以及是否有残留风险。
+
+## Yeswood Dashboard 本地服务管理
+
+- Codex 禁止直接运行 `node src/backend/server.mjs`、`node ./src/backend/server.mjs` 或 `npm run dev:raw` 来启动本地看板服务；`dev:raw` 仅作为人工诊断保留。
+- 需要启动或替换本地看板服务时，只能运行 `npm run dev:restart`，由 `scripts/dashboard-service.ps1` 统一清理旧 PID、固定端口、健康检查和写入 `.tmp/dashboard-service.json`。
+- 修改服务相关代码后，必须运行 `npm run dev:status`，并在回复中报告 `.tmp/dashboard-service.json` 登记的 URL、PID 和 port，以及 `/api/health`、`/api/runtime` 是否一致。
+- 开发态/内网态、服务代码或 read model 读取/压缩路径变更后，不得只看旧浏览器页面、旧 `read-model/current` 或 warmup success；必须确认当前 `4200` PID 加载新代码，并用普通 `/api/dashboard-session?context=all&year=<当前年>` 验证开发态返回 `developerDocumentationVisible: true`、`dashboardDisplayMode: development`（内网态则相反）。字段不一致时视为旧服务、旧 shell 或静态 sidecar 污染，不能声称页面已修复。
+- 不允许在 `4200` 以外启动 yeswood dashboard，除非用户明确要求并说明原因；默认浏览器地址必须来自 `.tmp/dashboard-service.json` 的 `url`。
+- 测试中如需临时启动 server，必须使用 `listen(0)` 获取随机端口，并在测试结束时 `close()`；不得占用固定 `4200`，不得遗留常驻测试进程。

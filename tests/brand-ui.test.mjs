@@ -131,21 +131,25 @@ test('frontend removes placeholder filter options from selects', async () => {
   assert.match(js, /values\.filter/);
 });
 
-test('topbar exposes sync and page refresh actions', async () => {
+test('overview command center owns sync and full-page refresh actions', async () => {
   const [html, js, css] = await Promise.all([
     readFile(join(publicDir, 'index.html'), 'utf8'),
     readFrontendJsBundle(),
     readStylesBundle(),
   ]);
 
+  assert.doesNotMatch(html, /class="topbar-title"[^>]*>\s*源氏木语门店项目一览\s*</);
+  assert.doesNotMatch(html, /<header class="topbar">/);
+  assert.match(html, /id="overviewCommandCenter"[\s\S]+class="sync-state overview-sync-state"/);
   assert.match(html, /id="syncButton"/);
   assert.match(html, /aria-label="同步项目数据"/);
   assert.match(html, /id="pageRefreshButton"/);
-  assert.match(html, /aria-label="刷新当前页面"/);
+  assert.match(html, /aria-label="整页刷新总览"/);
   assert.match(html, />\s*刷新\s*<\/button>/);
   assert.match(js, /pageRefreshButton/);
-  assert.match(js, /function currentPageRefreshCopy/);
   assert.match(js, /async function refreshCurrentPage/);
+  assert.match(js, /window\.location\.reload\(\)/);
+  assert.match(css, /\.overview-sync-state/);
   assert.match(css, /\.page-refresh-button/);
   assert.doesNotMatch(html, /id="analysisAgentButton"|运行分析 Agent|分析小组/);
   assert.doesNotMatch(js, /analysisAgentButton|currentAnalysisAgentLabel|runAnalysisAgent/);
@@ -155,7 +159,6 @@ test('topbar exposes sync and page refresh actions', async () => {
 test('frontend avoids readonly-dashboard sidebar wording', async () => {
   const html = await readFile(join(publicDir, 'index.html'), 'utf8');
 
-  assert.match(html, /源氏木语门店项目一览/);
   assert.doesNotMatch(html, /只读展示/);
   assert.doesNotMatch(html, /本地主数据/);
   assert.doesNotMatch(html, /readonly-note/);
@@ -337,7 +340,8 @@ test('frontend exposes team work completion module inside team dashboard', async
   assert.match(ownerReviewStructureBlock, /苏佳蕾/);
   assert.match(ownerReviewStructureBlock, /直营硬装 · CD设计师 · 进行中平面方案/);
   assert.match(ownerReviewStructureBlock, /直营1组[\s\S]*陈菲菲[\s\S]*乔玲玲[\s\S]*陈晶晶[\s\S]*张莹莹[\s\S]*杨雪倩/);
-  assert.match(ownerReviewStructureBlock, /直营2组[\s\S]*陶媛媛[\s\S]*梁玉贞[\s\S]*安灵玲[\s\S]*何赛平[\s\S]*左忠淼[\s\S]*古茂琨/);
+  assert.match(ownerReviewStructureBlock, /直营2组[\s\S]*陶媛媛[\s\S]*梁玉贞[\s\S]*安灵玲[\s\S]*何赛平[\s\S]*古茂琨/);
+  assert.doesNotMatch(ownerReviewStructureBlock, /左忠淼/);
   assert.match(ownerReviewStructureBlock, /直营3组[\s\S]*杨晓芸[\s\S]*陈红燕[\s\S]*臧传宝[\s\S]*庞小琪[\s\S]*禹凯鹏[\s\S]*陈梦然[\s\S]*占俊鑫/);
   assert.match(ownerReviewStructureBlock, /直营4组[\s\S]*刘雯蓓[\s\S]*董一凡[\s\S]*郭后冲[\s\S]*杨莉[\s\S]*牛超凡/);
   assert.doesNotMatch(ownerReviewStructureBlock, /李晓倩|席创意|侯喆/);
@@ -961,6 +965,8 @@ test('project details page uses a scan-first workbench with shared top filters a
   assert.match(css, /\.project-detail-modal/);
   assert.match(css, /\.project-detail-modal\s*\{[\s\S]*?z-index:\s*64/);
   assert.match(css, /\.project-detail-assignment-reminder/);
+  assert.match(css, /\.project-detail-section\.is-people\s+\.detail-kv-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(css, /\.project-detail-stage-stream\.is-hard\s+\.project-detail-stage-row\s+em\s*\{[\s\S]*?font-size:\s*14px[\s\S]*?font-weight:\s*980/);
   assert.doesNotMatch(css, /\.difficulty-info-button/);
   assert.doesNotMatch(css, /\.difficulty-info-modal/);
   assert.doesNotMatch(css, /\.difficulty-info-card/);

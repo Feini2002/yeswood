@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node ./src/backend/server.mjs",
+    "dev": "powershell -ExecutionPolicy Bypass -File ./scripts/dashboard-service.ps1 start",
+    "dev:restart": "powershell -ExecutionPolicy Bypass -File ./scripts/dashboard-service.ps1 restart -Force",
+    "dev:stop": "powershell -ExecutionPolicy Bypass -File ./scripts/dashboard-service.ps1 stop -Force",
+    "dev:status": "powershell -ExecutionPolicy Bypass -File ./scripts/dashboard-service.ps1 status",
+    "dev:raw": "node ./src/backend/server.mjs",
     "test": "node --test"
   },
   "devDependencies": {

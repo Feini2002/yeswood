@@ -289,7 +289,7 @@ export function showPage(pageId = currentPageId(), options = {}) {
             year,
             reason: payload.reason || payload.status,
           });
-          return routerHooks.loadTeamPageModules?.({ forceRefresh: true });
+          return routerHooks.loadTeamPageModules?.();
         }
         const team = payload?.team || {};
         if (!team.metrics || !team.workCompletion || !team.responsibilityReview) {

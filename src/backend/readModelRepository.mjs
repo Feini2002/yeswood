@@ -220,14 +220,6 @@ const PROJECT_BOARD_REQUIRED_FIELDS = [
   'previousYearUnclosedFranchise',
 ];
 
-const PROJECT_CATALOG_REQUIRED_SUMMARY_FIELDS = [
-  'franchiseScope',
-  'hardProgressStage',
-  'softProgressStage',
-  'stageReminder',
-  'workflowFacts',
-];
-
 function hasProjectBoardMetrics(metrics = null) {
   const board = metrics?.projectBoard;
   return Boolean(
@@ -245,23 +237,36 @@ function hasDashboardProjectBoard(payload = {}, profileDashboards = {}) {
 }
 
 function hasRequiredProjectCatalogSummaryFields(projectCatalog = null) {
+  return Boolean(projectCatalog && Array.isArray(projectCatalog.items));
+}
+
+function hasProjectCatalogInteractionFields(project = {}) {
+  return Boolean(
+    project?.stageReminder?.currentStage?.key &&
+      project?.stageReminder?.primaryReminder &&
+      Number.isFinite(Number(project?.stageReminder?.dataGapCount)) &&
+      typeof project?.workflowFacts?.lifecycleClosed === 'boolean'
+  );
+}
+
+function projectCatalogInteractionStatus(projectCatalog = null) {
   if (!projectCatalog || !Array.isArray(projectCatalog.items)) {
-    return false;
+    return 'missing';
   }
   if (projectCatalog.items.length === 0) {
-    return true;
+    return 'ready';
   }
-  return projectCatalog.items.every((project) => {
-    if (!PROJECT_CATALOG_REQUIRED_SUMMARY_FIELDS.every((field) => Object.hasOwn(project || {}, field))) {
-      return false;
-    }
-    return Boolean(
-      project?.stageReminder?.currentStage?.key &&
-        project?.stageReminder?.primaryReminder &&
-        Number.isFinite(Number(project?.stageReminder?.dataGapCount)) &&
-        typeof project?.workflowFacts?.lifecycleClosed === 'boolean'
-    );
-  });
+  return projectCatalog.items.every((project) => hasProjectCatalogInteractionFields(project)) ? 'ready' : 'partial';
+}
+
+function withProjectCatalogInteractionStatus(projectCatalog = null) {
+  if (!projectCatalog || typeof projectCatalog !== 'object') {
+    return projectCatalog;
+  }
+  return {
+    ...projectCatalog,
+    interactionStatus: projectCatalogInteractionStatus(projectCatalog),
+  };
 }
 
 function projectCatalogHasRawFields(projectCatalog = null) {
@@ -556,7 +561,7 @@ function buildReadModelResult(dir, params = {}, { stale = false, currentUnavaila
       generatedAt: manifest.generatedAt || manifest.createdAt || payload.generatedAt || '',
       features: manifest.features || [],
       profileDashboards,
-      projectCatalog,
+      projectCatalog: withProjectCatalogInteractionStatus(projectCatalog),
       team: {
         owner,
         dashboardContext,
@@ -629,7 +634,7 @@ function buildProjectCatalogSummaryReadModelResult(
   return {
     status: stale ? 'stale' : 'ready',
     payload: {
-      ...projectCatalog,
+      ...withProjectCatalogInteractionStatus(projectCatalog),
       readModel: true,
       stale,
       generatedAt: manifest.generatedAt || manifest.createdAt || projectCatalog.generatedAt || '',
@@ -681,6 +686,49 @@ function buildTeamWorkCompletionDetailReadModelResult(
       params.requestedOwner && payload?.requestedOwner !== params.requestedOwner
         ? { ...payload, requestedOwner: params.requestedOwner }
         : payload,
+    reason: currentUnavailableReason || undefined,
+  };
+}
+
+function buildTeamWorkCompletionSummaryReadModelResult(
+  dir,
+  params = {},
+  { stale = false, currentUnavailableReason = '' } = {}
+) {
+  const manifest = readManifest(dir);
+  if (!manifest) {
+    return { status: 'missing', payload: null, reason: 'read model manifest is missing' };
+  }
+  if (
+    !manifestIsComplete(manifest, {
+      requiredFeatures: [TEAM_WORK_COMPLETION_SUMMARY_READ_MODEL_FEATURE],
+    })
+  ) {
+    return { status: 'incomplete', payload: null, reason: 'team work completion summary manifest is incomplete' };
+  }
+
+  const owner = ownerFromManifest(manifest, params.owner || '');
+  const dashboardContext = params.dashboardContext || 'all';
+  const year = Number(params.year || new Date().getFullYear());
+  const team = readTeamPayloads(dir, { owner, dashboardContext, year });
+  if (team.workCompletionScopeMismatch) {
+    return { status: 'incomplete', payload: null, reason: 'team work completion scope is mismatched' };
+  }
+  if (!owner || !team.workCompletion) {
+    return { status: 'incomplete', payload: null, reason: 'team work completion summary read model is missing' };
+  }
+  if (!teamWorkCompletionHasProcessingQueues(team.workCompletion)) {
+    return { status: 'incomplete', payload: null, reason: 'team work completion processing queues are missing' };
+  }
+  if (!teamWorkCompletionMatchesAsOfDate(team.workCompletion, params)) {
+    return { status: 'incomplete', payload: null, reason: 'team work completion asOfDate is stale' };
+  }
+  return {
+    status: stale ? 'stale' : 'ready',
+    payload:
+      params.requestedOwner && team.workCompletion?.requestedOwner !== params.requestedOwner
+        ? { ...team.workCompletion, requestedOwner: params.requestedOwner }
+        : team.workCompletion,
     reason: currentUnavailableReason || undefined,
   };
 }
@@ -739,6 +787,26 @@ export function readProjectCatalogSummaryReadModel(config = {}, params = {}) {
   }
 
   const stale = buildProjectCatalogSummaryReadModelResult(lastKnownGoodReadModelDir(config), readParams, {
+    stale: true,
+    currentUnavailableReason: current.reason || current.status,
+  });
+  if (stale.status === 'stale') {
+    return stale;
+  }
+  return current;
+}
+
+export function readTeamWorkCompletionSummaryReadModel(config = {}, params = {}, { allowStale = false } = {}) {
+  const readParams = { ...params, config };
+  const current = buildTeamWorkCompletionSummaryReadModelResult(currentReadModelDir(config), readParams);
+  if (current.status === 'ready') {
+    return current;
+  }
+  if (!allowStale) {
+    return current;
+  }
+
+  const stale = buildTeamWorkCompletionSummaryReadModelResult(lastKnownGoodReadModelDir(config), readParams, {
     stale: true,
     currentUnavailableReason: current.reason || current.status,
   });

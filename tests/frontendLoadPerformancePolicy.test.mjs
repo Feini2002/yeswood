@@ -28,9 +28,15 @@ test('AGENTS documents read model latency and seamless switching regression guar
   assert.match(agents, /read-model\/current/);
   assert.match(agents, /读模型生成中/);
   assert.match(agents, /\.json\.gz/);
+  assert.match(agents, /developerDocumentationVisible/);
+  assert.match(agents, /dashboardDisplayMode/);
+  assert.match(agents, /shell\.json\(\.gz\)[\s\S]*precompressed shell[\s\S]*运行时覆盖/);
   assert.match(agents, /forceRefresh=true[\s\S]*只能作为诊断/);
   assert.match(agents, /不带 `forceRefresh`[\s\S]*\/api\/team-work-completion[\s\S]*\/api\/dashboard-session/);
   assert.match(agents, /复用或重启 `4200`[\s\S]*Node 进程/);
+  assert.match(agents, /普通 `\/api\/dashboard-session\?context=all&year=<当前年>`/);
+  assert.match(agents, /developerDocumentationVisible: true/);
+  assert.match(agents, /dashboardDisplayMode: development/);
   assert.match(agents, /同一 snapshot hash[\s\S]*force:true[\s\S]*manifest[\s\S]*sidecar/);
   assert.match(agents, /tests\/precomputeTeamDashboards\.test\.mjs/);
   assert.match(agents, /tests\/publicAppBehavior\.test\.mjs/);
@@ -130,7 +136,7 @@ test('backend projects API supports summary, ids-only drill, and cache invalidat
   assert.doesNotMatch(server, /projects: snapshot\.projects/);
 });
 
-test('dashboard launch schedules warmup without blocking development browser open', async () => {
+test('dashboard launch waits for boot warmup before browser open and runs full warmup later', async () => {
   const [server, syncService, devLauncher, intranetLauncher] = await Promise.all([
     readSource('src', 'backend', 'server.mjs'),
     readSource('src', 'backend', 'syncService.mjs'),
@@ -142,21 +148,30 @@ test('dashboard launch schedules warmup without blocking development browser ope
   assert.match(server, /readPrecomputedDashboardSession/);
   assert.match(server, /readPrecomputedTeamResponsibilityReview/);
   assert.match(server, /\/api\/dashboard-warmup/);
+  assert.match(server, /scope === 'boot'/);
+  assert.match(server, /ensureDashboardBootReadModel/);
   assert.match(server, /ensureDashboardPrecompute/);
+  assert.doesNotMatch(server, /function triggerDashboardPrecompute/);
   assert.match(server, /sendJson\(response, 503/);
+  assert.match(syncService, /ensureDashboardBootReadModel/);
   assert.match(syncService, /ensureDashboardPrecompute/);
-  assert.match(syncService, /readCurrentSnapshot[\s\S]*scheduleDashboardPrecompute\(snapshot, config\)/);
-  assert.match(syncService, /normalizeSnapshot[\s\S]*scheduleDashboardPrecompute\(normalizedSnapshot, config\)/);
-  assert.match(devLauncher, /api\/dashboard-warmup/);
+  assert.doesNotMatch(syncService, /readCurrentSnapshot[\s\S]*scheduleDashboardPrecompute\(snapshot, config\)/);
+  assert.doesNotMatch(syncService, /normalizeSnapshot[\s\S]*scheduleDashboardPrecompute\(normalizedSnapshot, config\)/);
+  assert.match(devLauncher, /api\/dashboard-warmup\?scope=boot/);
+  assert.match(devLauncher, /Warm-DashboardData -ListenPort \$Port -TimeoutSec \d+/);
   assert.match(devLauncher, /Start-DashboardWarmup/);
-  assert.match(devLauncher, /dashboard data is warming in the background/);
+  assert.match(devLauncher, /Full dashboard data is warming in the background/);
   assert.match(devLauncher, /\$snapshot\.warmed -ne \$true/);
   assert.doesNotMatch(devLauncher, /opening browser anyway/);
   assert.match(intranetLauncher, /api\/dashboard-warmup/);
   assert.match(intranetLauncher, /\$env:DATA_DIR=\$SNAPSHOT_DATA/);
   assert.match(intranetLauncher, /\$env:PRECOMPUTE_DIR=\(Join-Path \$SNAPSHOT_DATA 'precomputed'\)/);
   assert.match(intranetLauncher, /\$snapshot\.warmed -ne \$true/);
-  assert.ok(devLauncher.indexOf('Start-DashboardWarmup') < devLauncher.indexOf('Start-Process "http://localhost:$Port/"'));
+  assert.ok(devLauncher.indexOf('Warm-DashboardData') < devLauncher.indexOf('Start-Process "http://localhost:$Port/"'));
+  assert.ok(
+    devLauncher.indexOf('Start-Process "http://localhost:$Port/"') <
+      devLauncher.indexOf('$warmupJob = Start-DashboardWarmup')
+  );
 });
 
 test('renderAll only repaints active page shell', async () => {

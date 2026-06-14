@@ -3,6 +3,7 @@ import { bindTooltipTriggers, escapeHtml } from './tooltip.mjs';
 import { isClassifiableStoreStatus } from '../lib/constants.mjs';
 
 const ECHARTS_ASSET_URL = '../assets/echarts/echarts.esm.min.mjs';
+const DEFAULT_ECHARTS_IMPORT_TIMEOUT_MS = 8000;
 const MONTHS = Array.from({ length: 12 }, (_, index) => index + 1);
 const QUARTERS = {
   q1: { label: 'Q1', range: [1, 3], caption: '1-3月' },
@@ -36,11 +37,38 @@ const CHART_FONT_FAMILY = '"Source Han Sans SC", "Noto Sans CJK SC", "Microsoft 
 
 let echartsModulePromise = null;
 
-export function loadECharts() {
-  if (!echartsModulePromise) {
-    echartsModulePromise = import(ECHARTS_ASSET_URL);
+function withImportTimeout(promise, timeoutMs) {
+  const normalizedTimeoutMs = Number(timeoutMs);
+  if (!Number.isFinite(normalizedTimeoutMs) || normalizedTimeoutMs <= 0) {
+    return promise;
   }
-  return echartsModulePromise;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`ECharts import timed out after ${normalizedTimeoutMs}ms`));
+    }, normalizedTimeoutMs);
+    promise.then(
+      (module) => {
+        clearTimeout(timer);
+        resolve(module);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+export function loadECharts(options = {}) {
+  const importer = typeof options.importer === 'function' ? options.importer : () => import(ECHARTS_ASSET_URL);
+  const timeoutMs = Object.hasOwn(options, 'timeoutMs') ? options.timeoutMs : DEFAULT_ECHARTS_IMPORT_TIMEOUT_MS;
+  if (options.importer) {
+    return withImportTimeout(importer(), timeoutMs);
+  }
+  if (!echartsModulePromise) {
+    echartsModulePromise = importer();
+  }
+  return withImportTimeout(echartsModulePromise, timeoutMs);
 }
 
 function safeNumber(value, fallback = 0) {

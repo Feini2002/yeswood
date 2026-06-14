@@ -66,6 +66,7 @@ import {
   teamWorkCompletionHasDetail,
   teamWorkCompletionReviewMatchesOwner,
 } from '../domain/team-work-completion-store.mjs';
+import { teamScopeCoordinator } from '../domain/team-scope-coordinator.mjs';
 import { runtimeStore } from '../lib/runtime-flags.mjs';
 import { teamOwnerDisplayName } from '../domain/personnel.mjs';
 import {
@@ -899,6 +900,7 @@ export async function loadTeamDashboardScope(
   const resolvedDashboardContext = resolveTeamPageDashboardContext(dashboardContext);
   const normalizedYear = Number(year) || new Date().getFullYear();
   const requestId = ++runtimeStore.teamDashboardScopeRequestId;
+  teamScopeCoordinator.prepareScope({ owner, dashboardContext: resolvedDashboardContext, year: normalizedYear });
   const appliedScope = applyCachedTeamDashboardScope(owner, resolvedDashboardContext, year);
   if (currentPageId() === 'teams') {
     if (appliedScope.metrics) {
@@ -927,6 +929,9 @@ export async function loadTeamDashboardScope(
     return [{ status: 'fulfilled', value: sessionBundle }];
   }
   if (sessionBundle?.metrics && sessionBundle.workCompletion && sessionBundle.responsibilityReview) {
+    teamScopeCoordinator.setModuleStatus('metrics', 'ready');
+    teamScopeCoordinator.setModuleStatus('completion', 'ready');
+    teamScopeCoordinator.setModuleStatus('ownerReview', 'ready');
     if (currentPageId() === 'teams') {
       renderTeamDashboard();
       renderTeamWorkCompletionDashboard();
@@ -938,18 +943,22 @@ export async function loadTeamDashboardScope(
       { status: 'fulfilled', value: sessionBundle.responsibilityReview },
     ];
   }
-  const forceModuleRefresh = sessionBundle?.status === 'preparing';
-  if (forceModuleRefresh && currentPageId() === 'teams') {
+  const sessionPreparing = sessionBundle?.status === 'preparing';
+  if (sessionPreparing) {
+    teamScopeCoordinator.prepareScope({ owner, dashboardContext: resolvedDashboardContext, year: normalizedYear });
+  }
+  if (sessionPreparing && currentPageId() === 'teams') {
     renderTeamDashboard();
     renderTeamWorkCompletionDashboard();
     renderOwnerReviewDashboard();
   }
   const routeContext = normalizeTeamDashboardScopeContext(resolvedDashboardContext);
   const results = await Promise.allSettled([
-    loadTeamMetrics(owner, routeContext, { forceRefresh: forceModuleRefresh }),
-    loadTeamWorkCompletion(owner, resolvedDashboardContext, year, { forceRefresh: forceModuleRefresh }),
-    loadOwnerResponsibilityReview(owner, routeContext, { forceRefresh: forceModuleRefresh }),
+    loadTeamMetrics(owner, routeContext),
+    loadTeamWorkCompletion(owner, resolvedDashboardContext, year),
+    loadOwnerResponsibilityReview(owner, routeContext),
   ]);
+  teamScopeCoordinator.applyResults(results);
   const failed = results.find((result) => result.status === 'rejected');
   if (failed && results.every((result) => result.status === 'rejected')) {
     throw failed.reason;
@@ -2520,24 +2529,8 @@ export function renderTeamTierCharts(metrics) {
 }
 
 
-export function renderTeamCoverageNote(metrics) {
-  const coverage = metrics.fieldCoverage || {};
-  const notes = [];
-  if ((coverage.entryDate ?? 100) < 50) {
-    notes.push('进店月份字段覆盖率较低，月度进店可能使用更新时间近似统计');
-  }
-  if ((coverage.storeNature ?? 100) < 50) {
-    notes.push('店铺性质填写率较低，新店/老店拆分可能不完整');
-  }
-  if (metrics.monthlyEntry?.usesUpdatedAtFallback) {
-    notes.push('当前团队多数项目缺少进店月份字段，图表已启用更新时间回退');
-  }
-  if (!notes.length) {
-    elements.teamCoverageNote.hidden = true;
-    elements.teamCoverageNote.textContent = '';
-    return;
-  }
-  elements.teamCoverageNote.hidden = false;
-  elements.teamCoverageNote.textContent = notes.join('、');
+export function renderTeamCoverageNote() {
+  elements.teamCoverageNote.hidden = true;
+  elements.teamCoverageNote.textContent = '';
 }
 

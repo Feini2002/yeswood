@@ -1,6 +1,6 @@
 import { state } from '../lib/state.mjs';
 import { bindDashboardTooltips, elements, setPanelInsight } from '../lib/dom.mjs';
-import { escapeHtml, displayOrDash, formatDate, formatDateTime } from '../lib/format.mjs';
+import { escapeHtml, displayOrDash, formatDate } from '../lib/format.mjs';
 import { bindTooltipTriggers, tooltipDataAttr } from '../dashboard/tooltip.mjs';
 import { renderBarChart as renderSharedBarChart } from '../dashboard/chart-bar.mjs';
 import { renderColumnChart } from '../dashboard/chart-column.mjs';
@@ -17,7 +17,6 @@ import {
   riskClass,
   collectRiskProjectQueue,
   riskDutyHeadline,
-  sourceDisplayLabel,
 } from '../domain/metrics-display.mjs';
 import { displayProjectOwner } from '../domain/project-display.mjs';
 import { isProjectResponsibilityDelayed } from '../domain/project-workflow.mjs';
@@ -111,22 +110,13 @@ export function overviewNumber(value) {
 
 
 export function renderOverviewCommandCenter(model, snapshot = {}) {
-  if (!elements.overviewCommandCenter) {
+  if (!elements.overviewCommandFacts) {
     return;
   }
   const summary = model.summary || {};
-  elements.overviewCommandCenter.innerHTML = `
-    <div class="overview-command-main">
-      <span class="overview-command-kicker">Director Command Console</span>
-      <h2>项目运营总控台</h2>
-      <p>先看风险，再看责任与节点节奏；所有数字可下钻到项目明细。</p>
-    </div>
-    <dl class="overview-command-facts" aria-label="总盘数据口径">
-      <div><dt>数据源</dt><dd>${escapeHtml(sourceDisplayLabel(snapshot.source))}</dd></div>
-      <div><dt>同步</dt><dd>${escapeHtml(formatDateTime(snapshot.syncedAt))}</dd></div>
-      <div><dt>在营</dt><dd>${summary.scopeCount ?? 0}</dd></div>
-      <div><dt>暂停</dt><dd>${summary.pausedCount ?? 0}</dd></div>
-    </dl>
+  elements.overviewCommandFacts.innerHTML = `
+    <div><dt>在营</dt><dd>${summary.scopeCount ?? 0}</dd></div>
+    <div><dt>暂停</dt><dd>${summary.pausedCount ?? 0}</dd></div>
   `;
 }
 
@@ -212,53 +202,6 @@ export function renderOverviewStageLane(model) {
           <span class="overview-stage-foot">
             <small>延 ${stage.delayed}</small>
             <small>均 ${stage.avgProgress}%</small>
-          </span>
-        </button>
-      `;
-    })
-    .join('');
-  bindDashboardTooltips(container);
-}
-
-
-export function renderOverviewRiskQueue(model) {
-  const container = elements.overviewRiskQueue;
-  if (!container) {
-    return;
-  }
-  const items = model.riskQueue || [];
-  if (!items.length) {
-    container.innerHTML = renderEmptyState({
-      title: '暂无总监级风险队列',
-      description: '当前筛选下没有延期、紧急或临近开业的高优先级项目。',
-      compact: true,
-    });
-    return;
-  }
-  container.innerHTML = items
-    .map((project, index) => {
-      const tooltip = {
-        title: project.name,
-        value: `${project.score} 分`,
-        definition: `${project.stage} · ${project.progress}% · ${project.province}`,
-        compare: `负责人：${project.owner}`,
-        extra: project.dueDate ? `计划开业：${formatDate(project.dueDate)}` : '',
-      };
-      return `
-        <button
-          type="button"
-          class="overview-risk-item${index < 3 ? ' is-priority' : ''}"
-          style="--risk-score:${Math.min(100, Math.max(12, Math.round((project.score || 0) / 1.2)))}%"
-          ${overviewDrillAttr(project.drillFilter)}
-          ${tooltipDataAttr(tooltip)}
-        >
-          <span class="overview-risk-rank">${index + 1}</span>
-          <span class="overview-risk-main">
-            <strong title="${escapeHtml(project.name)}">${escapeHtml(project.name)}</strong>
-            <small>${escapeHtml(project.owner)} · ${escapeHtml(project.province)} · ${escapeHtml(project.stage)}</small>
-          </span>
-          <span class="overview-risk-tags">
-            ${project.tags.slice(0, 3).map((tag) => `<em class="is-${escapeHtml(overviewToneClass(tag.tone))}">${escapeHtml(tag.label)}</em>`).join('')}
           </span>
         </button>
       `;
@@ -567,7 +510,6 @@ export function renderOverviewDashboard(metrics, departmentMetrics, projects, sn
   renderOverviewCommandCenter(model, snapshot);
   renderOverviewSignalStrip(model);
   renderOverviewStageLane(model);
-  renderOverviewRiskQueue(model);
   renderOverviewTierMatrix(model);
   renderOverviewOwnerPressure(model);
   renderOverviewRegionMatrix(model);

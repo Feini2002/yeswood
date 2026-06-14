@@ -35,13 +35,14 @@ export function startDevReload({
   EventSourceImpl = globalThis.EventSource,
   locationRef = globalThis.location,
   setTimeoutImpl = globalThis.setTimeout,
+  reconnectDelayMs = 1_200,
 } = {}) {
   if (!EventSourceImpl || !locationRef?.reload) {
     return null;
   }
 
-  const source = new EventSourceImpl('/api/dev-events');
   let reloadScheduled = false;
+  let reconnectScheduled = false;
   const scheduleReload = () => {
     if (reloadScheduled) {
       return;
@@ -52,11 +53,22 @@ export function startDevReload({
     }, 800);
   };
 
-  source.addEventListener('reload', () => {
-    scheduleReload();
-  });
-  source.addEventListener('error', () => {
-    source.close?.();
-  });
-  return source;
+  const connect = () => {
+    reconnectScheduled = false;
+    const source = new EventSourceImpl('/api/dev-events');
+    source.addEventListener('reload', () => {
+      scheduleReload();
+    });
+    source.addEventListener('error', () => {
+      source.close?.();
+      if (reloadScheduled || reconnectScheduled) {
+        return;
+      }
+      reconnectScheduled = true;
+      setTimeoutImpl(connect, reconnectDelayMs);
+    });
+    return source;
+  };
+
+  return connect();
 }

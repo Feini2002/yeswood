@@ -81,6 +81,7 @@ const UNKNOWN_RISK = ['未知', '未设置', '未填写', '未填', '暂无', '�
 const CORE_FIELD_KEYS = ['province', 'businessType', 'storeStatus', 'owner', 'startDate', 'dueDate'];
 const EXTRA_CORE_FIELD_NAMES = ['组别', '店铺性质', '面积'];
 const MIN_CORE_FIELD_COUNT = 4;
+const EXCLUDED_DINGTALK_PROJECT_FIELD_NAMES = new Set(['硬装资料', '软装资料', '备注']);
 const DINGTALK_DATE_TIME_ZONE = 'Asia/Shanghai';
 const MONTHLY_RESPONSIBLE_WORKLOAD_PRESSURE_CAP = 24;
 const MONTHLY_ENTRY_PRESSURE_COUNT_CAP = 24;
@@ -255,6 +256,12 @@ function createRawFields(fields) {
   );
 }
 
+function filterDingTalkProjectFields(fields = {}) {
+  return Object.fromEntries(
+    Object.entries(fields).filter(([key]) => !EXCLUDED_DINGTALK_PROJECT_FIELD_NAMES.has(key))
+  );
+}
+
 function readOwnerFieldText(project, fieldNames) {
   const names = new Set();
   for (const fieldName of fieldNames) {
@@ -414,7 +421,7 @@ function isDelayed(dueDate, status) {
 }
 
 export function cleanProjectRecord(record, { fieldMap = {} } = {}) {
-  const fields = getRecordFields(record);
+  const fields = filterDingTalkProjectFields(getRecordFields(record));
   const mergedMap = { ...DEFAULT_FIELD_MAP, ...fieldMap };
   const read = (key) => pickField(fields, asFieldNames(mergedMap[key], DEFAULT_FIELD_MAP[key]));
 
